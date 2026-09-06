@@ -181,6 +181,35 @@ pub const X_XFIXES_SELECT_SELECTION_INPUT_MINOR_OPCODE: u8 = 2;
 pub const X_XFIXES_CREATE_REGION_MINOR_OPCODE: u8 = 5;
 pub const X_XFIXES_DESTROY_REGION_MINOR_OPCODE: u8 = 10;
 pub const X_XFIXES_SET_REGION_MINOR_OPCODE: u8 = 11;
+// The region-algebra minors. These are what a client uses to build a shape
+// out of pieces, and answering them is the difference between a region
+// resource a client can create and one it can compute with.
+pub const X_XFIXES_COPY_REGION_MINOR_OPCODE: u8 = 12;
+pub const X_XFIXES_UNION_REGION_MINOR_OPCODE: u8 = 13;
+pub const X_XFIXES_INTERSECT_REGION_MINOR_OPCODE: u8 = 14;
+pub const X_XFIXES_SUBTRACT_REGION_MINOR_OPCODE: u8 = 15;
+/// The region subtracted from a rectangle the client supplies, which is what
+/// XFIXES means by inverting: a region has no complement without bounds.
+pub const X_XFIXES_INVERT_REGION_MINOR_OPCODE: u8 = 16;
+pub const X_XFIXES_TRANSLATE_REGION_MINOR_OPCODE: u8 = 17;
+pub const X_XFIXES_REGION_EXTENTS_MINOR_OPCODE: u8 = 18;
+pub const X_XFIXES_FETCH_REGION_MINOR_OPCODE: u8 = 19;
+/// The highest minor XFIXES 6.0 defines (`DeletePointerBarrier` is 32; the
+/// client-disconnect-mode pair carries the list to 34). A minor at or below
+/// this that is not implemented is declined; one above it is not a request
+/// this version has.
+pub const X_XFIXES_LAST_MINOR_OPCODE: u8 = 34;
+/// The version this server answers. Note that the minors behind it are not
+/// all implemented: the ones that are not refuse by name rather than failing
+/// to parse, and the residue is recorded in todo.md as debt to settle against
+/// real client logs.
+pub const X_XFIXES_MAJOR_VERSION: u32 = 6;
+pub const X_XFIXES_MINOR_VERSION: u32 = 0;
+const X_XFIXES_COMBINE_REGION_REQ_LEN: usize = 16;
+const X_XFIXES_COPY_REGION_REQ_LEN: usize = 12;
+const X_XFIXES_INVERT_REGION_REQ_LEN: usize = 20;
+const X_XFIXES_TRANSLATE_REGION_REQ_LEN: usize = 12;
+const X_XFIXES_REGION_QUERY_REQ_LEN: usize = 8;
 pub const X_GLX_EXTENSION_NAME: &str = "GLX";
 pub const X_GLX_MAJOR_OPCODE: u8 = 140;
 pub const X_GLX_FIRST_EVENT: u8 = 72;

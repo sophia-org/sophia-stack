@@ -503,6 +503,13 @@ pub enum XClientReply {
         strides: Vec<u32>,
         offsets: Vec<u32>,
     },
+    /// `FetchRegion`: the region's extents, then its rectangles in the
+    /// canonical YX-banded order the store already keeps them in.
+    XfixesFetchRegion {
+        sequence: u16,
+        extents: Rect,
+        rects: Vec<Rect>,
+    },
     XfixesQueryVersion {
         sequence: u16,
         major_version: u32,

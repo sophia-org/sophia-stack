@@ -18,6 +18,7 @@ fn encode_render_extension_reply(
             | XClientReply::Dri3BufferFromPixmap { .. }
             | XClientReply::Dri3BuffersFromPixmap { .. }
             | XClientReply::XfixesQueryVersion { .. }
+            | XClientReply::XfixesFetchRegion { .. }
             | XClientReply::PresentQueryVersion { .. }
             | XClientReply::PresentQueryCapabilities { .. }
     ) {
@@ -77,6 +78,37 @@ fn encode_render_extension_reply(
                     let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
                     write_reply_header(byte_order, &mut out, sequence, 0);
                     out[1] = 1;
+                    out
+                }
+                XClientReply::XfixesFetchRegion {
+                    sequence,
+                    extents,
+                    rects,
+                } => {
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN + rects.len() * 8];
+                    write_reply_header(
+                        byte_order,
+                        &mut out,
+                        sequence,
+                        u32::try_from(rects.len() * 2).unwrap_or(0),
+                    );
+                    put_u16(byte_order, &mut out[8..10], rects.len() as u16);
+                    put_i16(byte_order, &mut out[16..18], extents.x as i16);
+                    put_i16(byte_order, &mut out[18..20], extents.y as i16);
+                    put_u16(byte_order, &mut out[20..22], extents.width as u16);
+                    put_u16(byte_order, &mut out[22..24], extents.height as u16);
+                    let mut offset = X_CLIENT_OUTPUT_RECORD_LEN;
+                    for rect in rects {
+                        put_i16(byte_order, &mut out[offset..offset + 2], rect.x as i16);
+                        put_i16(byte_order, &mut out[offset + 2..offset + 4], rect.y as i16);
+                        put_u16(byte_order, &mut out[offset + 4..offset + 6], rect.width as u16);
+                        put_u16(
+                            byte_order,
+                            &mut out[offset + 6..offset + 8],
+                            rect.height as u16,
+                        );
+                        offset += 8;
+                    }
                     out
                 }
                 XClientReply::XCMiscGetVersion {

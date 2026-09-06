@@ -2827,3 +2827,321 @@ fn render_cursors_are_refused_when_the_picture_cannot_describe_one() {
     ));
     assert_eq!(RenderFixture::error_of(&result), Some(XErrorCode::BadAlloc));
 }
+
+/// A fixture driving XFIXES region requests against one runtime.
+struct XfixesRegionFixture {
+    runtime: XAuthorityRuntime,
+    atoms: XAtomTable,
+    properties: XPropertyTable,
+    sequence: u16,
+}
+
+impl XfixesRegionFixture {
+    const NS: NamespaceId = NamespaceId::from_raw(91);
+    const ORDER: XByteOrder = XByteOrder::LittleEndian;
+    const A: u32 = 0x0020_0300;
+    const B: u32 = 0x0020_0301;
+    const OUT: u32 = 0x0020_0302;
+
+    fn new() -> Self {
+        Self {
+            runtime: XAuthorityRuntime::new(),
+            atoms: XAtomTable::new(),
+            properties: XPropertyTable::new(),
+            sequence: 0,
+        }
+    }
+
+    fn send(&mut self, bytes: &[u8]) -> XDispatchResult {
+        self.sequence = self.sequence.wrapping_add(1);
+        let request = decode_x11_core_request(
+            context(Self::NS, u64::from(self.sequence) + 1200, Self::ORDER),
+            bytes,
+        )
+        .expect("request must decode");
+        dispatch_x11_wire_request(
+            dispatch_context(Self::NS, self.sequence, Self::ORDER, bytes[0]),
+            request,
+            &mut self.runtime,
+            &mut self.atoms,
+            &mut self.properties,
+        )
+    }
+
+    fn create(&mut self, id: u32, rects: &[Rect]) {
+        let request = xfixes_create_region_request(Self::ORDER, id, rects);
+        assert!(self.send(&request).outputs.is_empty(), "create {id:#x}");
+    }
+
+    /// The region's rectangles, read back the way a client reads them.
+    fn fetch(&mut self, id: u32) -> Vec<Rect> {
+        let result = self.send(&xfixes_fetch_region_request(Self::ORDER, id));
+        match result.outputs.as_slice() {
+            [XClientOutput::Reply(XClientReply::XfixesFetchRegion { rects, .. })] => rects.clone(),
+            other => panic!("fetch produced {other:?}"),
+        }
+    }
+
+    fn error_of(result: &XDispatchResult) -> Option<XErrorCode> {
+        result.outputs.iter().find_map(|output| match output {
+            XClientOutput::Error(error) => Some(error.code),
+            _ => None,
+        })
+    }
+}
+
+/// The region operations combine what the client asked them to, and the
+/// result reads back canonically.
+///
+/// XFIXES has answered version 6.0 since before these existed, so a client
+/// that believed the version and tried to compute with a region got a parse
+/// failure. These are the minors that make a region a value rather than a
+/// container.
+#[test]
+fn xfixes_regions_combine_and_read_back_canonically() {
+    let mut fixture = XfixesRegionFixture::new();
+    let left = Rect {
+        x: 0,
+        y: 0,
+        width: 4,
+        height: 4,
+    };
+    let right = Rect {
+        x: 2,
+        y: 0,
+        width: 4,
+        height: 4,
+    };
+    fixture.create(XfixesRegionFixture::A, &[left]);
+    fixture.create(XfixesRegionFixture::B, &[right]);
+    fixture.create(XfixesRegionFixture::OUT, &[]);
+
+    let union = fixture.send(&xfixes_combine_region_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_UNION_REGION_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&union), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 4,
+        }],
+        "the union is one rect, not two overlapping ones"
+    );
+
+    let intersect = fixture.send(&xfixes_combine_region_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_INTERSECT_REGION_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&intersect), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 2,
+            y: 0,
+            width: 2,
+            height: 4,
+        }]
+    );
+
+    let subtract = fixture.send(&xfixes_combine_region_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_SUBTRACT_REGION_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&subtract), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 4,
+        }]
+    );
+
+    // Copy carries one source across and canonicalises on the way.
+    let copy = fixture.send(&xfixes_combine_region_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_COPY_REGION_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        0,
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&copy), None);
+    assert_eq!(fixture.fetch(XfixesRegionFixture::OUT), vec![left]);
+}
+
+/// A destination that names one of its own sources still means what the
+/// client asked.
+///
+/// `UnionRegion(a, b, a)` is ordinary client code, and an implementation
+/// that wrote the destination while still reading it would answer from
+/// half-updated state.
+#[test]
+fn xfixes_region_operations_allow_the_destination_to_be_a_source() {
+    let mut fixture = XfixesRegionFixture::new();
+    fixture.create(
+        XfixesRegionFixture::A,
+        &[Rect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 4,
+        }],
+    );
+    fixture.create(
+        XfixesRegionFixture::B,
+        &[Rect {
+            x: 4,
+            y: 0,
+            width: 4,
+            height: 4,
+        }],
+    );
+    let result = fixture.send(&xfixes_combine_region_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_UNION_REGION_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::A,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&result), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::A),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 8,
+            height: 4,
+        }]
+    );
+}
+
+/// Invert, translate and extents answer what the protocol defines.
+#[test]
+fn xfixes_invert_translate_and_extents_answer_the_protocol() {
+    let mut fixture = XfixesRegionFixture::new();
+    // A hole in the middle of a square: invert is the source subtracted from
+    // the bounds the client supplies, because a region has no complement
+    // without them.
+    fixture.create(
+        XfixesRegionFixture::A,
+        &[Rect {
+            x: 2,
+            y: 2,
+            width: 2,
+            height: 2,
+        }],
+    );
+    fixture.create(XfixesRegionFixture::OUT, &[]);
+    let invert = fixture.send(&xfixes_invert_region_request(
+        XfixesRegionFixture::ORDER,
+        XfixesRegionFixture::A,
+        Rect {
+            x: 0,
+            y: 0,
+            width: 6,
+            height: 6,
+        },
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&invert), None);
+    let frame = fixture.fetch(XfixesRegionFixture::OUT);
+    let area: i32 = frame.iter().map(|r| r.width * r.height).sum();
+    assert_eq!(area, 32, "a frame, not the whole square and not nothing");
+
+    let translate = fixture.send(&xfixes_translate_region_request(
+        XfixesRegionFixture::ORDER,
+        XfixesRegionFixture::A,
+        10,
+        20,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&translate), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::A),
+        vec![Rect {
+            x: 12,
+            y: 22,
+            width: 2,
+            height: 2,
+        }]
+    );
+
+    fixture.create(
+        XfixesRegionFixture::B,
+        &[
+            Rect {
+                x: 0,
+                y: 0,
+                width: 2,
+                height: 2,
+            },
+            Rect {
+                x: 8,
+                y: 6,
+                width: 2,
+                height: 2,
+            },
+        ],
+    );
+    let extents = fixture.send(&xfixes_region_extents_request(
+        XfixesRegionFixture::ORDER,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::OUT,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&extents), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 10,
+            height: 8,
+        }]
+    );
+}
+
+/// An XFIXES minor with no implementation is refused by name rather than
+/// failing to parse.
+///
+/// This server answers XFIXES 6.0 and does not implement every minor behind
+/// it. A parse rejection told a client only that the extension existed; a
+/// named refusal says which request was declined, which is the discipline
+/// every other extension here follows.
+#[test]
+fn xfixes_minors_without_an_implementation_are_refused_by_name() {
+    let mut fixture = XfixesRegionFixture::new();
+    // Defined by version 6.0, not implemented here.
+    for minor in [6, 7, 8, 9, 20, 21, 22, 29, 32, 34] {
+        let result = fixture.send(&xfixes_minor_request(XfixesRegionFixture::ORDER, minor));
+        match result.outputs.as_slice() {
+            [XClientOutput::Error(error)] => {
+                assert_eq!(error.code, XErrorCode::BadImplementation, "minor {minor}");
+                assert_eq!(error.minor_code, u16::from(minor));
+                assert_eq!(error.major_code, X_XFIXES_MAJOR_OPCODE);
+            }
+            other => panic!("minor {minor} produced {other:?}"),
+        }
+    }
+    // Beyond anything the version defines.
+    for minor in [35, 200] {
+        let result = fixture.send(&xfixes_minor_request(XfixesRegionFixture::ORDER, minor));
+        assert_eq!(
+            XfixesRegionFixture::error_of(&result),
+            Some(XErrorCode::BadRequest),
+            "minor {minor}"
+        );
+    }
+}

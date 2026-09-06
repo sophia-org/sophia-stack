@@ -1,3 +1,5 @@
+pub mod region_algebra;
+
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Point {
     pub x: f64,

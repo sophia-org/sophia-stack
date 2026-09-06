@@ -462,6 +462,39 @@ pub enum XWireRequest {
         region: XResourceId,
         rectangles: Vec<Rect>,
     },
+    /// `CopyRegion`, `UnionRegion`, `IntersectRegion` and `SubtractRegion`:
+    /// one shape, differing only in how the two sources combine. Copy names
+    /// its single source twice.
+    XfixesCombineRegion {
+        minor_opcode: u8,
+        source: XResourceId,
+        other: XResourceId,
+        destination: XResourceId,
+    },
+    /// `InvertRegion`: the source subtracted from the bounds the client
+    /// supplies, because a region has no complement without them.
+    XfixesInvertRegion {
+        source: XResourceId,
+        bounds: Rect,
+        destination: XResourceId,
+    },
+    XfixesTranslateRegion {
+        region: XResourceId,
+        dx: i32,
+        dy: i32,
+    },
+    XfixesRegionExtents {
+        source: XResourceId,
+        destination: XResourceId,
+    },
+    XfixesFetchRegion {
+        region: XResourceId,
+    },
+    /// An XFIXES minor this server does not implement, decoded so the refusal
+    /// can name it.
+    XfixesUnimplemented {
+        minor_opcode: u8,
+    },
     XfixesDestroyRegion {
         region: XResourceId,
     },

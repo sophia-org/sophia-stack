@@ -1047,3 +1047,79 @@ fn free_cursor_request(byte_order: XByteOrder, cursor: u32) -> Vec<u8> {
     push_u32(&mut out, byte_order, cursor);
     out
 }
+
+fn xfixes_combine_region_request(
+    byte_order: XByteOrder,
+    minor_opcode: u8,
+    source: u32,
+    other: u32,
+    destination: u32,
+) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, minor_opcode];
+    if minor_opcode == X_XFIXES_COPY_REGION_MINOR_OPCODE {
+        push_u16(&mut out, byte_order, 3);
+        push_u32(&mut out, byte_order, source);
+        push_u32(&mut out, byte_order, destination);
+    } else {
+        push_u16(&mut out, byte_order, 4);
+        push_u32(&mut out, byte_order, source);
+        push_u32(&mut out, byte_order, other);
+        push_u32(&mut out, byte_order, destination);
+    }
+    out
+}
+
+fn xfixes_invert_region_request(
+    byte_order: XByteOrder,
+    source: u32,
+    bounds: Rect,
+    destination: u32,
+) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, X_XFIXES_INVERT_REGION_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 5);
+    push_u32(&mut out, byte_order, source);
+    push_i16(&mut out, byte_order, bounds.x as i16);
+    push_i16(&mut out, byte_order, bounds.y as i16);
+    push_u16(&mut out, byte_order, bounds.width as u16);
+    push_u16(&mut out, byte_order, bounds.height as u16);
+    push_u32(&mut out, byte_order, destination);
+    out
+}
+
+fn xfixes_translate_region_request(
+    byte_order: XByteOrder,
+    region: u32,
+    dx: i16,
+    dy: i16,
+) -> Vec<u8> {
+    let mut out = vec![
+        X_XFIXES_MAJOR_OPCODE,
+        X_XFIXES_TRANSLATE_REGION_MINOR_OPCODE,
+    ];
+    push_u16(&mut out, byte_order, 3);
+    push_u32(&mut out, byte_order, region);
+    push_i16(&mut out, byte_order, dx);
+    push_i16(&mut out, byte_order, dy);
+    out
+}
+
+fn xfixes_region_extents_request(byte_order: XByteOrder, source: u32, destination: u32) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, X_XFIXES_REGION_EXTENTS_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 3);
+    push_u32(&mut out, byte_order, source);
+    push_u32(&mut out, byte_order, destination);
+    out
+}
+
+fn xfixes_fetch_region_request(byte_order: XByteOrder, region: u32) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, X_XFIXES_FETCH_REGION_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 2);
+    push_u32(&mut out, byte_order, region);
+    out
+}
+
+fn xfixes_minor_request(byte_order: XByteOrder, minor_opcode: u8) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, minor_opcode];
+    push_u16(&mut out, byte_order, 1);
+    out
+}

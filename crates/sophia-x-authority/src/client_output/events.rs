@@ -354,6 +354,25 @@ pub fn encode_x_client_event(byte_order: XByteOrder, event: XClientEvent) -> Vec
             out = bytes.to_vec();
             put_u16(byte_order, &mut out[2..4], sequence);
         }
+        XClientEvent::ShapeNotify {
+            sequence,
+            kind,
+            window,
+            extents,
+            shaped,
+        } => {
+            write_event_header(byte_order, &mut out, crate::X_SHAPE_FIRST_EVENT, kind, sequence);
+            put_resource(byte_order, &mut out[4..8], window);
+            put_i16(byte_order, &mut out[8..10], extents.x as i16);
+            put_i16(byte_order, &mut out[10..12], extents.y as i16);
+            put_u16(byte_order, &mut out[12..14], extents.width as u16);
+            put_u16(byte_order, &mut out[14..16], extents.height as u16);
+            // Time zero, as every other event this server emits: nothing
+            // here has a server timestamp to report that a client could
+            // meaningfully compare against.
+            put_u32(byte_order, &mut out[16..20], 0);
+            out[20] = u8::from(shaped);
+        }
         XClientEvent::ShmCompletion {
             sequence,
             drawable,

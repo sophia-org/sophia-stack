@@ -1123,3 +1123,160 @@ fn xfixes_minor_request(byte_order: XByteOrder, minor_opcode: u8) -> Vec<u8> {
     push_u16(&mut out, byte_order, 1);
     out
 }
+
+#[allow(clippy::too_many_arguments)]
+fn shape_rectangles_request(
+    byte_order: XByteOrder,
+    op: u8,
+    kind: u8,
+    ordering: u8,
+    destination: u32,
+    x_offset: i16,
+    y_offset: i16,
+    rects: &[Rect],
+) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_RECTANGLES_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, (4 + rects.len() * 2) as u16);
+    out.push(op);
+    out.push(kind);
+    out.push(ordering);
+    out.push(0);
+    push_u32(&mut out, byte_order, destination);
+    push_i16(&mut out, byte_order, x_offset);
+    push_i16(&mut out, byte_order, y_offset);
+    for rect in rects {
+        push_i16(&mut out, byte_order, rect.x as i16);
+        push_i16(&mut out, byte_order, rect.y as i16);
+        push_u16(&mut out, byte_order, rect.width as u16);
+        push_u16(&mut out, byte_order, rect.height as u16);
+    }
+    out
+}
+
+fn shape_mask_request(
+    byte_order: XByteOrder,
+    op: u8,
+    kind: u8,
+    destination: u32,
+    x_offset: i16,
+    y_offset: i16,
+    source: u32,
+) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_MASK_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 5);
+    out.push(op);
+    out.push(kind);
+    push_u16(&mut out, byte_order, 0);
+    push_u32(&mut out, byte_order, destination);
+    push_i16(&mut out, byte_order, x_offset);
+    push_i16(&mut out, byte_order, y_offset);
+    push_u32(&mut out, byte_order, source);
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn shape_combine_request(
+    byte_order: XByteOrder,
+    op: u8,
+    kind: u8,
+    source_kind: u8,
+    destination: u32,
+    x_offset: i16,
+    y_offset: i16,
+    source: u32,
+) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_COMBINE_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 5);
+    out.push(op);
+    out.push(kind);
+    out.push(source_kind);
+    out.push(0);
+    push_u32(&mut out, byte_order, destination);
+    push_i16(&mut out, byte_order, x_offset);
+    push_i16(&mut out, byte_order, y_offset);
+    push_u32(&mut out, byte_order, source);
+    out
+}
+
+fn shape_offset_request(
+    byte_order: XByteOrder,
+    kind: u8,
+    destination: u32,
+    x_offset: i16,
+    y_offset: i16,
+) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_OFFSET_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 4);
+    out.push(kind);
+    out.extend_from_slice(&[0, 0, 0]);
+    push_u32(&mut out, byte_order, destination);
+    push_i16(&mut out, byte_order, x_offset);
+    push_i16(&mut out, byte_order, y_offset);
+    out
+}
+
+fn shape_query_extents_request(byte_order: XByteOrder, window: u32) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_QUERY_EXTENTS_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 2);
+    push_u32(&mut out, byte_order, window);
+    out
+}
+
+fn shape_select_input_request(byte_order: XByteOrder, window: u32, enable: bool) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_SELECT_INPUT_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 3);
+    push_u32(&mut out, byte_order, window);
+    out.push(u8::from(enable));
+    out.extend_from_slice(&[0, 0, 0]);
+    out
+}
+
+fn shape_input_selected_request(byte_order: XByteOrder, window: u32) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_INPUT_SELECTED_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 2);
+    push_u32(&mut out, byte_order, window);
+    out
+}
+
+fn shape_get_rectangles_request(byte_order: XByteOrder, window: u32, kind: u8) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, X_SHAPE_GET_RECTANGLES_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 3);
+    push_u32(&mut out, byte_order, window);
+    out.push(kind);
+    out.extend_from_slice(&[0, 0, 0]);
+    out
+}
+
+fn shape_minor_request(byte_order: XByteOrder, minor_opcode: u8) -> Vec<u8> {
+    let mut out = vec![X_SHAPE_MAJOR_OPCODE, minor_opcode];
+    push_u16(&mut out, byte_order, 1);
+    out
+}
+
+/// `PutImage` at an explicit depth, for uploading the depth-1 bitmap a
+/// SHAPE mask is read from.
+fn put_image_request_at_depth(
+    byte_order: XByteOrder,
+    depth: u8,
+    drawable: u32,
+    gc: u32,
+    width: u16,
+    height: u16,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut out = vec![72, 2];
+    let len_units = (24 + padded_len_for_test(data.len())) / 4;
+    push_u16(&mut out, byte_order, len_units as u16);
+    push_u32(&mut out, byte_order, drawable);
+    push_u32(&mut out, byte_order, gc);
+    push_u16(&mut out, byte_order, width);
+    push_u16(&mut out, byte_order, height);
+    push_i16(&mut out, byte_order, 0);
+    push_i16(&mut out, byte_order, 0);
+    out.push(0);
+    out.push(depth);
+    push_u16(&mut out, byte_order, 0);
+    out.extend_from_slice(data);
+    pad_to_four(&mut out);
+    out
+}

@@ -261,6 +261,18 @@ pub enum XClientEvent {
         sequence: u16,
         bytes: [u8; X_CLIENT_OUTPUT_RECORD_LEN],
     },
+    /// `ShapeNotify`: one of a window's shapes changed.
+    ///
+    /// `shaped` reports whether the kind is set at all, not whether the
+    /// region has area -- a client that sets an empty shape has shaped its
+    /// window, and the extents are then zero.
+    ShapeNotify {
+        sequence: u16,
+        kind: u8,
+        window: XResourceId,
+        extents: Rect,
+        shaped: bool,
+    },
     ShmCompletion {
         sequence: u16,
         drawable: XResourceId,
@@ -505,6 +517,29 @@ pub enum XClientReply {
     },
     /// `FetchRegion`: the region's extents, then its rectangles in the
     /// canonical YX-banded order the store already keeps them in.
+    ShapeQueryVersion {
+        sequence: u16,
+        major_version: u16,
+        minor_version: u16,
+    },
+    ShapeQueryExtents {
+        sequence: u16,
+        bounding_shaped: bool,
+        clip_shaped: bool,
+        bounding_extents: Rect,
+        clip_extents: Rect,
+    },
+    ShapeInputSelected {
+        sequence: u16,
+        enabled: bool,
+    },
+    /// The rectangles of one kind, in the canonical order the store keeps
+    /// them in -- so the ordering this reply claims is one it can honour.
+    ShapeGetRectangles {
+        sequence: u16,
+        ordering: u8,
+        rects: Vec<Rect>,
+    },
     XfixesFetchRegion {
         sequence: u16,
         extents: Rect,

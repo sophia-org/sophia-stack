@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::os::fd::OwnedFd;
 use std::sync::{Arc, Mutex, MutexGuard, Weak};
 
@@ -32,6 +32,7 @@ include!("runtime/render_resources.rs");
 include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
 include!("runtime/render_glyphs.rs");
+include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");
 
@@ -167,6 +168,10 @@ pub struct XAuthorityRuntime {
     /// Cursor images a client supplied through RENDER. Stored so the resource
     /// is real and FreeCursor means something; display stays config-driven.
     render_cursor_images: BTreeMap<crate::XResourceId, XRenderCursorImage>,
+    window_shapes: BTreeMap<crate::XResourceId, XWindowShapeState>,
+    /// Which client is watching which window's shape, mirrored here so the
+    /// `InputSelected` reply can be answered from dispatch.
+    shape_selections: BTreeSet<(u64, crate::XResourceId)>,
     next_glyph_store: u64,
     next_fence_handle: u64,
     graphics_contexts: XGraphicsContextTable,
@@ -214,6 +219,8 @@ impl Default for XAuthorityRuntime {
             render_glyphsets: Default::default(),
             render_glyph_stores: Default::default(),
             render_cursor_images: Default::default(),
+            window_shapes: Default::default(),
+            shape_selections: Default::default(),
             next_glyph_store: 1,
             next_fence_handle: 1,
             graphics_contexts: Default::default(),

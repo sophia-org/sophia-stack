@@ -34,6 +34,7 @@ include!("dispatch/extensions/xfixes.rs");
 include!("dispatch/extensions/xf86_vidmode.rs");
 include!("dispatch/extensions/xc_misc.rs");
 include!("dispatch/extensions/render.rs");
+include!("dispatch/extensions/shape.rs");
 include!("dispatch/extensions/xkb.rs");
 
 const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
@@ -280,6 +281,10 @@ pub fn dispatch_x11_wire_request(
         Unhandled(request) => request,
     };
     let request = match dispatch_render_glyph_request(context, request, runtime) {
+        Handled(result) => return result,
+        Unhandled(request) => request,
+    };
+    let request = match dispatch_shape_request(context, request, runtime) {
         Handled(result) => return result,
         Unhandled(request) => request,
     };

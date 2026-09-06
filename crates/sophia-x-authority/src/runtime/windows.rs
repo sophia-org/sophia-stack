@@ -658,6 +658,7 @@ impl XAuthorityRuntime {
          self.software_buffers.remove(window);
          self.raster_store.remove(window);
          self.render_drop_pictures_of_drawable(window);
+         self.forget_window_shapes(window);
          self.window_background_pixels.remove(&window);
          self.window_visuals.remove(&window);
          self.glx_drawables.retain(|_, record| match record.backing {

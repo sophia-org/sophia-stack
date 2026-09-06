@@ -29,6 +29,7 @@ include!("wire/extensions/xfixes.rs");
 include!("wire/extensions/xf86_vidmode.rs");
 include!("wire/extensions/xc_misc.rs");
 include!("wire/extensions/render.rs");
+include!("wire/extensions/shape.rs");
 include!("wire/extensions/xi.rs");
 include!("wire/extensions/xkb.rs");
 include!("wire/validation.rs");
@@ -673,6 +674,62 @@ pub enum XWireRequest {
         hotspot_x: u16,
         hotspot_y: u16,
     },
+    ShapeQueryVersion,
+    /// `ShapeRectangles`: a rectangle list combined into one of the window's
+    /// three shapes.
+    ShapeRectangles {
+        op: u8,
+        kind: u8,
+        ordering: u8,
+        destination: XResourceId,
+        x_offset: i16,
+        y_offset: i16,
+        rectangles: Vec<Rect>,
+    },
+    /// `ShapeMask`: the same, sourced from a depth-1 pixmap. A `None` source
+    /// with Set returns the kind to its default.
+    ShapeMask {
+        op: u8,
+        kind: u8,
+        destination: XResourceId,
+        x_offset: i16,
+        y_offset: i16,
+        source: Option<XResourceId>,
+    },
+    /// `ShapeCombine`: sourced from another window's shape.
+    ShapeCombine {
+        op: u8,
+        kind: u8,
+        source_kind: u8,
+        destination: XResourceId,
+        x_offset: i16,
+        y_offset: i16,
+        source: XResourceId,
+    },
+    ShapeOffset {
+        kind: u8,
+        destination: XResourceId,
+        x_offset: i16,
+        y_offset: i16,
+    },
+    ShapeQueryExtents {
+        window: XResourceId,
+    },
+    ShapeSelectInput {
+        window: XResourceId,
+        enable: bool,
+    },
+    ShapeInputSelected {
+        window: XResourceId,
+    },
+    ShapeGetRectangles {
+        window: XResourceId,
+        kind: u8,
+    },
+    /// A SHAPE minor no version of the extension defines.
+    ShapeUnimplemented {
+        minor_opcode: u8,
+    },
     /// A RENDER minor Sophia does not implement, decoded so the refusal can
     /// name it.
     RenderUnimplemented {
@@ -1179,6 +1236,7 @@ pub fn decode_x11_core_request(
         X_XF86_VIDMODE_MAJOR_OPCODE => decode_xf86_vidmode(context, bytes),
         X_XC_MISC_MAJOR_OPCODE => decode_xc_misc(context, bytes),
         X_RENDER_MAJOR_OPCODE => decode_render(context, bytes),
+        X_SHAPE_MAJOR_OPCODE => decode_shape(context, bytes),
         X_GLX_MAJOR_OPCODE => decode_glx(context, bytes),
         X_SYNC_MAJOR_OPCODE => decode_sync(context, bytes),
         other => Err(XWireParseError::UnknownOpcode(other)),

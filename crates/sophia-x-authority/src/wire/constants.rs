@@ -642,3 +642,61 @@ pub const X_RENDER_PICT_TYPE_DIRECT: u8 = 1;
 
 const X_RENDER_QUERY_VERSION_REQ_LEN: usize = 12;
 const X_RENDER_QUERY_PICT_FORMATS_REQ_LEN: usize = 4;
+
+/// Non-rectangular window regions.
+///
+/// The last extension Quickshell asked for and was refused. A Qt panel sets
+/// an input shape so clicks fall through the parts of it that are not the
+/// panel, which is why storing shapes without honouring them would be worse
+/// than not offering the extension at all.
+pub const X_SHAPE_EXTENSION_NAME: &str = "SHAPE";
+pub const X_SHAPE_MAJOR_OPCODE: u8 = 145;
+/// SHAPE defines exactly one event, `ShapeNotify`, and no errors.
+pub const X_SHAPE_FIRST_EVENT: u8 = 70;
+pub const X_SHAPE_QUERY_VERSION_MINOR_OPCODE: u8 = 0;
+pub const X_SHAPE_RECTANGLES_MINOR_OPCODE: u8 = 1;
+pub const X_SHAPE_MASK_MINOR_OPCODE: u8 = 2;
+pub const X_SHAPE_COMBINE_MINOR_OPCODE: u8 = 3;
+pub const X_SHAPE_OFFSET_MINOR_OPCODE: u8 = 4;
+pub const X_SHAPE_QUERY_EXTENTS_MINOR_OPCODE: u8 = 5;
+pub const X_SHAPE_SELECT_INPUT_MINOR_OPCODE: u8 = 6;
+pub const X_SHAPE_INPUT_SELECTED_MINOR_OPCODE: u8 = 7;
+pub const X_SHAPE_GET_RECTANGLES_MINOR_OPCODE: u8 = 8;
+pub const X_SHAPE_LAST_MINOR_OPCODE: u8 = X_SHAPE_GET_RECTANGLES_MINOR_OPCODE;
+pub const X_SHAPE_MAJOR_VERSION: u16 = 1;
+pub const X_SHAPE_MINOR_VERSION: u16 = 1;
+
+/// The three shapes a window carries.
+///
+/// Bounding is where the window exists at all, Clip is where its own
+/// contents are drawn inside that, and Input is where it answers the
+/// pointer.
+pub const X_SHAPE_KIND_BOUNDING: u8 = 0;
+pub const X_SHAPE_KIND_CLIP: u8 = 1;
+pub const X_SHAPE_KIND_INPUT: u8 = 2;
+
+pub const X_SHAPE_OP_SET: u8 = 0;
+pub const X_SHAPE_OP_UNION: u8 = 1;
+pub const X_SHAPE_OP_INTERSECT: u8 = 2;
+/// The destination with the source taken out of it.
+pub const X_SHAPE_OP_SUBTRACT: u8 = 3;
+/// The source with the destination taken out of it -- the mirror of
+/// Subtract, not a complement. Worth naming because at least one other
+/// implementation aliases this to Set.
+pub const X_SHAPE_OP_INVERT: u8 = 4;
+
+/// The orderings a client may claim for the rectangles it sends. All four
+/// are accepted and none is trusted: the list is canonicalised on arrival,
+/// so a client that mislabels its ordering gets the right answer anyway.
+pub const X_SHAPE_ORDERING_UNSORTED: u8 = 0;
+pub const X_SHAPE_ORDERING_YX_BANDED: u8 = 3;
+
+const X_SHAPE_QUERY_VERSION_REQ_LEN: usize = 4;
+const X_SHAPE_RECTANGLES_REQ_LEN: usize = 16;
+const X_SHAPE_MASK_REQ_LEN: usize = 20;
+const X_SHAPE_COMBINE_REQ_LEN: usize = 20;
+const X_SHAPE_OFFSET_REQ_LEN: usize = 16;
+const X_SHAPE_QUERY_EXTENTS_REQ_LEN: usize = 8;
+const X_SHAPE_SELECT_INPUT_REQ_LEN: usize = 12;
+const X_SHAPE_INPUT_SELECTED_REQ_LEN: usize = 8;
+const X_SHAPE_GET_RECTANGLES_REQ_LEN: usize = 12;

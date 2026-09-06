@@ -19,6 +19,10 @@ fn encode_render_extension_reply(
             | XClientReply::Dri3BuffersFromPixmap { .. }
             | XClientReply::XfixesQueryVersion { .. }
             | XClientReply::XfixesFetchRegion { .. }
+            | XClientReply::ShapeQueryVersion { .. }
+            | XClientReply::ShapeQueryExtents { .. }
+            | XClientReply::ShapeInputSelected { .. }
+            | XClientReply::ShapeGetRectangles { .. }
             | XClientReply::PresentQueryVersion { .. }
             | XClientReply::PresentQueryCapabilities { .. }
     ) {
@@ -78,6 +82,90 @@ fn encode_render_extension_reply(
                     let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
                     write_reply_header(byte_order, &mut out, sequence, 0);
                     out[1] = 1;
+                    out
+                }
+                XClientReply::ShapeQueryVersion {
+                    sequence,
+                    major_version,
+                    minor_version,
+                } => {
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
+                    write_reply_header(byte_order, &mut out, sequence, 0);
+                    put_u16(byte_order, &mut out[8..10], major_version);
+                    put_u16(byte_order, &mut out[10..12], minor_version);
+                    out
+                }
+                XClientReply::ShapeQueryExtents {
+                    sequence,
+                    bounding_shaped,
+                    clip_shaped,
+                    bounding_extents,
+                    clip_extents,
+                } => {
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
+                    write_reply_header(byte_order, &mut out, sequence, 0);
+                    out[8] = u8::from(bounding_shaped);
+                    out[9] = u8::from(clip_shaped);
+                    for (offset, extents) in
+                        [(12, bounding_extents), (20, clip_extents)]
+                    {
+                        put_i16(byte_order, &mut out[offset..offset + 2], extents.x as i16);
+                        put_i16(
+                            byte_order,
+                            &mut out[offset + 2..offset + 4],
+                            extents.y as i16,
+                        );
+                        put_u16(
+                            byte_order,
+                            &mut out[offset + 4..offset + 6],
+                            extents.width as u16,
+                        );
+                        put_u16(
+                            byte_order,
+                            &mut out[offset + 6..offset + 8],
+                            extents.height as u16,
+                        );
+                    }
+                    out
+                }
+                XClientReply::ShapeInputSelected { sequence, enabled } => {
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
+                    write_reply_header(byte_order, &mut out, sequence, 0);
+                    // The status rides in the reply's detail byte, where a
+                    // reply with no body carries its one datum.
+                    out[1] = u8::from(enabled);
+                    out
+                }
+                XClientReply::ShapeGetRectangles {
+                    sequence,
+                    ordering,
+                    rects,
+                } => {
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN + rects.len() * 8];
+                    write_reply_header(
+                        byte_order,
+                        &mut out,
+                        sequence,
+                        u32::try_from(rects.len() * 2).unwrap_or(0),
+                    );
+                    out[1] = ordering;
+                    put_u32(
+                        byte_order,
+                        &mut out[8..12],
+                        u32::try_from(rects.len()).unwrap_or(0),
+                    );
+                    let mut offset = X_CLIENT_OUTPUT_RECORD_LEN;
+                    for rect in rects {
+                        put_i16(byte_order, &mut out[offset..offset + 2], rect.x as i16);
+                        put_i16(byte_order, &mut out[offset + 2..offset + 4], rect.y as i16);
+                        put_u16(byte_order, &mut out[offset + 4..offset + 6], rect.width as u16);
+                        put_u16(
+                            byte_order,
+                            &mut out[offset + 6..offset + 8],
+                            rect.height as u16,
+                        );
+                        offset += 8;
+                    }
                     out
                 }
                 XClientReply::XfixesFetchRegion {

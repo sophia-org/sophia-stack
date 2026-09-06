@@ -787,9 +787,19 @@ pub(crate) fn run_persistent_xterm_session(
                 .args(&config.terminal_exec_args);
         }
     }
-    let child = terminal_command
+    let child = match terminal_command
         .map(|mut command| command.spawn())
-        .transpose()?;
+        .transpose()
+    {
+        Ok(child) => child,
+        Err(error) if !config.startup_proof_requested() => {
+            crate::session_eprintln!(
+                "sophia_session_app schema=2 status=failed source=startup reason=spawn error={error}"
+            );
+            None
+        }
+        Err(error) => return Err(error.into()),
+    };
     if child.is_some()
         && let Some(app) = normal_primary
     {
@@ -807,18 +817,19 @@ pub(crate) fn run_persistent_xterm_session(
     // Admit one primary-client transaction before launching the secondary
     // proof client. Otherwise optimized startup lets both xterms race for the
     // first committed surface, making initial focus nondeterministic.
-    let initial_authority_batch =
-        if config.secondary_terminal || config.applications.startup.len() > 1 {
-            Some(
-                authority_receiver
-                    .recv_timeout(Duration::from_secs(5))
-                    .map_err(|error| {
-                        format!("primary xterm did not publish a startup frame: {error}")
-                    })?,
-            )
-        } else {
-            None
-        };
+    let initial_authority_batch = if config.startup_proof_requested()
+        && (config.secondary_terminal || config.applications.startup.len() > 1)
+    {
+        Some(
+            authority_receiver
+                .recv_timeout(Duration::from_secs(5))
+                .map_err(|error| {
+                    format!("primary xterm did not publish a startup frame: {error}")
+                })?,
+        )
+    } else {
+        None
+    };
     if config.secondary_terminal {
         process.add_secondary_child(
             None,
@@ -841,19 +852,27 @@ pub(crate) fn run_persistent_xterm_session(
             .applications
             .get(id)
             .expect("normal session startup application was validated");
-        process.add_secondary_child(
-            Some(app.id.clone()),
-            PersistentXtermSessionConfig::spawn_session_application(
-                app,
-                &config.display,
-                xauthority.path(),
-                config.control_socket.as_deref(),
-            )?,
-        );
-        crate::session_println!(
-            "sophia_session_app schema=1 status=started id={} source=startup",
-            app.id
-        );
+        match PersistentXtermSessionConfig::spawn_session_application(
+            app,
+            &config.display,
+            xauthority.path(),
+            config.control_socket.as_deref(),
+        ) {
+            Ok(child) => {
+                process.add_secondary_child(Some(app.id.clone()), child);
+                crate::session_println!(
+                    "sophia_session_app schema=1 status=started id={} source=startup",
+                    app.id
+                );
+            }
+            Err(error) if !config.startup_proof_requested() => {
+                crate::session_eprintln!(
+                    "sophia_session_app schema=2 status=failed id={} source=startup reason=spawn error={error}",
+                    app.id
+                );
+            }
+            Err(error) => return Err(error),
+        }
     }
 
     let mut randr_witness = config
@@ -967,8 +986,12 @@ pub(crate) fn run_persistent_xterm_session(
             "disabled"
         },
     );
-    if config.normal_session && config.applications.startup.is_empty() {
-        crate::session_println!("sophia_live_session schema=1 status=desktop_ready startup_apps=0");
+    if !config.startup_proof_requested() {
+        crate::session_println!(
+            "sophia_live_session schema=1 status=desktop_ready startup_apps={}",
+            config.applications.startup.len()
+        );
+        crate::session_println!("sophia_live_session_startup_proof schema=1 status=not_requested");
     }
     if let Some(native_scanout) = native_scanout.as_ref() {
         crate::session_println!(

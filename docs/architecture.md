@@ -780,6 +780,23 @@ when it does not. Every owner-loop phase that may service native retirement
 must call the same retirement recorder. Authority-wait progress and the normal
 lifecycle phase are scheduling contexts, not separate presentation semantics.
 
+Application startup proofs are development checks, not normal desktop lifecycle
+requirements. An ordinary session may have no application windows, only panels,
+or startup applications that fail. Completed authority activation admits the
+session; committed launch intents then advance through the bounded application
+admission queue without waiting for an existing focused surface. No overall
+application-startup timeout applies unless a proof explicitly requests one.
+WM response, application admission, input delivery, page-flip, and shutdown
+deadlines remain obligations of their individual operations.
+
+Normal native rendering becomes eligible for direct scanout and atomic cursor
+activation after the active outputs have valid presentation evidence and output
+input quarantine has cleared. This evidence does not require nonzero pixels or
+application focus. Explicit application proofs retain the stricter surface-pinned
+composition barrier. Replacing the native owner clears its activation state.
+Normal completion records application startup proof as `not_requested`; it does
+not invent a successful proof timestamp or fail logout for lacking one.
+
 Performance cadence is accumulated from routed displayed-Present UST values in
 bounded owner state. Completion emits one summary containing sample count,
 advancing intervals, nonadvancing observations, overflow state, mean FPS, and

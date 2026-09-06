@@ -18,7 +18,6 @@ pub enum SessionStartupEvent {
     StablePresented(SurfaceId),
     OutputsPresented,
     NativeRecovered,
-    BlankSessionReady,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -64,10 +63,6 @@ pub fn reduce_session_startup(
             state.stable_presented = false;
             state.outputs_presented = false;
             changed
-        }
-        SessionStartupEvent::BlankSessionReady => {
-            state.ready = true;
-            return SessionStartupUpdate::Ready;
         }
     };
     if state.surface.is_some()

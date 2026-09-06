@@ -123,6 +123,7 @@
                                     publish_resumed_topology_transport!(resumed);
                                     native_evidence.open("seat_resume");
                                     *native_scanout = Some(resumed);
+                    native_presentation_admitted = false;
                                     crate::session_println!(
                                         "sophia_live_renderer_handoff schema=1 status=restored images={restored} source=switch_rejected"
                                     );
@@ -205,6 +206,7 @@
                     publish_resumed_topology_transport!(resumed);
                     native_evidence.open("seat_resume");
                     *native_scanout = Some(resumed);
+                    native_presentation_admitted = false;
                     crate::session_println!(
                         "sophia_live_renderer_handoff schema=1 status=restored images={restored} source=disable_timeout"
                     );
@@ -329,6 +331,7 @@
                     publish_resumed_topology_transport!(resumed);
                     native_evidence.open("seat_resume");
                     *native_scanout = Some(resumed);
+                    native_presentation_admitted = false;
                     // CPU snapshots live in the Engine scene, outside the imported
                     // renderer-image table. Record both recovery paths separately.
                     crate::session_println!(
@@ -1023,7 +1026,7 @@
         // rebuilding its renderer here would invalidate retained snapshots.
         let recovery_reason =
             startup_native_recovery_reason(missing_output_callback, started.elapsed());
-        if !startup_ready_reported
+        if !native_presentation_admitted
             && !startup_native_recovery_attempted
             && let Some(recovery_reason) = recovery_reason
             && runtime.is_some()
@@ -1179,7 +1182,7 @@
                 crate::live_session::direct_overlay_proof::DirectOverlayAction::Idle => {}
             }
         }
-        if !startup_ready_reported && startup_readiness.ready {
+        if startup_proof_requested && !startup_ready_reported && startup_readiness.ready {
             startup_ready_reported = true;
             startup_ready_msec.get_or_insert_with(|| started.elapsed().as_millis());
             let (presented_submissions, presented_checksum, refresh_millihz) = native_scanout
@@ -1195,19 +1198,35 @@
             cpu_visual_progress.observe_ready(
                 Instant::now(), presented_submissions, presented_checksum, refresh_millihz,
             );
-            // Direct scanout only after the session has proven it can put
-            // light on a screen.
-            //
-            // The barrier's evidence is a pixel readback of a composed frame,
-            // and a direct frame is never composed, so a session that took the
-            // direct path immediately could flip forever without ever proving
-            // anything reached glass -- which is what happened: the client was
-            // visibly on screen and readiness timed out at no_visual_detail.
-            //
-            // Composing until readiness costs the first frames and nothing
-            // after them, and it keeps a proof that exists to catch a blank
-            // screen from being satisfied by a commit the driver merely
-            // accepted.
+            let logical_output_progress = native_scanout.as_ref().map(|native| {
+                logical_startup_output_progress(native.heads.iter().map(|head| {
+                    (
+                        head.output.id,
+                        head.callback_accepted > 0 || head.initial_modeset_submission.is_some(),
+                    )
+                }))
+            });
+            crate::session_println!(
+                "sophia_live_session_startup schema=2 status=ready elapsed_msec={} surface=true visual_detail=true presented=true outputs_ready={}/{} recovery_attempts={}",
+                started.elapsed().as_millis(),
+                logical_output_progress.map_or(1, |progress| progress.0),
+                logical_output_progress.map_or(1, |progress| progress.1),
+                usize::from(startup_native_recovery_attempted),
+            );
+            std::io::stdout().flush()?;
+        }
+        // Rendering eligibility follows completed presentation, not whether
+        // the user chose to open a focusable application. Explicit proofs
+        // still require their exact surface before bypassing composition.
+        let native_outputs_presented = native_scanout.as_ref().is_some_and(|native| {
+            startup_output_evidence(native, None)
+                .is_some_and(|outputs| all_startup_outputs_presented(&outputs))
+        }) && !output_topology_owner.input_quarantined();
+        if !native_presentation_admitted
+            && native_outputs_presented
+            && (!startup_proof_requested || startup_readiness.ready)
+        {
+            native_presentation_admitted = true;
             if let Some(native) = native_scanout.as_mut() {
                 native.admit_direct_scanout();
                 // The cursor moves atomically from here, if the session asked
@@ -1238,22 +1257,6 @@
                     "sophia_live_cursor_path schema=2 status=selected requested={requested} path={path}"
                 );
             }
-            let logical_output_progress = native_scanout.as_ref().map(|native| {
-                logical_startup_output_progress(native.heads.iter().map(|head| {
-                    (
-                        head.output.id,
-                        head.callback_accepted > 0 || head.initial_modeset_submission.is_some(),
-                    )
-                }))
-            });
-            crate::session_println!(
-                "sophia_live_session_startup schema=2 status=ready elapsed_msec={} surface=true visual_detail=true presented=true outputs_ready={}/{} recovery_attempts={}",
-                started.elapsed().as_millis(),
-                logical_output_progress.map_or(1, |progress| progress.0),
-                logical_output_progress.map_or(1, |progress| progress.1),
-                usize::from(startup_native_recovery_attempted),
-            );
-            std::io::stdout().flush()?;
         }
         include!("startup_watchdog.rs");
 

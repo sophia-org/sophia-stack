@@ -258,7 +258,6 @@
                 children: secondary_children,
                 launches: &mut session_launches,
                 launch_admission_started_at: &mut launch_admission_started_at,
-                startup_ready: startup_ready_reported || config.startup_ready_timeout.is_none(),
                 admission_pipeline_idle,
                 stable_admission_surface,
                 withdrawn_admissions: &withdrawn_admissions,

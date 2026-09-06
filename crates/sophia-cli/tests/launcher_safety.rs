@@ -326,6 +326,47 @@ fn installed_hagia_separates_personal_and_packaged_promotion_profiles() {
 }
 
 #[test]
+fn desktop_startup_does_not_require_a_focused_app_but_proofs_do() {
+    let start = offset("# A user-composed desktop may start only panels");
+    let end = start
+        + SESSION_LAUNCHER[start..]
+            .find("if [[ \"$SESSION_PROFILE\" == standalone ]]; then")
+            .unwrap();
+    let block = &SESSION_LAUNCHER[start..end];
+    for (profile, startup, firefox, truecolor, expected) in [
+        ("hagia", "terminal", "false", "false", false),
+        ("hagia", "none", "false", "false", false),
+        ("hagia", "terminal", "true", "false", true),
+        ("hagia", "terminal", "false", "true", true),
+        ("standalone", "terminal", "false", "false", true),
+        ("native", "terminal", "false", "false", true),
+        ("kitty", "terminal", "false", "false", true),
+    ] {
+        // Execute only argument assembly; never enter the live launcher.
+        let output = std::process::Command::new("bash")
+            .args([
+                "-eu",
+                "-c",
+                &format!("session_args=(); {block}\nprintf '%s' \"${{session_args[*]}}\""),
+            ])
+            .env("SESSION_PROFILE", profile)
+            .env("SESSION_STARTUP", startup)
+            .env("FIREFOX_M10_ANY_PROOF", firefox)
+            .env("TRUECOLOR_PROOF", truecolor)
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{output:?}");
+        assert_eq!(
+            String::from_utf8(output.stdout)
+                .unwrap()
+                .contains("--startup-ready-timeout-ms=8000"),
+            expected,
+            "profile={profile} startup={startup} firefox={firefox} truecolor={truecolor}"
+        );
+    }
+}
+
+#[test]
 fn installed_watchdog_is_fixed_and_opt_in() {
     assert!(INSTALLED_RECOVERY.contains("SOPHIA_SESSION_WATCHDOG_SECONDS=45"));
     assert!(INSTALLED_RECOVERY.contains("$RELEASE_DIR/bin/sophia-hagia-session"));

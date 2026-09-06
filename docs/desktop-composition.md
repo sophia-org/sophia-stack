@@ -72,6 +72,25 @@ Hagia bindings can still request a terminal, browser, or other admitted session
 action. The session performs the launch. Choosing a WM does not give it the
 ability to start arbitrary host processes or select its own shell permissions.
 
+The `terminal` mapping chooses what the terminal shortcut opens; it does not
+require a terminal at login. To start only your panel, keep the mapping and
+list only the panel in `startup`:
+
+```kdl
+session {
+    terminal "terminal"
+    startup "quickshell-panel"
+}
+```
+
+These names refer to your registered applications. Ordinary Hagia login does
+not require a focused application window. The focused-frame startup deadline
+is reserved for the launcher profiles that explicitly exercise applications.
+There is no replacement timeout for opening your first application. Empty and
+panel-only desktops remain usable indefinitely, and a failed login application
+does not prevent later applications from starting. Sophia still enforces the
+deadlines of individual operations, such as a WM response or a pending page flip.
+
 ## Keep the panel and helper together
 
 Quickshell and Narthex can run in the same desktop. In the current setup,

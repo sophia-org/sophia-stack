@@ -178,4 +178,19 @@ if env XDG_STATE_HOME="$state" "$ROOT_DIR/tools/verify_installed_hagia_archive.s
     exit 1
 fi
 
+# Ordinary desktop evidence carries no fabricated terminal startup proof.
+write_normal_session
+sed -i '/^sophia_session_app .*source=startup$/d; /^sophia_live_session_startup schema=2 /d; s/schema=16 status=bounded_complete/schema=17 status=bounded_complete startup_ready_msec=not_requested/' "$session/session.log"
+cat >>"$session/session.log" <<'EOF'
+sophia_live_session schema=1 status=desktop_ready startup_apps=0
+sophia_live_session_startup_proof schema=1 status=not_requested
+sophia_live_outputs schema=2 status=ready discovered=1 presentation=1 native_owned=1
+EOF
+"$ROOT_DIR/tools/verify_installed_hagia_session.sh" "$session/session.log" "$session/input-guard.log" "$session/recovery.log"
+sed -i '/^sophia_live_outputs /d' "$session/session.log"
+if "$ROOT_DIR/tools/verify_installed_hagia_session.sh" "$session/session.log" "$session/input-guard.log" "$session/recovery.log" >/dev/null 2>&1; then
+    echo "normal desktop verifier accepted missing output initialization" >&2
+    exit 1
+fi
+
 echo "installed Hagia ledger checks passed"

@@ -549,7 +549,10 @@ if [[ "$SESSION_PROFILE" != standalone && -n "${SOPHIA_CORE_CONFIG:-}" ]]; then
     }
     session_args+=("--config=$SOPHIA_CORE_CONFIG")
 fi
-if [[ "$SESSION_STARTUP" != none ]]; then
+# A user-composed desktop may start only panels or background applications.
+# A focused application frame is a proof requirement, not a login requirement.
+if [[ "$SESSION_STARTUP" != none && ( "$SESSION_PROFILE" != hagia
+    || "$FIREFOX_M10_ANY_PROOF" == true || "$TRUECOLOR_PROOF" == true ) ]]; then
     session_args+=(--startup-ready-timeout-ms=8000)
 fi
 if [[ "$SESSION_PROFILE" == standalone ]]; then

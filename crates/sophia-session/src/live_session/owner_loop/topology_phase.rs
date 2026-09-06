@@ -244,6 +244,7 @@
                 }
                 native_evidence.open("topology_rebuild");
                 *native_scanout = Some(replacement);
+                native_presentation_admitted = false;
                 tracing::info!(
                     "sophia_live_output_topology schema=1 status=published transition={} topology_epoch={} generation={} outputs={} changed={} restored_images={} policy_required={} input=quarantined",
                     output_topology_owner.transition,

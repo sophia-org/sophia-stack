@@ -157,12 +157,35 @@ retain the change in exit criteria. Work through these stages in order.
   while proof sessions remain strict. The original Brave `RouteRejected` reason
   is unresolved; new diagnostics must guide any follow-up. See the
   [diagnosis](docs/research-log.md#2026-09-06--ghostty-mask-uploads-and-browser-input-failure-containment).
-- [ ] Accept Kitty startup and Super+Enter on a replacement release. On
+- [x] Accept Kitty startup and Super+Enter on a replacement release. On
   `b25b29c1`, startup Kitty exited on RENDER CreateCursor before GLX, then the
   eight-second startup guard ended the session while a shortcut launch waited.
   Pictures now retain freed pixmap backing through their own lifetimes; Kitty
-  and the RENDER lifetime probe pass headlessly. Installed acceptance remains
-  pending; the startup guard and WM policy are unchanged.
+  and the RENDER lifetime probe pass headlessly. Installed `f323323d` reached
+  the desktop on 2026-09-06 and admitted two Super+Enter terminals. The startup
+  guard and WM policy are unchanged.
+- [ ] Accept Hagia's maximized/fullscreen stacking repair in normal use.
+  Super+F enlarged the window under its later neighbor; Super+M's column sizing
+  worked. Hagia now orders expanded windows above ordinary placements. The
+  replacement WM has not been loaded into the physical session.
+- [x] Separate normal desktop lifetime from application startup proofs. Launch
+  admission no longer waits for an existing focused application; startup apps
+  need not produce frames before later apps launch, and normal completion does
+  not demand a proof timestamp. CPU drain accounting and native presentation
+  eligibility remain active independently of proofs.
+- [ ] Accept panel-only login after reinstalling Sophia and its launcher. The active
+  desktop profile now starts only `quickshell-panel`; Super+Enter retains its
+  terminal mapping. Ordinary Hagia startup no longer arms the proof-only
+  focused-application deadline. Headless sessions survive the old eight-second
+  boundary, including failed/background startup applications. The installed
+  binary and launcher still need replacement; do not validate the edited
+  profile against the old release again.
+- [ ] Unblock GTK application startup with RENDER 0.6 transforms and filters.
+  On installed `f323323d`, Super+Space starts both Ghostty and Thunar, but each
+  exits on `SetPictureFilter` (opcode 144, minor 30, `BadRequest`) before
+  admission. Implement and test the sampling semantics and query surface before
+  advancing the advertised version; rerun both real clients afterward. The
+  earlier MIT-SHM fix remains valid. Launcher dispatch is working.
 
 #### 1. Recover reliably
 

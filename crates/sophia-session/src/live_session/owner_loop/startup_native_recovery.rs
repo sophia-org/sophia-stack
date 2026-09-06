@@ -66,6 +66,7 @@ if replacement.outputs() != outputs {
 retired_present_surfaces.clear();
 startup_surface_presentations.clear();
 startup_content_ready = false;
+native_presentation_admitted = false;
 startup_required_submissions = None;
 input_content_surface = None;
 startup_outputs_ready_reported = false;

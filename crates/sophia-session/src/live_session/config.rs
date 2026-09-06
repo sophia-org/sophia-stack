@@ -1147,6 +1147,16 @@ impl PersistentXtermSessionConfig {
         Ok(applications)
     }
 
+    fn startup_proof_requested(&self) -> bool {
+        !self.normal_session
+            || self.startup_ready_timeout.is_some()
+            || self.input_proof_requested()
+            || self.application_proof_requested()
+            || self.expect_physical_pointer
+            || self.surface_resize_requested()
+            || self.inject_output_size.is_some()
+    }
+
     fn input_proof_requested(&self) -> bool {
         self.inject_text.is_some() || self.expect_physical_text.is_some()
     }

@@ -20505,3 +20505,117 @@ test executions, Clippy, source-layout and profile checks, retained archives,
 verifier fixtures, and host buffer-age pixel equivalence. The gate used host
 socket access. The repair is not installed; Kitty startup and Super+Enter still
 need acceptance in a replacement physical session.
+
+## 2026-09-06 — Maximized stacking and GTK startup in the replacement session
+
+Installed release `f323323d` started at 22:50:41 UTC. Startup Kitty reached the
+desktop, and two later Super+Enter launches were admitted at transactions 11
+and 16. This accepts the preceding Kitty startup repair through normal use.
+
+Super+F exposed a separate WM bug. The user's binding is `toggle-maximized`;
+Super+M is `maximize-column`, and Super+Shift+F is `toggle-fullscreen`. Hagia
+expanded the first window's geometry but retained its earlier place in the
+bottom-to-top projection. The native composition log shows a 2526-pixel-wide
+window followed by its 1258-pixel-wide neighbor, matching the reported overlap.
+The WM protocol already defines ordered stacking. Hagia's pure logical
+projection now orders ordinary, maximized, then fullscreen placements, with
+focus last within each elevated layer. Toggling back restores the layout's
+order. Engine continues to enforce and present the submitted order; no new
+wire field or Engine policy is needed. The replacement WM has not been loaded
+into the live session.
+
+Ghostty and Thunar both launched from Super+Space and exited before admission.
+Ghostty's failure at 22:52:03 UTC and Thunar's at 22:53:27 name major opcode 144,
+minor 30, error code 1: RENDER `SetPictureFilter` returning `BadRequest`.
+GTK printed different extension error names (`XSyncBadAlarm` and
+`GLXBadContextState`), so those labels must not override the numeric request
+evidence. The current dispatcher deliberately rejects this RENDER 0.6 request
+while advertising 0.5. The earlier packed MIT-SHM repair did not cover the new
+RENDER path. Session-bus warnings precede the fatal error; they are not evidence
+that launcher execution failed.
+
+The next GTK compatibility tranche is RENDER 0.6: picture transforms, filter
+enumeration and selection, and the corresponding sampling behavior. Keep the
+advertisement tied to implemented semantics, test malformed and unauthorized
+requests, and rerun both real clients before claiming launch acceptance.
+Silently acknowledging filter changes would conceal missing rendering
+behavior. Further client requirements may emerge after this first refusal is
+repaired.
+
+The user also requested login without Kitty. Their selected profile is
+`~/.config/sophia/desktop.kdl`, whose startup list named both `terminal` and
+`quickshell-panel`; the legacy Hagia profile is not selected. Removed only the
+terminal from the active startup list, retaining the terminal action mapping
+and Super+Enter. Sophia's profile check accepts the result.
+
+This exposed a launcher assumption: ordinary Hagia sessions unconditionally
+received an eight-second focused-application startup deadline. A desktop with
+only an unfocusable panel cannot satisfy that requirement. The launcher now
+reserves that deadline for application proof profiles, including explicit
+Firefox and TrueColor proofs. Ordinary Hagia sessions retain WM/profile
+admission and supervision without requiring a login terminal. The source
+launcher must be reinstalled before the next login with this profile; no
+installed release or live process was modified.
+
+Verification: Hagia's policy suite passes, including both window positions,
+maximize/fullscreen bounds, focus and restoration. The full `nimble test` gate
+passes with 187 Nim checks and the Sophia admission/restart corpus; it used an
+empty `XDG_CONFIG_HOME`, as Sophia's workspace gate does. The first invocation
+read the personal desktop profile and failed two fixture preparations on
+`UnknownApplication("terminal")`; isolation resolves that harness issue.
+Hagia formatting and module-layout checks pass. Sophia's 21 launcher-safety
+tests, Rust formatting, shell syntax, and both repository diff checks pass.
+
+## 2026-09-06 — Retire application startup proofs from normal desktop lifetime
+
+The next login still used installed `f323323d`, now with the panel-only desktop
+profile. Its session began at 23:02:06 UTC. Super+Enter committed launch
+transaction 12 at 23:02:13, but the process never spawned. The owner ended the
+session at the eight-second startup deadline with `stage=not_focused`; native
+cleanup drained with no abandoned scanouts or cleanup errors. This was not a
+new Kitty protocol failure.
+
+The launch queue waited for application startup readiness, while readiness
+required a focused application. The installed launcher supplied that proof
+deadline to ordinary login. The source-only launcher edit had not been
+installed, and removing the deadline alone would have left normal completion
+and native rendering activation tied to the same proof record.
+
+The user confirmed that this check belonged to early development. Normal
+desktop sessions now have no overall application-startup deadline and no
+replacement desktop timer. Explicit proof launchers retain the existing
+`--startup-ready-timeout-ms` option and exact-surface evidence. Authority
+activation, bounded queues, WM replies, application admission, routed input,
+page flips, and shutdown keep their own checks and deadlines.
+
+`SessionLaunchQueue::begin_next` now accepts only admission-pipeline readiness;
+it no longer reads an application-proof flag. Normal startup launches every
+configured app without waiting for the first app's frame, contains spawn
+failures, and initializes the empty runtime even headlessly. Removed the
+synthetic blank-session proof success. Normal completion uses schema 17 and
+`startup_ready_msec=not_requested`, with a separate startup proof status record;
+explicit proof completion retains schema 16 and its required numeric timing.
+The normal installed-session verifier accepts empty/panel-only desktop
+evidence without requiring an automatically opened terminal.
+
+Native scanout and atomic cursor admission now depend on completed output
+presentation and cleared output quarantine. Proof sessions additionally keep
+their exact-surface composition barrier. Native owner replacement resets this
+activation state. Normal CPU visual accounting starts at owner-loop admission,
+so removing the proof cannot silently turn off update accounting or drain
+obligations; its timing origin is session admission, not application proof.
+
+Headless CLI regression cases cover empty startup, a background-only session
+lasting 8.5 seconds, unsuccessful process exit, failed spawn followed by another
+startup app, clean completion, and an explicit proof that still times out.
+No DRM or physical input is acquired by these tests. Hagia's isolated-config
+conformance gate and the normal-desktop verifier fixture pass. Physical
+acceptance awaits a matching rebuilt binary and launcher; the current installed
+release has not been modified or restarted.
+
+Final verification passes: `cargo xtask check` ran 2,502 test executions,
+Clippy, source-layout checks, the normal-desktop verifier fixture, retained
+archives (5/5 Hagia, 9/9 mirror, 6/6 direct scanout), and host buffer-age pixel
+equivalence. The separate Hagia conformance gate passes with isolated test
+configuration. Release packaging follows these checks; physical acceptance is
+still an operator step.

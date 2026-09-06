@@ -21,6 +21,12 @@ field() {
 if grep -Eqi '(^Error:|panicked at|^sophia_[^[:space:]]+ .*status=(failed|degraded)([[:space:]]|$))' "$session_log"; then
     fail "session log contains an error, panic, or degraded status"
 fi
+if grep -Eq '^sophia_live_session_startup_proof schema=1 status=not_requested$' "$session_log"; then
+    require '^sophia_live_session schema=1 status=desktop_ready startup_apps=[0-9]+$' \
+        "$session_log" "normal desktop admission is missing"
+    require '^sophia_live_outputs schema=2 status=ready ' "$session_log" "output initialization is missing"
+    outputs_ready="not_application_proof"
+else
 require '^sophia_session_app schema=(1|2) status=started id=terminal source=startup$' \
     "$session_log" "automatic terminal startup is missing"
 startup="$(grep -E '^sophia_live_session_startup schema=2 status=ready ' "$session_log" | head -n 1 || true)"
@@ -29,6 +35,7 @@ outputs_ready="$(field "$startup" outputs_ready || true)"
 [[ "$outputs_ready" =~ ^[1-9][0-9]*/[1-9][0-9]*$ \
     && "${outputs_ready%/*}" == "${outputs_ready#*/}" ]] ||
     fail "startup did not settle every positive output: ${outputs_ready:-missing}"
+fi
 require '^sophia_live_wm schema=1 status=session_action_committed .* action=Logout$' \
     "$session_log" "normal logout was not committed"
 require '^sophia_live_session_health schema=1 status=clean .*pending_wm=0 .*pending_actions=0 .*pending_input=0 .*wm_degraded=false$' \
@@ -41,7 +48,7 @@ require '^sophia_live_session_native_suspend schema=2 outcome=drained drained=tr
     "$session_log" "native presentation did not drain"
 require '^sophia_live_session_cleanup schema=1 status=clean app_groups=0([[:space:]]|$)' \
     "$session_log" "application cleanup did not drain"
-completion="$(grep -E '^sophia_live_session schema=(14|15|16) status=bounded_complete ' "$session_log" | tail -n 1 || true)"
+completion="$(grep -E '^sophia_live_session schema=(14|15|16|17) status=bounded_complete ' "$session_log" | tail -n 1 || true)"
 [[ -n "$completion" ]] || fail "supported completion is missing"
 for assignment in 'physical_input=enabled' 'wm_policy=external' 'wm_degraded=false' \
     'native_submit_failures=0' 'native_retire_failures=0' \

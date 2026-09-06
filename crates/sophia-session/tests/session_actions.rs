@@ -34,9 +34,9 @@ fn launches_advance_only_after_the_observed_surface_is_stable() {
     queue.enqueue(intent(1), 0);
     queue.enqueue(intent(2), 0);
 
-    assert_eq!(queue.begin_next(false, true), None);
-    assert_eq!(queue.begin_next(true, true), Some(intent(1)));
-    assert_eq!(queue.begin_next(true, true), None);
+    assert_eq!(queue.begin_next(false), None);
+    assert_eq!(queue.begin_next(true), Some(intent(1)));
+    assert_eq!(queue.begin_next(true), None);
 
     let surface = SurfaceId::new(7, 1);
     assert!(queue.observe_surface(surface).is_some());
@@ -47,14 +47,14 @@ fn launches_advance_only_after_the_observed_surface_is_stable() {
             .map(|admission| admission.intent),
         Some(intent(1))
     );
-    assert_eq!(queue.begin_next(true, true), Some(intent(2)));
+    assert_eq!(queue.begin_next(true), Some(intent(2)));
 }
 
 #[test]
 fn an_observed_application_can_exit_before_the_admission_poll_settles() {
     let mut queue = SessionLaunchQueue::default();
     queue.enqueue(intent(1), 0);
-    assert_eq!(queue.begin_next(true, true), Some(intent(1)));
+    assert_eq!(queue.begin_next(true), Some(intent(1)));
     assert!(queue.complete_observed_exit().is_none());
 
     assert!(queue.observe_surface(SurfaceId::new(9, 1)).is_some());
@@ -71,7 +71,7 @@ fn an_observed_application_can_exit_before_the_admission_poll_settles() {
 fn a_multi_toplevel_launch_settles_on_any_presented_observed_surface() {
     let mut queue = SessionLaunchQueue::default();
     queue.enqueue(intent(1), 0);
-    assert_eq!(queue.begin_next(true, true), Some(intent(1)));
+    assert_eq!(queue.begin_next(true), Some(intent(1)));
 
     let transient = SurfaceId::new(10, 1);
     let stable = SurfaceId::new(11, 1);
@@ -93,7 +93,7 @@ fn timeout_and_logout_release_bounded_work() {
     queue.enqueue(intent(1), 0);
     queue.enqueue(intent(2), 0);
     queue.enqueue(intent(3), 0);
-    queue.begin_next(true, true);
+    queue.begin_next(true);
 
     assert_eq!(
         queue.timeout_current().map(|admission| admission.intent),
@@ -112,7 +112,7 @@ fn a_withdrawn_surface_releases_the_launch_that_was_waiting_for_it() {
     let mut queue = SessionLaunchQueue::default();
     queue.enqueue(intent(1), 0);
     queue.enqueue(intent(2), 0);
-    assert_eq!(queue.begin_next(true, true), Some(intent(1)));
+    assert_eq!(queue.begin_next(true), Some(intent(1)));
 
     let surface = SurfaceId::new(7, 1);
     let untouched = SurfaceId::new(8, 1);
@@ -133,7 +133,7 @@ fn a_withdrawn_surface_releases_the_launch_that_was_waiting_for_it() {
     assert_eq!(queue.timed_out(), 0);
 
     // The queue moves on rather than staying shut.
-    assert_eq!(queue.begin_next(true, true), Some(intent(2)));
+    assert_eq!(queue.begin_next(true), Some(intent(2)));
 }
 
 #[test]
@@ -144,7 +144,7 @@ fn a_trusted_placement_class_is_issued_for_only_the_first_surface() {
         ..intent(1)
     };
     queue.enqueue(classified, 0);
-    assert_eq!(queue.begin_next(true, true), Some(classified));
+    assert_eq!(queue.begin_next(true), Some(classified));
 
     let first = queue.observe_surface(SurfaceId::new(7, 1)).unwrap();
     let second = queue.observe_surface(SurfaceId::new(8, 1)).unwrap();
@@ -165,14 +165,14 @@ fn catalog_authority_is_scoped_to_origin_even_when_transactions_collide() {
     let same = intent(7);
     queue.enqueue(same, 0);
     queue.enqueue_catalog(same, 0);
-    queue.begin_next(true, true).unwrap();
+    queue.begin_next(true).unwrap();
     assert!(!queue.dispatch_catalog(same.transaction));
     queue.cancel_catalog(same.transaction);
     assert_eq!(queue.admission().unwrap().intent, same);
     assert_eq!(queue.pending_len(), 0);
     queue.fail_current();
     queue.enqueue_catalog(same, 0);
-    queue.begin_next(true, true).unwrap();
+    queue.begin_next(true).unwrap();
     assert!(queue.dispatch_catalog(same.transaction));
     assert!(!queue.dispatch_catalog(same.transaction));
     assert_eq!(queue.take_catalog_dispatch(), Some(same.transaction));

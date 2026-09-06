@@ -537,7 +537,6 @@ struct SessionActionExecutionContext<'a> {
     children: &'a mut Vec<ManagedSessionChild>,
     launches: &'a mut SessionLaunchQueue,
     launch_admission_started_at: &'a mut Option<Instant>,
-    startup_ready: bool,
     admission_pipeline_idle: bool,
     stable_admission_surface: Option<SurfaceId>,
     withdrawn_admissions: &'a [SurfaceId],
@@ -570,7 +569,6 @@ fn execute_committed_session_actions(
         children,
         launches,
         launch_admission_started_at,
-        startup_ready,
         admission_pipeline_idle,
         stable_admission_surface,
         withdrawn_admissions,
@@ -707,7 +705,7 @@ fn execute_committed_session_actions(
     if requests.logout {
         return Ok(requests);
     }
-    let Some(intent) = launches.begin_next(startup_ready, admission_pipeline_idle) else {
+    let Some(intent) = launches.begin_next(admission_pipeline_idle) else {
         return Ok(requests);
     };
     if children.len() >= crate::session_actions::SESSION_ACTION_APPLICATION_CAPACITY {

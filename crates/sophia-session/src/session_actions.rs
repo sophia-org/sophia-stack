@@ -118,12 +118,10 @@ impl SessionLaunchQueue {
         }
     }
 
-    pub fn begin_next(
-        &mut self,
-        startup_ready: bool,
-        admission_pipeline_idle: bool,
-    ) -> Option<SessionLaunchIntent> {
-        if !startup_ready || !admission_pipeline_idle || self.admission.is_some() {
+    /// Admission is independent of application proof evidence. The owner only
+    /// enqueues authorized, committed intents after authority activation.
+    pub fn begin_next(&mut self, admission_pipeline_idle: bool) -> Option<SessionLaunchIntent> {
+        if !admission_pipeline_idle || self.admission.is_some() {
             return None;
         }
         let (intent, catalog) = self.pending.pop_front()?;

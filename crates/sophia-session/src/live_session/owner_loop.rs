@@ -283,9 +283,8 @@ fn run_session_loop_inner(
         .transpose()?;
     let mut config_reload_pending = false;
     let deadline = config.max_runtime.map(|duration| started + duration);
-    let blank_normal_session = config.normal_session && config.applications.startup.is_empty();
     let initialize_empty_runtime =
-        blank_normal_session || (config.normal_session && native_scanout.is_some());
+        config.normal_session;
     let mut outputs = native_scanout
         .as_ref()
         .map(LiveProductionNativeScanout::outputs)
@@ -507,14 +506,10 @@ fn run_session_loop_inner(
     let mut application_surface_gone_at: Option<Instant> = None;
     let mut input_content_surface: Option<SurfaceId> = None;
     let mut startup_readiness = SessionStartupReadiness::default();
-    if blank_normal_session {
-        let _ = reduce_session_startup(
-            &mut startup_readiness,
-            SessionStartupEvent::BlankSessionReady,
-        );
-    }
-    let mut startup_content_ready = blank_normal_session;
-    let mut startup_ready_msec = blank_normal_session.then_some(0);
+    let startup_proof_requested = config.startup_proof_requested();
+    let mut startup_content_ready = false;
+    let mut startup_ready_msec = None;
+    let mut native_presentation_admitted = false;
     let mut input_text_match = false;
     let mut primary_child_exited = child.is_none();
     let mut primary_exit_status = None;
@@ -567,6 +562,19 @@ fn run_session_loop_inner(
     let mut startup_surface_presentations = StartupSurfacePresentationEvidence::default();
     let mut startup_ready_reported = false;
     let mut cpu_visual_progress = CpuVisualProgress::default();
+    if !startup_proof_requested {
+        // Normal sessions account for CPU work from owner-loop admission.
+        // Waiting for an application proof would also disable drain tracking.
+        let (submissions, checksum, refresh) = native_scanout
+            .as_ref()
+            .and_then(|native| native.heads.first())
+            .map_or((0, None, 0), |head| (
+                head.presented_submissions,
+                presented_logical_checksum(head.presented_content),
+                head.refresh_millihz,
+            ));
+        cpu_visual_progress.observe_ready(started, submissions, checksum, refresh);
+    }
     let mut session_quiescence = None::<SessionQuiescence>;
     let mut native_evidence = NativeSessionEvidence::default();
     if native_scanout.is_some() {

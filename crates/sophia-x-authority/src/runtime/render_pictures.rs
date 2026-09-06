@@ -173,14 +173,12 @@ impl XAuthorityRuntime {
         self.resources
             .lookup(namespace, picture, XResourceKind::Picture)
             .map_err(|_| XRenderPictureError::UnknownPicture)?;
-        self.resources.remove(picture);
-        self.render_pictures.remove(&picture);
+        self.render_release_picture(picture);
         Ok(())
     }
 
-    /// Drop every picture bound to a drawable that is going away. The spec
-    /// ties a picture's life to its drawable, and a picture left behind would
-    /// hold a view over slots the store has already released.
+    /// Destroying a window destroys its pictures. FreePixmap instead removes
+    /// a name and retains backing storage until its last picture is released.
     pub(crate) fn render_drop_pictures_of_drawable(&mut self, drawable: crate::XResourceId) {
         let dead: Vec<crate::XResourceId> = self
             .render_pictures
@@ -189,8 +187,7 @@ impl XAuthorityRuntime {
             .map(|(id, _)| *id)
             .collect();
         for picture in dead {
-            self.resources.remove(picture);
-            self.render_pictures.remove(&picture);
+            self.render_release_picture(picture);
         }
     }
 
@@ -227,7 +224,14 @@ impl XAuthorityRuntime {
                 Some(window.generation),
             ))
         } else {
-            let size = self.pixmap_size(namespace, record.drawable).ok()?;
+            let size = if let Some(retained) = self.retained_render_pixmaps.get(&record.drawable) {
+                if retained.namespace != namespace {
+                    return None;
+                }
+                retained.pixmap.size
+            } else {
+                self.pixmap_size(namespace, record.drawable).ok()?
+            };
             Some((size, None))
         }
     }

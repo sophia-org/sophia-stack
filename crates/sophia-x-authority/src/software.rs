@@ -60,6 +60,15 @@ impl XSoftwareBufferStore {
         self.buffers.remove(&drawable)
     }
 
+    /// Move retained pixmap pixels to a private key before its XID is reused.
+    /// Existing exported snapshots keep their immutable storage and identity.
+    pub(crate) fn rekey_pixmap(&mut self, from: XResourceId, to: XResourceId) {
+        if let Some(mut buffer) = self.buffers.remove(&from) {
+            buffer.drawable = to;
+            self.buffers.insert(to, buffer);
+        }
+    }
+
     pub fn present_window_damage(
         &mut self,
         presentation: XResourceId,

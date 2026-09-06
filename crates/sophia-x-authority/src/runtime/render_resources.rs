@@ -93,17 +93,19 @@ impl XAuthorityRuntime {
     ) -> Result<Option<sophia_protocol::BufferHandle>, XAuthorityRuntimeError> {
         self.resources
             .lookup(namespace, pixmap, XResourceKind::Pixmap)?;
+        let released_handle = self
+            .dri3_pixmaps
+            .get(&pixmap)
+            .map(|record| record.descriptor.handle);
+        self.render_retain_freed_pixmap(namespace, pixmap)?;
         self.resources.remove(pixmap);
         self.pixmaps.remove(&pixmap);
         self.shm_pixmaps.remove(&pixmap);
         self.shm_mappings
             .retain(|_, mapping| mapping.strong_count() != 0);
         self.software_buffers.remove(pixmap);
-        self.render_drop_pictures_of_drawable(pixmap);
-        Ok(self
-            .dri3_pixmaps
-            .remove(&pixmap)
-            .map(|record| record.descriptor.handle))
+        self.dri3_pixmaps.remove(&pixmap);
+        Ok(released_handle)
     }
 
     #[allow(clippy::too_many_arguments)]

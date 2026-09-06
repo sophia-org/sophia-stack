@@ -769,11 +769,10 @@ impl XAuthorityRuntime {
                      self.resources.remove(record.id);
                      self.xfixes_regions.remove(&record.id);
                  }
-                 // Tolerant removals: a picture may already be gone because its
-                 // drawable's arm swept it earlier in this same loop.
+                 // A window may already have swept its pictures. Pixmap-backed
+                 // pictures instead release their retained backing one at a time.
                  XResourceKind::Picture => {
-                     self.resources.remove(record.id);
-                     self.render_pictures.remove(&record.id);
+                     self.render_release_picture(record.id);
                  }
                  XResourceKind::GlyphSet => {
                      self.resources.remove(record.id);

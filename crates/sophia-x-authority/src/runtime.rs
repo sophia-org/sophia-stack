@@ -30,6 +30,7 @@ include!("runtime/drawing.rs");
 include!("runtime/drawing/image_ops.rs");
 include!("runtime/render_resources.rs");
 include!("runtime/render_pictures.rs");
+include!("runtime/render_picture_lifetime.rs");
 include!("runtime/render_glyphs.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");
@@ -157,6 +158,8 @@ pub struct XAuthorityRuntime {
     sync_counters: BTreeMap<crate::XResourceId, i64>,
     xfixes_regions: BTreeMap<crate::XResourceId, Region>,
     render_pictures: BTreeMap<crate::XResourceId, XRenderPictureRecord>,
+    retained_render_pixmaps: BTreeMap<crate::XResourceId, XRetainedRenderPixmap>,
+    next_render_backing: u64,
     /// Glyph-set resource ids, each naming a shared store. Two ids name one
     /// store after `ReferenceGlyphSet`.
     render_glyphsets: BTreeMap<crate::XResourceId, u64>,
@@ -206,6 +209,8 @@ impl Default for XAuthorityRuntime {
             sync_counters: Default::default(),
             xfixes_regions: Default::default(),
             render_pictures: Default::default(),
+            retained_render_pixmaps: Default::default(),
+            next_render_backing: u64::from(u32::MAX) + 1,
             render_glyphsets: Default::default(),
             render_glyph_stores: Default::default(),
             render_cursor_images: Default::default(),

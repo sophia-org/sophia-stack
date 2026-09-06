@@ -219,6 +219,9 @@ fn run_x_authority_render_smoke()
             height: 8,
         }],
     )?;
+    // libXcursor releases the pixmap name before creating the cursor. Its
+    // picture still owns the backing pixels, including after the XID is reused.
+    connection.free_pixmap(cursor_pixmap)?;
     let cursor = connection.generate_id()?;
     connection.render_create_cursor(cursor, cursor_picture, 1, 1)?;
     connection.free_cursor(cursor)?;

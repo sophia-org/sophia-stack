@@ -2187,47 +2187,6 @@ fn render_pictures_are_refused_and_reclaimed_on_protocol_terms() {
     );
 }
 
-/// A picture does not outlive the drawable it views.
-///
-/// The spec ties the two together, and a picture left behind would hold a
-/// format-aware view over store slots that have already been released.
-#[test]
-fn render_pictures_die_with_the_drawable_they_view() {
-    let mut fixture = RenderFixture::with_argb_pixmap(2, 2);
-    let free = fixture.send(&free_pixmap_request(
-        RenderFixture::ORDER,
-        RenderFixture::PIXMAP,
-    ));
-    assert_eq!(RenderFixture::error_of(&free), None);
-
-    let orphaned = fixture.send(&render_fill_rectangles_request(
-        RenderFixture::ORDER,
-        1,
-        RenderFixture::PICTURE,
-        [0xffff, 0xffff, 0xffff, 0xffff],
-        &[Rect {
-            x: 0,
-            y: 0,
-            width: 2,
-            height: 2,
-        }],
-    ));
-    assert_eq!(
-        RenderFixture::error_of(&orphaned),
-        Some(XErrorCode::RenderPicture)
-    );
-
-    // The identifier is genuinely free again, not merely unusable.
-    let reuse = render_create_picture_request(
-        RenderFixture::ORDER,
-        RenderFixture::PICTURE,
-        X_SETUP_DEFAULT_ROOT,
-        X_RENDER_FORMAT_RGB24,
-        &[],
-    );
-    assert_eq!(RenderFixture::error_of(&fixture.send(&reuse)), None);
-}
-
 impl RenderFixture {
     const SOURCE_PIXMAP: u32 = 0x0020_0110;
     const SOURCE_PICTURE: u32 = 0x0020_0111;

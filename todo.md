@@ -157,6 +157,12 @@ retain the change in exit criteria. Work through these stages in order.
   while proof sessions remain strict. The original Brave `RouteRejected` reason
   is unresolved; new diagnostics must guide any follow-up. See the
   [diagnosis](docs/research-log.md#2026-09-06--ghostty-mask-uploads-and-browser-input-failure-containment).
+- [ ] Accept Kitty startup and Super+Enter on a replacement release. On
+  `b25b29c1`, startup Kitty exited on RENDER CreateCursor before GLX, then the
+  eight-second startup guard ended the session while a shortcut launch waited.
+  Pictures now retain freed pixmap backing through their own lifetimes; Kitty
+  and the RENDER lifetime probe pass headlessly. Installed acceptance remains
+  pending; the startup guard and WM policy are unchanged.
 
 #### 1. Recover reliably
 

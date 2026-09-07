@@ -1,0 +1,16 @@
+# Milestone plans and work scopes
+
+[Work-tracking contract](../../work-tracking.md) · [Active tasks](../../../todo.md) · [Completed tasks](../../../done.md)
+
+Plans own scope, dependencies, and measurable exits. Task state and execution
+order live in the todo.txt-format files above. Start with the first open task in
+`+critical` by its `order:` value unless the user selects another scope.
+Candidates and deferred tasks require explicit promotion before implementation.
+
+- [Critical Path](../plans/queue-01-critical-path.md)
+- [Parallel Production Readiness](../plans/queue-11-parallel-production-readiness.md)
+- [Candidate Queue](../plans/queue-12-candidate-queue.md)
+- [Deferred](../plans/queue-19-deferred.md)
+
+The [checked-task source](../sources/2026-09/todo-cutover-completed.md) retains
+pre-cutover completions without assigning them invented completion dates.

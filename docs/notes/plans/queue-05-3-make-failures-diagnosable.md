@@ -1,0 +1,34 @@
+---
+id: queue-05
+date: 2026-09-06
+kind: plan
+tags: [plan, milestone]
+---
+# 3. Make failures diagnosable
+
+This plan retains the scope, constraints, and task details from the roadmap
+cutover. Task status and order live only in [todo.md](../../../todo.md)
+and the [monthly completion history](../../../done.md). Follow the
+[work-tracking contract](../../work-tracking.md).
+Historical candidate identities in the details require revalidation before use.
+
+[Parent scope](queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md).
+
+
+
+## t015
+
+Reuse existing telemetry for identifiable per-session logs and bounded
+resource observations; preserve diagnostics after abnormal exit.
+
+
+## t016
+
+Provide a simple incident-time marker and document how to find the
+matching build, configuration, session, and surrounding events. Keep expensive
+tracing and pixel inspection opt-in; retain metadata-disclosure boundaries.
+
+
+Exit: a reported problem can be investigated without reproducing it merely to
+recover an overwritten log. Extend existing session/tooling owners rather than
+building a separate monitoring platform.

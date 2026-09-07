@@ -141,4 +141,4 @@ support. Reloading only Hagia cannot install the Engine/protocol changes.
 On 2026-09-06 the user reported the helper working as intended in the installed
 session, alongside the Quickshell X11 panel. The retained source identities and
 the subsequent desktop-composition work are recorded in the
-[research log](research-log.md#2026-09-06-desktop-composition-belongs-to-the-session).
+[source note](notes/sources/2026-09/legacy-active-0001-2026-09-06-desktop-composition-belongs-to-the-session.md).

@@ -640,7 +640,7 @@ Offline regressions are
 
 ## Development-Session Readiness
 
-CP-14.3 in [the active roadmap](../todo.md#critical-path) owns Milestone 14's
+CP-14.3 in [the active roadmap](notes/indexes/plans.md) owns Milestone 14's
 current exit: a recoverable Hagia development session using terminal, Firefox,
 clipboard, layouts/tabs, two monitors, dependable input, VT recovery, and logout.
 The native evidence-lifetime and suspended-deadline implementation passes its

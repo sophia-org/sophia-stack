@@ -2,3 +2,8 @@
 /.qemu/
 /.evidence/
 /.artifacts/
+/.zk/notebook.db*
+/.zk/*.log
+/.todo/report.txt
+/todo.md.bak
+/done.md.bak

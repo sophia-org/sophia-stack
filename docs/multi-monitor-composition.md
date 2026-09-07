@@ -15,12 +15,12 @@ and other logical-output topologies with more than one physical display head.
 
 The executable implementation sequence is maintained in the
 [Multi-Monitor Per-Head Composition Critical
-Path](../todo.md#multi-monitor-per-head-composition-critical-path). This
+Path](notes/indexes/plans.md). This
 document is normative; the roadmap is the active checklist. Any change to an
 implemented capability, transitional limitation, or acceptance condition must
 update both documents in the same change. Completed slices are archived in
-[Roadmap History](roadmap-history.md), while run diagnoses and retained evidence
-belong in [Research Log](research-log.md).
+[Milestone History](notes/indexes/milestones.md), while run diagnoses and retained
+evidence belong in the [Development Notebook](notes/README.md).
 
 Normative target behavior that is not implemented is labelled as such. The
 current mirror path remains useful physical evidence, but composing one logical

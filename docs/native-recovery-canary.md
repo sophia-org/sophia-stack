@@ -4,8 +4,8 @@ CP-14.3's recovery implementation has deterministic coverage. Both physical
 canaries passed on the preserved candidate in
 `.artifacts/diagnostics/cp14-3-mixed-source-20260905T005021Z/`: suspended shutdown
 in `attempts/03-suspended-deadline-pass/`, and two VT returns followed by normal
-logout in `attempts/04-vt-return-pass/`. See the [research log](research-log.md)
-for evidence and limits. Recovery stage 1 is complete; these procedures remain
+logout in `attempts/04-vt-return-pass/`. See the
+[historical session notes](notes/indexes/topic-session.md) for evidence and limits. Recovery stage 1 is complete; these procedures remain
 available for focused regression checks. They use the normal Hagia launcher
 and do not create, reopen, or alter a desktop-comparison run.
 

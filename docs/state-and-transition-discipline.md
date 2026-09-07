@@ -52,7 +52,7 @@ kind of authoritative truth among them.
 
 This rationale is intentionally evergreen. Current conformance, implementation
 gaps, and candidate hardening work belong in the dated
-[Research Log](research-log.md) and the admitted roadmap in [Todo](../todo.md).
+[Development Notebook](notes/README.md) and the admitted roadmap in [Todo](../todo.md).
 A gap recorded during an audit is not roadmap work until the todo admits and
 orders it.
 

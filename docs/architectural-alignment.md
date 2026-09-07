@@ -99,8 +99,8 @@ frontend service.
 Recreated XIDs now receive fresh Sophia surface generations and removal retires
 the exact frontend route, so frozen input cannot bind across that ABA boundary.
 The remaining runtime debts are recorded in `docs/target-resolved-input.md`,
-`docs/research-log.md`, and `todo.md`. Compiled descriptor capture now shares
-application-grab arbitration; lock-authority epoch integration and broader
+the linked investigations under `docs/notes/`, and `todo.md`. Compiled descriptor
+capture now shares application-grab arbitration; lock-authority epoch integration and broader
 shell capture remain incomplete.
 
 ## Reproducible checks

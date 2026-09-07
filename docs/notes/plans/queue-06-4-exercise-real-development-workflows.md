@@ -1,0 +1,46 @@
+---
+id: queue-06
+date: 2026-09-06
+kind: plan
+tags: [plan, milestone]
+---
+# 4. Exercise real development workflows
+
+This plan retains the scope, constraints, and task details from the roadmap
+cutover. Task status and order live only in [todo.md](../../../todo.md)
+and the [monthly completion history](../../../done.md). Follow the
+[work-tracking contract](../../work-tracking.md).
+Historical candidate identities in the details require revalidation before use.
+
+[Parent scope](queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md).
+
+
+
+## t017
+
+Use terminal editing/building and Firefox for real work; verify clipboard
+transfer in both directions, keyboard shortcuts, focus, resize/move, workspace
+navigation, and both monitors.
+
+
+## t018
+
+Complete the [physical tab acceptance](../../tabbed-layouts.md#verification-and-operator-acceptance)
+for frame-tree/Notion and i3/split-tree: empty/nested groups, hidden-member
+activation, shell recovery, title changes, fullscreen, and floating occlusion.
+Implementation and offline verification are already complete.
+
+
+## t019
+
+Observe idle, VT resume, and normal logout during actual use. Turn any
+blocking failure into the next concrete repair task within this stage; retain
+its evidence, add a focused regression where feasible, and recheck the affected
+workflow after correction.
+
+
+Exit: every listed workflow has retained observations, with no unresolved
+failures preventing those tasks or safe recovery. Unrecoverable sessions, lost
+input, application-blocking failures, visible corruption, undrained work, and
+unbounded resource growth are blockers. Longer sessions are useful evidence,
+not mandatory hour/day counters that restart after every fix.

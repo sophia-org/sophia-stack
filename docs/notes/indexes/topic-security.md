@@ -1,0 +1,46 @@
+# Historical sources: security
+
+[All topic indexes](topic.md)
+
+Original claims and checkbox states are historical. Topic tags are finding aids;
+they do not establish ownership, acceptance, or present-day relevance.
+“Commit” dates the first addition of an undated heading; “snapshot” dates
+the archived roadmap, not completion of its work.
+
+- [2026-09-05 — Generic scripting contract for the display server and its clients](../sources/2026-09/legacy-active-0627-2026-09-05--generic-scripting-contract-for-the-display-server-and-its-clients.md)
+- [2026-09-05: scripting control v1 gets an independent wire contract](../sources/2026-09/legacy-active-0014-2026-09-05-scripting-control-v1-gets-an-independent-wire-contract.md)
+- [2026-09-05: live control endpoint and owner-settled scripting](../sources/2026-09/legacy-active-0013-2026-09-05-live-control-endpoint-and-owner-settled-scripting.md)
+- [2026-08-29: one native protocol family, several authority endpoints](../sources/2026-08/legacy-active-0564-2026-08-29-one-native-protocol-family-several-authority-endpoints.md)
+- [2026-08-28: visual policy stays modular without moving compositor authority](../sources/2026-08/legacy-active-0554-2026-08-28-visual-policy-stays-modular-without-moving-compositor-authority.md)
+- [2026-08-25: startup output activation now enters the frame-fed authority path](../sources/2026-08/legacy-active-0039-2026-08-25-startup-output-activation-now-enters-the-frame-fed-authority-path.md)
+- [2026-08-25: trusted launch placement is one grant, not a metadata rule engine](../sources/2026-08/legacy-active-0038-2026-08-25-trusted-launch-placement-is-one-grant-not-a-metadata-rule-engine.md)
+- [2026-08-23: the first shell contract crosses a protected process boundary](../sources/2026-08/legacy-active-0519-2026-08-23-the-first-shell-contract-crosses-a-protected-process-boundary.md)
+- [2026-08-23: the protected Hagia and metadata-broker row is promoted](../sources/2026-08/legacy-active-0514-2026-08-23-the-protected-hagia-and-metadata-broker-row-is-promoted.md)
+- [2026-08-22: a protected policy restart belongs to the session](../sources/2026-08/legacy-active-0510-2026-08-22-a-protected-policy-restart-belongs-to-the-session.md)
+- [2026-08-22: a departed surface does not turn disclosure into authority](../sources/2026-08/legacy-active-0504-2026-08-22-a-departed-surface-does-not-turn-disclosure-into-authority.md)
+- [2026-08-22: the broker is hosted behind an executable protection boundary](../sources/2026-08/legacy-active-0500-2026-08-22-the-broker-is-hosted-behind-an-executable-protection-boundary.md)
+- [2026-08-22: a domain nobody demands is a capability, not a posture](../sources/2026-08/legacy-active-0041-2026-08-22-a-domain-nobody-demands-is-a-capability-not-a-posture.md)
+- [2026-08-16: the owner loop committed one authority batch per frame](../sources/2026-08/legacy-active-0450-2026-08-16-the-owner-loop-committed-one-authority-batch-per-frame.md)
+- [2026-08-15: content crosses the authority boundary as a bounded variant set](../sources/2026-08/legacy-active-0052-2026-08-15-content-crosses-the-authority-boundary-as-a-bounded-variant-set.md)
+- [2026-08-14: ordinary terminal output requires lossless authority backpressure](../sources/2026-08/legacy-active-0424-2026-08-14-ordinary-terminal-output-requires-lossless-authority-backpressure.md)
+- [2026-08-12: Broker classifications are extension-chunk content](../sources/2026-08/legacy-active-0066-2026-08-12-broker-classifications-are-extension-chunk-content.md)
+- [2026-08-12: Output power is a separate authority; reservations mostly were not missing](../sources/2026-08/legacy-active-0065-2026-08-12-output-power-is-a-separate-authority-reservations-mostly-were-not-missing.md)
+- [2026-08-12: The authority reduces; the broker never holds raw identity](../sources/2026-08/legacy-active-0061-2026-08-12-the-authority-reduces-the-broker-never-holds-raw-identity.md)
+- [2026-08-08: Input security audit closes the pre-schema arbitration gap](../sources/2026-08/legacy-active-0405-2026-08-08-input-security-audit-closes-the-pre-schema-arbitration-gap.md)
+- [2026-08-07: Move feedback is a full-geometry X Authority operation](../sources/2026-08/legacy-active-0099-2026-08-07-move-feedback-is-a-full-geometry-x-authority-operation.md)
+- [2026-08-02: isolate the remaining PRIMARY authority gate](../sources/2026-08/legacy-active-0377-2026-08-02-isolate-the-remaining-primary-authority-gate.md)
+- [2026-08-02: physical focus transitions are cross-client X authority work](../sources/2026-08/legacy-active-0366-2026-08-02-physical-focus-transitions-are-cross-client-x-authority-work.md)
+- [2026-08-02: XI2 focus must be emitted by the authority transition](../sources/2026-08/legacy-active-0154-2026-08-02-xi2-focus-must-be-emitted-by-the-authority-transition.md)
+- [2026-08-02: floating is WM placement, not an X-authority bypass](../sources/2026-08/legacy-active-0149-2026-08-02-floating-is-wm-placement-not-an-x-authority-bypass.md)
+- [2026-08-02: admission release must precede current authority work](../sources/2026-08/legacy-active-0146-2026-08-02-admission-release-must-precede-current-authority-work.md)
+- [2026-07-26: Clipboard Routing Is Workspace-Blind And Namespace-Explicit](../sources/2026-07/legacy-active-0194-2026-07-26-clipboard-routing-is-workspace-blind-and-namespace-explicit.md)
+- [2026-07-26: Click Focus Requires A Cross-Authority Input Barrier](../sources/2026-07/legacy-active-0192-2026-07-26-click-focus-requires-a-cross-authority-input-barrier.md)
+- [2026-07-18: X Authority Batches Stop At The Production Boundary](../sources/2026-07/legacy-active-0273-2026-07-18-x-authority-batches-stop-at-the-production-boundary.md)
+- [2026-07-17: Authority Commits Once Before Per-Output Projection](../sources/2026-07/legacy-active-0260-2026-07-17-authority-commits-once-before-per-output-projection.md)
+- [2026-07-14: Engine Topology, Authority XKB, And Resize Quarantine](../sources/2026-07/legacy-active-0235-2026-07-14-engine-topology-authority-xkb-and-resize-quarantine.md)
+- [2026-07-14: Portal Requests And Grants Are Separate State](../sources/2026-07/legacy-active-0212-2026-07-14-portal-requests-and-grants-are-separate-state.md)
+- [2026-07-13: X11-First Namespace And Portal Critical Path](../sources/2026-07/legacy-active-0219-2026-07-13-x11-first-namespace-and-portal-critical-path.md)
+- [2026-07-13: Live Xauthority Ownership](../sources/2026-07/legacy-active-0217-2026-07-13-live-xauthority-ownership.md)
+- [2026-07-13: Explicit Portal Taxonomy](../sources/2026-07/legacy-active-0215-2026-07-13-explicit-portal-taxonomy.md)
+- [2026-07-10: xclock as External X Authority Probe](../sources/2026-07/legacy-archive-0013-2026-07-10-xclock-as-external-x-authority-probe.md)
+- [2026-07-08: Engine-Centered Authority Reframe](../sources/2026-07/legacy-archive-0018-2026-07-08-engine-centered-authority-reframe.md)

@@ -85,7 +85,12 @@ Sophia assumes clients are untrusted and places them in isolated namespaces. A c
 
 [Building on Sophia](docs/building-on-sophia.md) is the map for third-party developers: which component owns what, which protocol each piece speaks, and how a window manager, a shell, or a full desktop environment composes from them.
 
-For detailed design specifications, architectural guides, security policies, and research logs, see [docs/README.md](docs/README.md).
+For design specifications, architectural guides, and security policies, see
+[docs/README.md](docs/README.md). Maintain investigations, milestone history, and
+architectural decisions through the [linked development notebook](docs/notes/README.md)
+with `zk`; keep the active execution queue in [todo.md](todo.md), using the
+[todo.txt tracking workflow](docs/work-tracking.md). `zk queue` shows the critical
+path; `zk tasks` manages tasks and updates the notebook index.
 
 ## Status
 

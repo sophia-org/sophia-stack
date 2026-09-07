@@ -129,10 +129,13 @@ override the ownership and trust rules in the normative architecture.
 - [Validation](validation.md) lists reproducible validation commands and gates,
   including the bounded temporal models under `validation/tla` and the
   complementary relational/arithmetic models under `validation/architecture`.
-- [Active Roadmap](../todo.md) contains current milestone progress, incomplete
-  work, and measurable exits.
-- [Active Research Log](research-log.md) contains current investigations and
-  retained evidence.
+- [Active Tasks](../todo.md) uses the todo.txt format for the open queue.
+  [Work Tracking](work-tracking.md) defines ordering, completion, and zk integration;
+  [Milestone Plans](notes/indexes/plans.md) retain scope and measurable exits.
+- [Development Notebook](notes/README.md) contains linked investigations,
+  concepts, milestone records, and the `zk` maintenance workflow.
+- [Architecture Decision Records](notes/indexes/decisions.md) explain significant
+  choices and their consequences; normative documents retain the current contracts.
 - [Project Hagia](project-hagia.md) is the design note for a standalone
   Sophia-native spatial-policy project.
 - [Sophia Shell Interface Direction](sophia-shell-v1-direction.md) is the design
@@ -142,12 +145,13 @@ override the ownership and trust rules in the normative architecture.
 
 ## Historical Material
 
-- [Roadmap History](roadmap-history.md) archives completed milestones.
-- [Roadmap Snapshot (2026-08-30)](roadmap-archive-2026-08-30.md) preserves the
-  complete pre-cleanup active roadmap verbatim, including superseded ordering,
-  detailed evidence narratives, and unresolved candidate work.
-- [Research Log Archive](research-log-archive.md) preserves completed or
-  superseded experiments.
+- [Milestone History](notes/indexes/milestones.md) connects completed milestones,
+  changes of direction, and the archived roadmap's original hierarchy.
+- Imported sources are indexed by [date](notes/indexes/date.md) and
+  [topic](notes/indexes/topic.md). Historical unchecked rows are not current work.
+- [Notebook Migration](notes/migration.md) retains verbatim log and roadmap
+  snapshots, hashes, date provenance, and old heading mappings. The former log
+  and roadmap paths remain compatibility indexes; do not append to them.
 - `research/xlibre/` preserves the retired XLibre prototype and its regression
   lessons outside the production workspace.
 - `research/wayland/` preserves the retired Wayland frontend, tools, fixtures,

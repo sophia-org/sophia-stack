@@ -56,7 +56,18 @@ The observed evidence directory is `/tmp/sophia-interaction-evidence-197b2af77a0
 It holds the source patch, full check log, timing-probe script, and identity.
 The source-patch SHA-256 is `197b2af77a093f8cf1c14a23fff4f007e00ff4a9af9fce5ec8b3e5ada2cab217`.
 This temporary path is not a durable physical-acceptance archive.
-The code change is based on `86ab21e4`; it is not in the running session.
+The code change is based on `86ab21e4` and was committed as `e8573cf1`.
+
+The replacement session is
+`00000001788753082918-0a84405d-9e24-433d-950f-d3dce25a2607`, installed from
+`e8573cf17afc022865009abe75c2e3fbc18db484`. Its binary SHA-256 is
+`c3bb971a6925a9366480bb25eb6155d5fa1ebf8e177705d08f47d7f1787fa74f`.
+Preflight, input guard, and graphics takeover completed. The recorder reports
+no discarded records or storage errors. Chrome events now retain focused,
+unfocused, and primitive counts, confirming that the diagnostic change is
+installed. No pointer-button batch appeared in the initial sample. The next ordinary-use
+recurrence retained routed clicks and repeated explicit-grab rejections, leading
+to the [click-lease investigation](744uylx4-explicit-pointer-grabs-must-replace-their-own-click-lease.md).
 
 For t061, reproduce a mapped GTK menu with retained pixels and trace its actual
 rendering requests. Compare frontend pixels and alpha format with Engine's

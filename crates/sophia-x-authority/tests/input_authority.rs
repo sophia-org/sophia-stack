@@ -107,3 +107,30 @@ fn xi2_selection_masks_are_device_scoped_and_disconnect_cleaned() {
     state.cleanup_owner(7);
     assert!(!state.xi_event_selected(namespace, 7, window, 2, 6));
 }
+
+#[test]
+fn button_presses_preserve_an_explicit_grab_until_explicit_ungrab() {
+    let namespace = NamespaceId::from_raw(1);
+    let mut state = XInputAuthorityState::default();
+    let owner = active(1);
+    state.grab_pointer(namespace, owner).unwrap();
+    state.grab_button(namespace, passive(2, 1, 0)).unwrap();
+    assert_eq!(state.activate_button(namespace, 1, 0, active(3)), owner);
+    state.release_button(namespace, 1, true);
+    assert_eq!(state.pointer_grab(namespace), Some(owner));
+    state.ungrab_pointer(namespace, 1);
+    assert_eq!(state.pointer_grab(namespace), None);
+}
+
+#[test]
+fn a_second_button_does_not_replace_the_first_buttons_implicit_owner() {
+    let namespace = NamespaceId::from_raw(1);
+    let mut state = XInputAuthorityState::default();
+    let owner = active(1);
+    state.activate_button(namespace, 1, 0, owner);
+    assert_eq!(state.activate_button(namespace, 3, 0, active(2)), owner);
+    state.release_button(namespace, 1, false);
+    assert_eq!(state.pointer_grab(namespace), Some(owner));
+    state.release_button(namespace, 3, true);
+    assert_eq!(state.pointer_grab(namespace), None);
+}

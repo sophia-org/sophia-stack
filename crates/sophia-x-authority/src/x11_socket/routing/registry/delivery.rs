@@ -136,6 +136,7 @@ impl XServerFrontendRouteRegistry {
             return Ok(());
         }
         let mut client = surface_route.client;
+        let mut button_lease_update = None;
         // Engine already selected the committed target surface. Preserve its
         // owning window as the start of core propagation; X grabs may replace
         // it below, but event-mask update order must never choose the target.
@@ -224,26 +225,29 @@ impl XServerFrontendRouteRegistry {
                     );
                 };
                 if pressed {
-                    let grab = self
+                    let mut authority = self
                         .input_authority
                         .lock()
-                        .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
-                        .activate_button(
-                            surface_route.namespace,
-                            button,
-                            state & 0xff,
-                            crate::XActiveInputGrab {
-                                owner: surface_route.client.raw(),
-                                window: surface_route.window,
-                                owner_events: true,
-                                pointer_mode: 1,
-                                keyboard_mode: 1,
-                                event_mask: u16::MAX,
-                                xi_event_mask: [0; 8],
-                                xi_event_mask_words: 0,
-                                route_lease: None,
-                            },
-                        );
+                        .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
+                    if authority.pointer_grab(surface_route.namespace).is_none() {
+                        button_lease_update = Some(XAuthorityRouteLeaseUpdateKind::Confirmed);
+                    }
+                    let grab = authority.activate_button(
+                        surface_route.namespace,
+                        button,
+                        state & 0xff,
+                        crate::XActiveInputGrab {
+                            owner: surface_route.client.raw(),
+                            window: surface_route.window,
+                            owner_events: true,
+                            pointer_mode: 1,
+                            keyboard_mode: 1,
+                            event_mask: u16::MAX,
+                            xi_event_mask: [0; 8],
+                            xi_event_mask_words: 0,
+                            route_lease: route.route_lease,
+                        },
+                    );
                     client = XServerFrontendClientId(grab.owner);
                     target_window = Some(if grab.owner_events && client == surface_route.client {
                         surface_route.window
@@ -251,10 +255,14 @@ impl XServerFrontendRouteRegistry {
                         grab.window
                     });
                 } else {
-                    self.input_authority
+                    let mut authority = self
+                        .input_authority
                         .lock()
-                        .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
-                        .release_button(surface_route.namespace, button, pointer.state() == 0);
+                        .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
+                    authority.release_button(surface_route.namespace, button, pointer.state() == 0);
+                    if authority.pointer_grab(surface_route.namespace).is_none() {
+                        button_lease_update = Some(XAuthorityRouteLeaseUpdateKind::Released);
+                    }
                 }
                 XAuthorityInputEvent::Pointer(XAuthorityPointerEvent {
                     kind: XAuthorityPointerEventKind::Button { button, pressed },
@@ -355,15 +363,7 @@ impl XServerFrontendRouteRegistry {
         };
         drop(pointers);
         let lease_update = route.route_lease.and_then(|identity| {
-            let kind = match route.request.kind {
-                InputEventKind::PointerButton { pressed: true, .. } => {
-                    XAuthorityRouteLeaseUpdateKind::Confirmed
-                }
-                InputEventKind::PointerButton { pressed: false, .. } => {
-                    XAuthorityRouteLeaseUpdateKind::Released
-                }
-                _ => return None,
-            };
+            let kind = button_lease_update?;
             let admission = self.client_senders(client).ok()?.admission?;
             Some((identity, kind, admission))
         });

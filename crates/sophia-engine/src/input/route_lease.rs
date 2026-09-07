@@ -195,20 +195,30 @@ impl ApplicationRouteLeaseState {
             return Err(ApplicationRouteLeaseError::InvalidCandidate);
         }
         let existing = *self.exact_mut(identity)?;
-        if existing.origin != ApplicationRouteLeaseOrigin::ExplicitPointer {
-            return Err(ApplicationRouteLeaseError::InvalidOrigin);
-        }
-        if existing.phase != ApplicationRouteLeasePhase::Active {
+        // The frontend may ask to promote the click before its delivery
+        // acknowledgement reaches the owner loop. Its exact lease identity
+        // and admission still bind that promotion to the initiating client.
+        if existing.phase != ApplicationRouteLeasePhase::Active
+            && !(existing.origin == ApplicationRouteLeaseOrigin::PointerBoundary
+                && existing.phase == ApplicationRouteLeasePhase::Provisional)
+        {
             return Err(ApplicationRouteLeaseError::InvalidPhase);
         }
         if existing.admission != candidate.admission
+            || existing.scope != candidate.scope
             || existing.authority_session_epoch != candidate.authority_session_epoch
             || identity.seat != candidate.seat
         {
             return Err(ApplicationRouteLeaseError::IdentityMismatch);
         }
         self.leases.remove(&identity.seat);
-        self.begin_provisional(candidate)
+        match self.begin_provisional(candidate) {
+            Ok(replacement) => Ok(replacement),
+            Err(error) => {
+                self.leases.insert(identity.seat, existing);
+                Err(error)
+            }
+        }
     }
 
     pub fn confirm(
@@ -352,6 +362,13 @@ impl ApplicationRouteLeaseState {
         }
         if identity.control_epoch != self.control_epoch {
             return Err(ApplicationRouteLeaseError::StaleControlEpoch);
+        }
+        // A physical button release ends automatic retention. Explicit grabs
+        // require an ordered release first, including Engine-initiated scope exit.
+        if lease.origin == ApplicationRouteLeaseOrigin::ExplicitPointer
+            && !matches!(lease.phase, ApplicationRouteLeasePhase::Releasing { .. })
+        {
+            return Err(ApplicationRouteLeaseError::InvalidOrigin);
         }
         self.leases.remove(&identity.seat);
         Ok(lease)

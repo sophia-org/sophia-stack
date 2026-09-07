@@ -375,6 +375,11 @@ impl XInputAuthorityState {
         implicit: XActiveInputGrab,
     ) -> XActiveInputGrab {
         let state = self.namespaces.entry(namespace).or_default();
+        // A further press belongs to the active grab; it cannot activate a
+        // passive grab or change an explicit grab into an automatic one.
+        if let Some(active) = state.pointer {
+            return active;
+        }
         let (active, is_implicit) = state
             .buttons
             .iter()

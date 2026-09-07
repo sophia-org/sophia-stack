@@ -63,6 +63,16 @@ capture cannot displace an active or releasing application owner. The compiled
 profile therefore enables the live switcher; its signed physical proof remains
 open.
 
+The frontend stores the Engine lease identity on an automatic click grab.
+A client's explicit grab can replace its own automatic grab through that exact
+identity, with the same admission, namespace scope, seat, and authority-session
+epoch. Promotion may precede the click-delivery acknowledgement; late updates
+for the old identity cannot change the replacement. Engine still withholds
+physical routing until the explicit replacement is activated. Further button
+presses preserve the current grab, and button releases do not end an explicit
+grab. Explicit ungrab and Engine-ordered scope exit retain their release
+handshakes; a releasing lease cannot be promoted.
+
 | Dimension | Application surface routing | Target-resolved shell input |
 | --- | --- | --- |
 | Status | implemented native-X path, including core and admitted XI explicit pointer-grab reduction | live exact discrete-target capture enabled by the compiled profile; signed physical evidence remains open |

@@ -21,10 +21,16 @@ mod pointer_queries {
         server: Option<std::thread::JoinHandle<()>>,
         clients: u32,
         serial: u64,
+        lease: Option<sophia_protocol::ApplicationRouteLeaseIdentity>,
+        lease_updates: mpsc::Receiver<XAuthorityRouteLeaseUpdate>,
     }
 
     impl Fixture {
         fn new(confined: bool) -> Self {
+            Self::with_grabs(confined, None)
+        }
+
+        fn with_grabs(confined: bool, grabs: Option<XAuthorityExplicitPointerGrabClient>) -> Self {
             let path = std::env::temp_dir().join(format!(
                 "sophia-pointer-query-{}-{}.sock",
                 std::process::id(),
@@ -36,11 +42,19 @@ mod pointer_queries {
             let (tx, transactions) = mpsc::sync_channel(128);
             let (ack, acks) = mpsc::sync_channel(8);
             let (delivery, deliveries) = mpsc::channel();
-            let broker = XServerFrontendRouteBroker::with_control_and_input_delivery_senders(
-                NonZeroUsize::new(16).unwrap(),
-                ack,
-                delivery,
-            );
+            let (lease_tx, lease_updates) = mpsc::sync_channel(128);
+            let mut broker =
+                XServerFrontendRouteBroker::with_route_capacities_xkb_and_lease_updates(
+                    XServerFrontendRouteCapacities::uniform(NonZeroUsize::new(16).unwrap()),
+                    ack,
+                    delivery,
+                    lease_tx,
+                    XkbRmlvoConfig::default(),
+                )
+                .unwrap();
+            if let Some(grabs) = grabs {
+                broker = broker.with_explicit_pointer_grab_client(grabs);
+            }
             let input = broker.routed_input_sender();
             let controls = broker.control_sender();
             let (stop, stopped) = mpsc::sync_channel(1);
@@ -78,6 +92,8 @@ mod pointer_queries {
                 server: Some(server),
                 clients: 0,
                 serial: 0,
+                lease: None,
+                lease_updates,
             }
         }
 
@@ -148,7 +164,7 @@ mod pointer_queries {
                         },
                         kind,
                     },
-                    route_lease: None,
+                    route_lease: self.lease,
                     delivery: Some(id),
                     mode: XAuthorityRoutedInputMode::Deliver,
                 })
@@ -313,6 +329,12 @@ mod pointer_queries {
         }
 
         fn grab(&mut self, window: u32, frozen: bool) {
+            self.start_grab(window, frozen);
+            let reply = self.reply();
+            assert_eq!(&reply[..2], &[1, 0]);
+        }
+
+        fn start_grab(&mut self, window: u32, frozen: bool) {
             let mut request = vec![26, 0];
             push_u16(&mut request, self.order, 6);
             push_u32(&mut request, self.order, window);
@@ -322,8 +344,6 @@ mod pointer_queries {
                 push_u32(&mut request, self.order, 0);
             }
             self.stream.write_all(&request).unwrap();
-            let reply = self.reply();
-            assert_eq!(&reply[..2], &[1, 0]);
         }
 
         fn thaw(&mut self) {
@@ -552,4 +572,5 @@ mod pointer_queries {
         );
         assert_eq!(grabber.query(X_SETUP_DEFAULT_ROOT), (0, [0; 4], 0));
     }
+    include!("pointer_grab_lifecycle.rs");
 }

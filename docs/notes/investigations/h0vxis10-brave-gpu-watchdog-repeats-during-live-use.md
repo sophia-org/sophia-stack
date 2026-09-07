@@ -95,6 +95,12 @@ without fabricated frame completions or a WM timing policy.
 now preserve delivery and grab counters that the old recorder discarded. This
 is an evidence repair; neither the graphics hang nor the freeze is fixed.
 
+The next session, installed from `e8573cf1`, retained routed clicks followed by
+repeated explicit-grab rejections. The [click-lease investigation](744uylx4-explicit-pointer-grabs-must-replace-their-own-click-lease.md)
+reproduces that ownership defect and tracks its repair separately. No new GPU
+dump accompanied the sampled recurrence. Neither this correlation nor the
+grab regression attributes the earlier watchdog dumps to pointer ownership.
+
 ## Next diagnostic step
 
 On a deliberate browser relaunch, retain browser stderr in a private bounded

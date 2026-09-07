@@ -395,6 +395,102 @@ fn decode_render(
                 minor_opcode: minor,
             })
         }
+        X_RENDER_CREATE_SOLID_FILL_MINOR_OPCODE => {
+            require_exact_len(
+                X_RENDER_MAJOR_OPCODE,
+                X_RENDER_CREATE_SOLID_FILL_REQ_LEN,
+                bytes.len(),
+            )?;
+            let picture = context.byte_order.u32(&bytes[4..8]);
+            context.validate_new_resource_id(picture)?;
+            Ok(XWireRequest::RenderCreateSolidFill {
+                picture: XResourceId::new(u64::from(picture), 1),
+                color: [
+                    context.byte_order.u16(&bytes[8..10]),
+                    context.byte_order.u16(&bytes[10..12]),
+                    context.byte_order.u16(&bytes[12..14]),
+                    context.byte_order.u16(&bytes[14..16]),
+                ],
+            })
+        }
+        minor @ (X_RENDER_CREATE_LINEAR_GRADIENT_MINOR_OPCODE
+        | X_RENDER_CREATE_RADIAL_GRADIENT_MINOR_OPCODE
+        | X_RENDER_CREATE_CONICAL_GRADIENT_MINOR_OPCODE) => {
+            let header = match minor {
+                X_RENDER_CREATE_LINEAR_GRADIENT_MINOR_OPCODE => 28,
+                X_RENDER_CREATE_RADIAL_GRADIENT_MINOR_OPCODE => 36,
+                _ => 24,
+            };
+            require_len(X_RENDER_MAJOR_OPCODE, header, bytes.len())?;
+            let picture = context.byte_order.u32(&bytes[4..8]);
+            context.validate_new_resource_id(picture)?;
+            let fixed = |slice: &[u8]| context.byte_order.u32(slice) as i32;
+            let point = |offset: usize| {
+                (
+                    fixed(&bytes[offset..offset + 4]),
+                    fixed(&bytes[offset + 4..offset + 8]),
+                )
+            };
+            let stop_count = context.byte_order.u32(&bytes[header - 4..header]);
+            let stop_count = usize::try_from(stop_count).unwrap_or(usize::MAX);
+            // Each stop is a position and a colour; the request's own length
+            // has to account for both before either is read.
+            let body = stop_count
+                .checked_mul(12)
+                .and_then(|len| header.checked_add(len))
+                .ok_or(XWireParseError::InvalidLength {
+                    opcode: X_RENDER_MAJOR_OPCODE,
+                    expected_at_least: header,
+                    actual: bytes.len(),
+                })?;
+            require_len(X_RENDER_MAJOR_OPCODE, body, bytes.len())?;
+            let colors_at = header + stop_count * 4;
+            let stops = (0..stop_count)
+                .map(|index| crate::XRenderGradientStop {
+                    position: fixed(&bytes[header + index * 4..header + index * 4 + 4]),
+                    color: [
+                        context
+                            .byte_order
+                            .u16(&bytes[colors_at + index * 8..colors_at + index * 8 + 2]),
+                        context
+                            .byte_order
+                            .u16(&bytes[colors_at + index * 8 + 2..colors_at + index * 8 + 4]),
+                        context
+                            .byte_order
+                            .u16(&bytes[colors_at + index * 8 + 4..colors_at + index * 8 + 6]),
+                        context
+                            .byte_order
+                            .u16(&bytes[colors_at + index * 8 + 6..colors_at + index * 8 + 8]),
+                    ],
+                })
+                .collect();
+            let geometry = match minor {
+                X_RENDER_CREATE_LINEAR_GRADIENT_MINOR_OPCODE => {
+                    crate::XRenderGradientGeometry::Linear {
+                        p1: point(8),
+                        p2: point(16),
+                    }
+                }
+                X_RENDER_CREATE_RADIAL_GRADIENT_MINOR_OPCODE => {
+                    crate::XRenderGradientGeometry::Radial {
+                        inner: point(8),
+                        outer: point(16),
+                        inner_radius: fixed(&bytes[24..28]),
+                        outer_radius: fixed(&bytes[28..32]),
+                    }
+                }
+                _ => crate::XRenderGradientGeometry::Conical {
+                    center: point(8),
+                    angle: fixed(&bytes[16..20]),
+                },
+            };
+            Ok(XWireRequest::RenderCreateGradient {
+                picture: XResourceId::new(u64::from(picture), 1),
+                geometry,
+                stops,
+                minor_opcode: minor,
+            })
+        }
         // Decoded so the refusal can name the request. RENDER has thirty-six
         // minors and this server implements a subset; a parse rejection would
         // tell a client only that the extension exists, not which request it

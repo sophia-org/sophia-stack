@@ -193,6 +193,8 @@ fn dispatch_render_picture_request(
             | XWireRequest::RenderSetPictureFilter { .. }
             | XWireRequest::RenderTrapezoids { .. }
             | XWireRequest::RenderTriangles { .. }
+            | XWireRequest::RenderCreateSolidFill { .. }
+            | XWireRequest::RenderCreateGradient { .. }
     ) {
         return Unhandled(request);
     }
@@ -460,6 +462,48 @@ fn dispatch_render_picture_request(
             crate::XRenderPrimitiveCoverage::Triangles(&triangles),
             minor_opcode,
         ),
+        XWireRequest::RenderCreateSolidFill { picture, color } => lifecycle_result(
+            runtime.render_create_generated_picture(
+                context.namespace,
+                picture,
+                // The wire colour is already premultiplied, so it is stored
+                // exactly as it arrived rather than converted.
+                crate::XRenderGeneratedSource::Solid([
+                    (color[2] >> 8) as u8,
+                    (color[1] >> 8) as u8,
+                    (color[0] >> 8) as u8,
+                    (color[3] >> 8) as u8,
+                ]),
+                u64::from(context.sequence),
+            ),
+            u32::try_from(picture.local.raw()).unwrap_or(0),
+            crate::X_RENDER_CREATE_SOLID_FILL_MINOR_OPCODE,
+        ),
+        XWireRequest::RenderCreateGradient {
+            picture,
+            geometry,
+            stops,
+            minor_opcode,
+        } => {
+            // A gradient with no stops has no colour to show anywhere, which
+            // the protocol treats as a bad value rather than as an empty
+            // picture.
+            let outcome = if stops.is_empty() {
+                Err(crate::XRenderPictureError::InvalidValue)
+            } else {
+                runtime.render_create_generated_picture(
+                    context.namespace,
+                    picture,
+                    crate::XRenderGeneratedSource::Gradient { geometry, stops },
+                    u64::from(context.sequence),
+                )
+            };
+            lifecycle_result(
+                outcome,
+                u32::try_from(picture.local.raw()).unwrap_or(0),
+                minor_opcode,
+            )
+        }
         other => return Unhandled(other),
     })
 }

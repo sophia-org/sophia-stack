@@ -551,7 +551,7 @@ pub const X_RENDER_GLYPH_ERROR_OFFSET: u8 = 4;
 /// client's error handler rather than in its fallback. This constant moves
 /// only when the requests behind the next version answer.
 pub const X_RENDER_MAJOR_VERSION: u32 = 0;
-pub const X_RENDER_MINOR_VERSION: u32 = 6;
+pub const X_RENDER_MINOR_VERSION: u32 = 10;
 
 // The RENDER request minors, all of them, in protocol order, the GLX way:
 // the ones Sophia does not implement are named too, each with why, so the
@@ -618,13 +618,14 @@ pub const X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE: u8 = 30;
 pub const X_RENDER_CREATE_ANIM_CURSOR_MINOR_OPCODE: u8 = 31;
 /// Version 0.9, above what is advertised.
 pub const X_RENDER_ADD_TRAPS_MINOR_OPCODE: u8 = 32;
-/// Version 0.10, above what is advertised.
+/// A source of one colour. Version 0.10.
 pub const X_RENDER_CREATE_SOLID_FILL_MINOR_OPCODE: u8 = 33;
-/// Version 0.10, above what is advertised.
+/// Version 0.10. Cairo paints widget backgrounds with these and sends
+/// them without asking what version the server offers.
 pub const X_RENDER_CREATE_LINEAR_GRADIENT_MINOR_OPCODE: u8 = 34;
-/// Version 0.10, above what is advertised.
+/// Version 0.10.
 pub const X_RENDER_CREATE_RADIAL_GRADIENT_MINOR_OPCODE: u8 = 35;
-/// Version 0.10, above what is advertised.
+/// Version 0.10.
 pub const X_RENDER_CREATE_CONICAL_GRADIENT_MINOR_OPCODE: u8 = 36;
 pub const X_RENDER_LAST_MINOR_OPCODE: u8 = X_RENDER_CREATE_CONICAL_GRADIENT_MINOR_OPCODE;
 
@@ -645,6 +646,7 @@ pub const X_RENDER_PICT_TYPE_DIRECT: u8 = 1;
 const X_RENDER_QUERY_VERSION_REQ_LEN: usize = 12;
 const X_RENDER_QUERY_PICT_FORMATS_REQ_LEN: usize = 4;
 /// The fixed part every trapezoid and triangle request begins with.
+const X_RENDER_CREATE_SOLID_FILL_REQ_LEN: usize = 16;
 const X_RENDER_PRIMITIVE_PREFIX_LEN: usize = 24;
 const X_RENDER_SET_PICTURE_TRANSFORM_REQ_LEN: usize = 44;
 const X_RENDER_QUERY_FILTERS_REQ_LEN: usize = 8;

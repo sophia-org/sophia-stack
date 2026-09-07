@@ -187,13 +187,16 @@ pub(crate) struct XRenderSamplePlane {
     pixels: Vec<[u8; 4]>,
     width: usize,
     height: usize,
-    repeat: bool,
+    repeat: XRenderRepeat,
     /// How destination points map into this plane, when the picture carries a
     /// transform or a filter that is not the default.
     ///
     /// `None` is the overwhelmingly common case and keeps the integer
     /// sampling path, which is the inner loop of every composite.
     mapping: Option<XRenderSampleMapping>,
+    /// Set when the picture computes its pixels instead of reading them:
+    /// a solid fill or a gradient, which have no drawable at all.
+    generated: Option<super::render_gradient::XRenderGeneratedSource>,
 }
 
 /// A picture's transform and filter, converted once for sampling.
@@ -206,6 +209,72 @@ pub(crate) struct XRenderSamplePlane {
 pub(crate) struct XRenderSampleMapping {
     matrix: [f64; 9],
     filter: XRenderPictureFilter,
+}
+
+/// What a picture does outside its own bounds.
+///
+/// Pad and Reflect entered the protocol with the gradients at version 0.10,
+/// and a client painting a gradient reaches for Pad by default: a gradient is
+/// defined on a parameter from zero to one, and the area past each end takes
+/// the colour of the stop it ended on.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum XRenderRepeat {
+    #[default]
+    None,
+    Normal,
+    Pad,
+    Reflect,
+}
+
+impl XRenderRepeat {
+    pub fn from_wire(value: u32) -> Option<Self> {
+        match value {
+            0 => Some(Self::None),
+            1 => Some(Self::Normal),
+            2 => Some(Self::Pad),
+            3 => Some(Self::Reflect),
+            _ => None,
+        }
+    }
+
+    /// One coordinate folded into `[0, extent)`, or `None` when the picture
+    /// does not reach that far.
+    fn wrap(self, value: i32, extent: i32) -> Option<i32> {
+        if extent <= 0 {
+            return None;
+        }
+        match self {
+            Self::None => (value >= 0 && value < extent).then_some(value),
+            Self::Normal => Some(value.rem_euclid(extent)),
+            Self::Pad => Some(value.clamp(0, extent - 1)),
+            Self::Reflect => {
+                let period = extent.saturating_mul(2);
+                let folded = value.rem_euclid(period);
+                Some(if folded < extent {
+                    folded
+                } else {
+                    period - 1 - folded
+                })
+            }
+        }
+    }
+
+    /// A gradient's parameter folded into `[0, 1]`, or `None` where the
+    /// gradient does not paint.
+    pub(super) fn wrap_parameter(self, t: f64) -> Option<f64> {
+        if !t.is_finite() {
+            return None;
+        }
+        match self {
+            Self::None => (0.0..=1.0).contains(&t).then_some(t),
+            Self::Normal => Some(t - t.floor()),
+            Self::Pad => Some(t.clamp(0.0, 1.0)),
+            Self::Reflect => {
+                let folded = (t * 0.5).fract().abs() * 2.0;
+                Some(if folded <= 1.0 { folded } else { 2.0 - folded })
+            }
+        }
+    }
 }
 
 /// How a picture samples between its pixels.
@@ -253,7 +322,7 @@ impl XRenderSamplePlane {
     pub(crate) fn from_buffer(
         buffer: &XAuthorityCpuBufferSnapshot,
         format: XRenderPictFormatKind,
-        repeat: bool,
+        repeat: XRenderRepeat,
         mapping: Option<XRenderSampleMapping>,
     ) -> Self {
         let width = usize::try_from(buffer.size.width).unwrap_or(0);
@@ -277,6 +346,7 @@ impl XRenderSamplePlane {
             height,
             repeat,
             mapping,
+            generated: None,
         }
     }
 
@@ -292,6 +362,11 @@ impl XRenderSamplePlane {
     /// and then filtered.
     pub(crate) fn sample_point(&self, x: i32, y: i32) -> [u8; 4] {
         let Some(mapping) = self.mapping else {
+            if let Some(generated) = &self.generated {
+                // A generated source is continuous, so it is asked about
+                // the pixel's centre rather than its index.
+                return generated.sample(f64::from(x) + 0.5, f64::from(y) + 0.5, self.repeat);
+            }
             return self.sample(x, y);
         };
         // The centre of the pixel, not its corner: a transform that scales by
@@ -311,6 +386,12 @@ impl XRenderSamplePlane {
         let v = (m[3] * px + m[4] * py + m[5]) / w;
         if !u.is_finite() || !v.is_finite() {
             return [0; 4];
+        }
+        if let Some(generated) = &self.generated {
+            // Filtering a continuous source has nothing to interpolate
+            // between: the transform already landed on the exact point
+            // the gradient is defined at.
+            return generated.sample(u, v, self.repeat);
         }
         match mapping.filter {
             XRenderPictureFilter::Nearest => self.sample(floor_to_i32(u), floor_to_i32(v)),
@@ -355,12 +436,8 @@ impl XRenderSamplePlane {
         }
         let width = self.width as i32;
         let height = self.height as i32;
-        let (x, y) = if self.repeat {
-            (x.rem_euclid(width), y.rem_euclid(height))
-        } else if x < 0 || y < 0 || x >= width || y >= height {
+        let (Some(x), Some(y)) = (self.repeat.wrap(x, width), self.repeat.wrap(y, height)) else {
             return [0; 4];
-        } else {
-            (x, y)
         };
         let index = (y as usize)
             .saturating_mul(self.width)
@@ -447,18 +524,38 @@ pub(super) fn render_composite_rect(
 impl XRenderSamplePlane {
     /// A plane with no pixels: every sample is transparent black, which is
     /// what a picture over a drawable that has never been drawn contains.
-    pub(crate) fn empty(repeat: bool) -> Self {
+    pub(crate) fn empty(repeat: XRenderRepeat) -> Self {
         Self {
             pixels: Vec::new(),
             width: 0,
             height: 0,
             repeat,
             mapping: None,
+            generated: None,
         }
     }
 }
 
 impl XRenderSamplePlane {
+    /// A plane that computes its pixels: a solid fill or a gradient.
+    ///
+    /// It has no extent of its own -- a gradient is defined everywhere --
+    /// so the width and height stay zero and sampling never reads them.
+    pub(crate) fn from_generated(
+        source: super::render_gradient::XRenderGeneratedSource,
+        repeat: XRenderRepeat,
+        mapping: Option<XRenderSampleMapping>,
+    ) -> Self {
+        Self {
+            pixels: Vec::new(),
+            width: 0,
+            height: 0,
+            repeat,
+            mapping,
+            generated: Some(source),
+        }
+    }
+
     /// A plane over a coverage buffer, one byte per pixel.
     ///
     /// Trapezoid and triangle rasterisation produces coverage, and coverage
@@ -469,8 +566,9 @@ impl XRenderSamplePlane {
             pixels: coverage.iter().map(|value| [0, 0, 0, *value]).collect(),
             width,
             height,
-            repeat: false,
+            repeat: XRenderRepeat::None,
             mapping: None,
+            generated: None,
         }
     }
 
@@ -481,8 +579,9 @@ impl XRenderSamplePlane {
             pixels: pixels.to_vec(),
             width,
             height,
-            repeat: false,
+            repeat: XRenderRepeat::None,
             mapping: None,
+            generated: None,
         }
     }
 }

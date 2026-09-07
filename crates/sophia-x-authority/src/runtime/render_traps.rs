@@ -52,13 +52,7 @@ impl XAuthorityRuntime {
             visible.x.saturating_sub(bounds.x),
             visible.y.saturating_sub(bounds.y),
         );
-        let source_plane = self.software_buffers.render_sample_plane(
-            source_record.drawable,
-            source_record.format,
-            source_record.repeat,
-            source_record.transform,
-            source_record.filter,
-        );
+        let source_plane = self.render_source_plane(&source_record);
         // Xorg anchors the source at the first primitive's leading corner
         // before compositing (fb/fbtrap.c). A client that places a shape far
         // from the origin sends a source offset measured from that corner

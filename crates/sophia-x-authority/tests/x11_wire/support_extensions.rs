@@ -1397,3 +1397,67 @@ fn render_triangles_request(
     }
     out
 }
+
+fn render_create_solid_fill_request(
+    byte_order: XByteOrder,
+    picture: u32,
+    color: [u16; 4],
+) -> Vec<u8> {
+    let mut out = vec![
+        X_RENDER_MAJOR_OPCODE,
+        X_RENDER_CREATE_SOLID_FILL_MINOR_OPCODE,
+    ];
+    push_u16(&mut out, byte_order, 4);
+    push_u32(&mut out, byte_order, picture);
+    for channel in color {
+        push_u16(&mut out, byte_order, channel);
+    }
+    out
+}
+
+/// A linear gradient from `p1` to `p2` with `(position, colour)` stops.
+fn render_create_linear_gradient_request(
+    byte_order: XByteOrder,
+    picture: u32,
+    p1: (i32, i32),
+    p2: (i32, i32),
+    stops: &[(i32, [u16; 4])],
+) -> Vec<u8> {
+    let mut out = vec![
+        X_RENDER_MAJOR_OPCODE,
+        X_RENDER_CREATE_LINEAR_GRADIENT_MINOR_OPCODE,
+    ];
+    push_u16(&mut out, byte_order, (7 + stops.len() * 3) as u16);
+    push_u32(&mut out, byte_order, picture);
+    for value in [p1.0, p1.1, p2.0, p2.1] {
+        push_u32(&mut out, byte_order, value as u32);
+    }
+    push_u32(&mut out, byte_order, stops.len() as u32);
+    for (position, _) in stops {
+        push_u32(&mut out, byte_order, *position as u32);
+    }
+    for (_, color) in stops {
+        for channel in color {
+            push_u16(&mut out, byte_order, *channel);
+        }
+    }
+    out
+}
+
+fn render_change_picture_request(
+    byte_order: XByteOrder,
+    picture: u32,
+    values: &[(u32, u32)],
+) -> Vec<u8> {
+    let mut out = vec![X_RENDER_MAJOR_OPCODE, X_RENDER_CHANGE_PICTURE_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, (3 + values.len()) as u16);
+    push_u32(&mut out, byte_order, picture);
+    let mask = values.iter().fold(0u32, |mask, (bit, _)| mask | (1 << bit));
+    push_u32(&mut out, byte_order, mask);
+    let mut sorted = values.to_vec();
+    sorted.sort_by_key(|(bit, _)| *bit);
+    for (_, value) in sorted {
+        push_u32(&mut out, byte_order, value);
+    }
+    out
+}

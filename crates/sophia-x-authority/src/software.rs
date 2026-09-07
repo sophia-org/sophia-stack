@@ -8,6 +8,7 @@ use crate::{XFontFace, XGraphicsContextValues, XPoint, XResourceId};
 mod raster_ops;
 mod raster_replay;
 mod raster_variants;
+mod render_gradient;
 mod render_ops;
 mod render_traps;
 mod update;
@@ -21,8 +22,9 @@ pub(crate) use raster_variants::{
     XRasterSatisfyOutcome, XRasterUnsupportedKind,
 };
 pub use raster_variants::{XPutImageSemantics, XRasterFallbackCause};
+pub use render_gradient::{XRenderGeneratedSource, XRenderGradientGeometry, XRenderGradientStop};
 pub use render_ops::XRenderPictFormatKind;
-pub use render_ops::{X_RENDER_IDENTITY_TRANSFORM, XRenderPictureFilter};
+pub use render_ops::{X_RENDER_IDENTITY_TRANSFORM, XRenderPictureFilter, XRenderRepeat};
 pub(crate) use render_ops::{
     XRenderSampleMapping, XRenderSamplePlane, render_operator_is_implemented,
 };
@@ -298,7 +300,7 @@ impl XSoftwareBufferStore {
         &self,
         drawable: XResourceId,
         format: XRenderPictFormatKind,
-        repeat: bool,
+        repeat: XRenderRepeat,
         transform: Option<[i32; 9]>,
         filter: XRenderPictureFilter,
     ) -> XRenderSamplePlane {

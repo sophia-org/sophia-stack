@@ -767,6 +767,20 @@ pub enum XWireRequest {
         triangles: Vec<crate::XRenderTriangle>,
         minor_opcode: u8,
     },
+    /// `RenderCreateSolidFill`: a source of one colour, already
+    /// premultiplied on the wire.
+    RenderCreateSolidFill {
+        picture: XResourceId,
+        color: [u16; 4],
+    },
+    /// The linear, radial and conical gradients, which differ only in how a
+    /// point becomes a position along the ramp.
+    RenderCreateGradient {
+        picture: XResourceId,
+        geometry: crate::XRenderGradientGeometry,
+        stops: Vec<crate::XRenderGradientStop>,
+        minor_opcode: u8,
+    },
     /// A RENDER minor Sophia does not implement, decoded so the refusal can
     /// name it.
     RenderUnimplemented {

@@ -4,12 +4,12 @@
 /// already knows. `format` decides how the 32-bit store slots behind the
 /// drawable are read and written; the clip list is kept in destination
 /// coordinates exactly as the client sent it, translated at use.
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct XRenderPictureRecord {
     pub drawable: crate::XResourceId,
     pub drawable_is_window: bool,
     pub format: crate::XRenderPictFormatKind,
-    pub repeat: bool,
+    pub repeat: crate::XRenderRepeat,
     pub clip_rects: Vec<Rect>,
     pub clip_x_origin: i16,
     pub clip_y_origin: i16,
@@ -20,6 +20,9 @@ pub struct XRenderPictureRecord {
     /// untransformed picture keeps the integer sampling path.
     pub transform: Option<[i32; 9]>,
     pub filter: crate::XRenderPictureFilter,
+    /// Set when the picture generates its pixels -- a solid fill or a
+    /// gradient -- and therefore has no drawable behind it.
+    pub generated: Option<crate::XRenderGeneratedSource>,
 }
 
 /// Why a RENDER picture request was refused, kept fine-grained because the
@@ -62,11 +65,8 @@ impl XAuthorityRuntime {
         if let Some(repeat) = values.repeat {
             // Pad and Reflect entered at 0.10, above what is advertised, so
             // for this server they are values the protocol does not define.
-            record.repeat = match repeat {
-                0 => false,
-                1 => true,
-                _ => return Err(XRenderPictureError::InvalidValue),
-            };
+            record.repeat = crate::XRenderRepeat::from_wire(repeat)
+                .ok_or(XRenderPictureError::InvalidValue)?;
         }
         if let Some(origin) = values.clip_x_origin {
             record.clip_x_origin = origin;
@@ -120,13 +120,14 @@ impl XAuthorityRuntime {
             drawable,
             drawable_is_window,
             format,
-            repeat: false,
+            repeat: crate::XRenderRepeat::default(),
             clip_rects: Vec::new(),
             clip_x_origin: 0,
             clip_y_origin: 0,
             component_alpha: false,
             transform: None,
             filter: crate::XRenderPictureFilter::default(),
+            generated: None,
         };
         Self::render_apply_picture_values(&mut record, values)?;
         self.resources
@@ -174,6 +175,66 @@ impl XAuthorityRuntime {
         record.clip_y_origin = clip_y_origin;
         record.clip_rects = rectangles;
         Ok(())
+    }
+
+    /// Create a picture that computes its own pixels.
+    ///
+    /// A solid fill or a gradient has no drawable, so it can only ever be a
+    /// source. Its format is nominally ARGB32 because that is what it
+    /// produces, and its repeat is Normal, which is what a client expects of
+    /// a source with no bounds.
+    pub(crate) fn render_create_generated_picture(
+        &mut self,
+        namespace: NamespaceId,
+        picture: crate::XResourceId,
+        source: crate::XRenderGeneratedSource,
+        generation: u64,
+    ) -> Result<(), XRenderPictureError> {
+        if self.resource_id_in_use(picture) {
+            return Err(XRenderPictureError::IdInUse);
+        }
+        self.resources
+            .insert(picture, XResourceKind::Picture, namespace, generation)
+            .map_err(|_| XRenderPictureError::IdInUse)?;
+        self.render_pictures.insert(
+            picture,
+            XRenderPictureRecord {
+                drawable: picture,
+                drawable_is_window: false,
+                format: crate::XRenderPictFormatKind::Argb32,
+                repeat: crate::XRenderRepeat::Normal,
+                clip_rects: Vec::new(),
+                clip_x_origin: 0,
+                clip_y_origin: 0,
+                component_alpha: false,
+                transform: None,
+                filter: crate::XRenderPictureFilter::default(),
+                generated: Some(source),
+            },
+        );
+        Ok(())
+    }
+
+    /// The plane a picture is sampled through, whether it reads a drawable
+    /// or computes its pixels.
+    pub(crate) fn render_source_plane(
+        &self,
+        record: &XRenderPictureRecord,
+    ) -> crate::XRenderSamplePlane {
+        match &record.generated {
+            Some(source) => crate::XRenderSamplePlane::from_generated(
+                source.clone(),
+                record.repeat,
+                crate::XRenderSampleMapping::new(record.transform, record.filter),
+            ),
+            None => self.software_buffers.render_sample_plane(
+                record.drawable,
+                record.format,
+                record.repeat,
+                record.transform,
+                record.filter,
+            ),
+        }
     }
 
     pub(crate) fn render_set_picture_transform(
@@ -330,21 +391,9 @@ impl XAuthorityRuntime {
         };
         // Sampled before the destination is touched, so a picture composited
         // onto itself reads its original pixels throughout.
-        let source_plane = self.software_buffers.render_sample_plane(
-            source_record.drawable,
-            source_record.format,
-            source_record.repeat,
-            source_record.transform,
-            source_record.filter,
-        );
+        let source_plane = self.render_source_plane(&source_record);
         let mask_plane = mask_record.as_ref().map(|record| {
-            self.software_buffers.render_sample_plane(
-                record.drawable,
-                record.format,
-                record.repeat,
-                record.transform,
-                record.filter,
-            )
+            self.render_source_plane(record)
         });
         let component_alpha = mask_record
             .as_ref()

@@ -1708,7 +1708,7 @@ fn render_handshake_answers_the_lower_version_and_the_visuals_formats() {
     let mut properties = XPropertyTable::new();
 
     // The version answered is the lower of the two.
-    for (asked, answered) in [((0, 99), (0, 6)), ((0, 2), (0, 2)), ((1, 0), (0, 6))] {
+    for (asked, answered) in [((0, 99), (0, 10)), ((0, 2), (0, 2)), ((1, 0), (0, 10))] {
         let request = decode_x11_core_request(
             context(namespace, 701, byte_order),
             &render_query_version_request(byte_order, asked.0, asked.1),
@@ -1860,13 +1860,17 @@ fn render_refusals_split_between_not_offered_and_not_that_version() {
 
     // Within the advertised 0.4: the never-implemented five, the declined
     // trapezoid family, and the base requests still to be implemented.
-    for minor in [3, 9, 14, 15, 21] {
+    // Within the advertised 0.10 and not implemented: the five no server
+    // ever wrote, plus indexed-visual palettes, animated cursors and
+    // AddTraps -- declined by name rather than by silence.
+    for minor in [2, 3, 9, 14, 15, 21, 31, 32] {
         let (code, named) = refusal_for(minor);
         assert_eq!(code, XErrorCode::BadImplementation, "minor {minor}");
         assert_eq!(named, u16::from(minor));
     }
     // Beyond 0.4, or defined by no version at all.
-    for minor in [2, 16, 31, 32, 33, 36, 99] {
+    // Defined by no version of the protocol at all.
+    for minor in [16, 37, 99] {
         let (code, named) = refusal_for(minor);
         assert_eq!(code, XErrorCode::BadRequest, "minor {minor}");
         assert_eq!(named, u16::from(minor));
@@ -2115,16 +2119,15 @@ fn render_pictures_are_refused_and_reclaimed_on_protocol_terms() {
         Some(XErrorCode::BadImplementation)
     );
 
-    // Repeat values above Normal entered at 0.10, above the advertised
-    // version, so they are values this server does not define.
-    let reflect = render_create_picture_request(
+    // The protocol defines four repeat modes; a fifth is not one of them.
+    let undefined_repeat = render_create_picture_request(
         RenderFixture::ORDER,
         0x0020_0203,
         RenderFixture::PIXMAP,
         X_RENDER_FORMAT_ARGB32,
-        &[(0, 3)],
+        &[(0, 4)],
     );
-    let result = fixture.send(&reflect);
+    let result = fixture.send(&undefined_repeat);
     assert_eq!(RenderFixture::error_of(&result), Some(XErrorCode::BadValue));
 
     // An operator the protocol defines and this server withholds is refused
@@ -4730,4 +4733,144 @@ fn render_composite_clipped_by_the_edge_reads_the_same_source_pixels() {
     // which is past the end of a non-repeating source, so it is transparent
     // rather than the green pixel wrongly shifted into view.
     assert_eq!(build(-2), [0, 0, 0, 0], "clipped, and not shifted");
+}
+
+/// A solid fill is a source of one colour with no drawable behind it.
+#[test]
+fn render_solid_fills_paint_the_colour_they_were_given() {
+    let solid = 0x0020_0600;
+    let mut fixture = RenderFixture::with_argb_pixmap(2, 2);
+    // Opaque red, premultiplied on the wire as the protocol defines.
+    let create = render_create_solid_fill_request(
+        RenderFixture::ORDER,
+        solid,
+        [0xffff, 0, 0, 0xffff],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&create)), None);
+    let result = fixture.send(&render_composite_request(
+        RenderFixture::ORDER,
+        1,
+        solid,
+        0,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2,
+        2,
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+    assert_eq!(fixture.pixel(0, 0), [0, 0, 0xff, 0xff]);
+    assert_eq!(fixture.pixel(1, 1), [0, 0, 0xff, 0xff], "everywhere");
+}
+
+/// A linear gradient runs between its stops.
+///
+/// Cairo paints widget backgrounds with these and sends them without asking
+/// what version the server offers, which is how they arrived here.
+#[test]
+fn render_linear_gradients_run_between_their_stops() {
+    let gradient = 0x0020_0601;
+    let mut fixture = RenderFixture::with_argb_pixmap(4, 1);
+    // Black at the left edge, white at the right.
+    let create = render_create_linear_gradient_request(
+        RenderFixture::ORDER,
+        gradient,
+        (0, 0),
+        (4 * 65536, 0),
+        &[
+            (0, [0, 0, 0, 0xffff]),
+            (65536, [0xffff, 0xffff, 0xffff, 0xffff]),
+        ],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&create)), None);
+    let result = fixture.send(&render_composite_request(
+        RenderFixture::ORDER,
+        1,
+        gradient,
+        0,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        4,
+        1,
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+
+    let ramp: Vec<u8> = (0..4).map(|x| fixture.pixel(x, 0)[2]).collect();
+    assert!(
+        ramp.windows(2).all(|pair| pair[0] < pair[1]),
+        "the gradient rises from one stop to the other: {ramp:?}"
+    );
+    assert!(ramp[0] < 0x40, "dark at the first stop: {ramp:?}");
+    assert!(ramp[3] > 0xb0, "light at the last: {ramp:?}");
+    // Every pixel is opaque: both stops are, and interpolating in straight
+    // alpha is what keeps the middle from dimming.
+    for x in 0..4 {
+        assert_eq!(fixture.pixel(x, 0)[3], 0xff, "opaque at {x}");
+    }
+}
+
+/// A gradient with no stops has no colour to show, and is refused.
+#[test]
+fn render_gradients_without_stops_are_refused() {
+    let mut fixture = RenderFixture::with_argb_pixmap(2, 2);
+    let create = render_create_linear_gradient_request(
+        RenderFixture::ORDER,
+        0x0020_0602,
+        (0, 0),
+        (65536, 0),
+        &[],
+    );
+    assert_eq!(
+        RenderFixture::error_of(&fixture.send(&create)),
+        Some(XErrorCode::BadValue)
+    );
+}
+
+/// Pad is what a client painting a gradient reaches for, and it holds the
+/// end colours rather than repeating or clipping them.
+#[test]
+fn render_pad_repeat_holds_a_gradients_end_colours() {
+    let gradient = 0x0020_0603;
+    let mut fixture = RenderFixture::with_argb_pixmap(6, 1);
+    // The ramp is defined over the first two pixels only.
+    let create = render_create_linear_gradient_request(
+        RenderFixture::ORDER,
+        gradient,
+        (0, 0),
+        (2 * 65536, 0),
+        &[
+            (0, [0, 0, 0, 0xffff]),
+            (65536, [0xffff, 0xffff, 0xffff, 0xffff]),
+        ],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&create)), None);
+    let pad = render_change_picture_request(RenderFixture::ORDER, gradient, &[(0, 2)]);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&pad)), None);
+    let result = fixture.send(&render_composite_request(
+        RenderFixture::ORDER,
+        1,
+        gradient,
+        0,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        6,
+        1,
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+    // Past the end of the ramp the last stop's colour is held.
+    assert_eq!(fixture.pixel(5, 0), [0xff, 0xff, 0xff, 0xff], "padded");
 }

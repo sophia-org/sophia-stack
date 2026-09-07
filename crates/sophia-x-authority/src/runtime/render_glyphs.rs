@@ -324,13 +324,7 @@ impl XAuthorityRuntime {
             return Ok(XAuthorityResponsePacket::accepted(transaction));
         }
 
-        let source_plane = self.software_buffers.render_sample_plane(
-            source_record.drawable,
-            source_record.format,
-            source_record.repeat,
-            source_record.transform,
-            source_record.filter,
-        );
+        let source_plane = self.render_source_plane(&source_record);
         let clip = Self::render_translated_clip(&destination_record);
         let mut damage = Region::empty();
         let mut handle = None;

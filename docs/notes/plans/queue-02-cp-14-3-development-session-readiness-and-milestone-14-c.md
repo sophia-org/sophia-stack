@@ -110,3 +110,42 @@ earlier MIT-SHM fix remains valid. Launcher dispatch is working.
 - [3. Make failures diagnosable](queue-05-3-make-failures-diagnosable.md)
 - [4. Exercise real development workflows](queue-06-4-exercise-real-development-workflows.md)
 - [5. Close Milestone 14](queue-07-5-close-milestone-14.md)
+
+**Result.** RENDER 0.6 implemented and advertised: `SetPictureTransform`,
+`QueryFilters` and `SetPictureFilter` all answer, and the version constant
+moved in the same commit the requests started working. Commits `8811fcf5`
+(sampler groundwork), `2f0fb615` (the 0.6 surface), `38a15da5` (the GTK
+probes).
+
+**Evidence.** Thunar and mousepad both complete GTK's startup against a
+headless authority with `first_error=none` across 146 requests, where the
+live session ended them on major 144 minor 30. `x-authority-thunar-smoke` and
+`x-authority-gtk3-smoke` are retained as regression probes.
+`x-authority-render-smoke` reports `version=0.6`. Twenty-six dispatch tests
+cover transform sampling (identity, translation, constant-divisor scale, a
+diverging projective point), bilinear blending, the filter table's exact
+bytes, and the refusal terms.
+
+**Why refusing politely could not have worked.** Both toolkits sent a 0.6
+request against a 0.5 advertisement. Their client libraries do not gate
+`SetPictureFilter` on the version they are told, so honest versioning did not
+protect the minor; the request had to answer.
+
+**A prediction the measurement did not support.** The plan expected trapezoids
+(minors 10-13) to be the next refusal, on yserver's field evidence that GTK
+CSD shadows are drawn with them. Sophia's own traces show neither GTK3 client
+sending RENDER at all in this configuration -- both take the GLX path -- so
+the trapezoid family stays unimplemented and undemanded. It remains a standing
+over-promise against the advertised base version, answering `BadImplementation`
+to anything that does send one; if a trace ever shows that, it becomes a
+measured task. Building it now would have been a survey of what a server
+usually has, which is the thing this project keeps declining to do.
+
+**Limits.** Filters honour nearest and bilinear; convolution is deliberately
+not advertised, so a client that wants kernel work disables it cleanly.
+Transforms are full projective. Gradients and `CreateSolidFill` (0.10) stay
+absent -- cairo renders gradients client-side below 0.10 and only sends them to
+a server that claims it. The probes are headless and admit no window, so they
+prove startup and the absence of refusals, not pixels. **Physical acceptance is
+not claimed here**: this task is `@development`, and seeing Thunar and Ghostty
+open from Super+Space rides the `@physical` session tasks t001-t005.

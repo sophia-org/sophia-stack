@@ -155,8 +155,13 @@ ever needs this, that is the shape to adopt, and their capability flag
 backings) is the staged path. Panels and thumbnailers want `NameWindowPixmap`
 specifically. Until the refusal log names one, absent by decision.
 
-**DAMAGE -- excluded for now.** Its consumers are external compositors and
-screen scrapers, which the exclusion above already declines. One lesson to
+**DAMAGE -- excluded for now, and now measured.** The original rationale said
+its consumers are external compositors and screen scrapers. That was wrong
+about who *asks*: GTK4 zenity queries it, and the GTK3 probes added under t006
+show mousepad and Thunar querying both `Composite` and `DAMAGE` at startup.
+What the measurement does support is the decision: all three find neither,
+continue, and complete startup with no error, which is the clean fallback the
+exclusion assumed and had not previously seen a client perform. One lesson to
 keep if it is ever admitted: yserver runs three separate region machineries
 with written justification, because client-facing damage reports and internal
 repaint damage answer different questions. Their presentation damage subtracts

@@ -7,6 +7,20 @@ static GtkWidget *main_window, *dialog, *menu;
 static char *output_dir;
 static gboolean failed;
 
+static void check_focus_viewable(void) {
+    Display *display = gdk_x11_display_get_xdisplay(gdk_display_get_default());
+    Window focus;
+    int revert_to;
+    XWindowAttributes attributes;
+    XGetInputFocus(display, &focus, &revert_to);
+    gboolean eligible = focus == None || focus == PointerRoot ||
+        (XGetWindowAttributes(display, focus, &attributes) &&
+         attributes.map_state == IsViewable);
+    printf("gtk_redraw focus_after_dialog_unmap=%s\n", eligible ? "pass" : "fail");
+    fflush(stdout);
+    failed |= !eligible;
+}
+
 /* Each controlled white widget must contain both its background and text.
  * Check the dialog halves separately so a surviving Close button cannot hide
  * the original missing-message failure. The menu is checked row by row. */
@@ -78,6 +92,7 @@ static gboolean step(gpointer unused) {
             GDK_GRAVITY_NORTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
         break;
     case 2:
+        check_focus_viewable();
         capture(gtk_widget_get_toplevel(menu), "menu", 8);
         gtk_menu_popdown(GTK_MENU(menu));
         gtk_widget_show_all(dialog);

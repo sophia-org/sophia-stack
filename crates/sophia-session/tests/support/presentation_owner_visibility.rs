@@ -1,5 +1,9 @@
 use super::*;
+use crate::live_session::PendingLiveWmLayout;
 use sophia_protocol::{LayoutNodeKind, SurfacePlacementPreference, SurfacePresentationRole};
+use sophia_protocol::{TransactionCommit, TransactionOutcome};
+use std::collections::{BTreeMap, BTreeSet};
+use std::time::{Duration, Instant};
 
 fn observe(
     layout: &mut PersistentLiveLayout,
@@ -581,4 +585,320 @@ fn an_admitted_window_composes_its_pixels_and_an_unmapped_one_does_not() {
         empty.to_vec().into(),
         "an unmapped window stops contributing pixels"
     );
+}
+
+/// Hiding a window ends the input eligibility of the popups it owns, even
+/// though their own mapped bit never changes.
+///
+/// This is the case a mapped-bit test cannot see, and it is the one that
+/// matters: the surface most likely to hold a pointer grab when it stops being
+/// eligible is a menu, and a menu usually stops being eligible because the
+/// window under it was hidden, not because anything happened to the menu. A
+/// surface whose own bit never moved would keep its focus, its pressed keys
+/// and its route lease.
+#[test]
+fn hiding_an_owner_makes_the_popups_it_owns_newly_ineligible() {
+    let owner = SurfaceId::new(190, 1);
+    let popup = SurfaceId::new(191, 1);
+    let nested = SurfaceId::new(192, 1);
+    let mut layout = PersistentLiveLayout::default();
+    for (surface, role, parent) in [
+        (owner, SurfacePresentationRole::PolicyManaged, None),
+        (
+            popup,
+            SurfacePresentationRole::ClientPositioned,
+            Some(owner),
+        ),
+        (
+            nested,
+            SurfacePresentationRole::ClientPositioned,
+            Some(popup),
+        ),
+    ] {
+        observe(&mut layout, surface, role, parent, true);
+    }
+    let eligible_before = layout.input_eligible_surfaces();
+    assert!(eligible_before.contains(&owner));
+    assert!(eligible_before.contains(&popup));
+    assert!(eligible_before.contains(&nested));
+
+    // Only the owner is hidden. Both popups stay mapped.
+    observe(
+        &mut layout,
+        owner,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        false,
+    );
+    assert!(
+        layout.mapped_surfaces.contains(&popup) && layout.mapped_surfaces.contains(&nested),
+        "the popups' own mapped bits are untouched, which is the point"
+    );
+
+    let mut ended = layout.newly_ineligible_surfaces(&eligible_before);
+    ended.sort_by_key(|surface| surface.index());
+    assert_eq!(
+        ended,
+        vec![owner, popup, nested],
+        "hiding the owner ends eligibility down the whole chain"
+    );
+
+    // Showing it again restores them, so this hides rather than forgets.
+    observe(
+        &mut layout,
+        owner,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        true,
+    );
+    assert!(
+        layout
+            .newly_ineligible_surfaces(&eligible_before)
+            .is_empty()
+    );
+}
+
+/// A surface awaiting its first admission never becomes newly ineligible.
+///
+/// It is unmapped, so a state test would name it and take input standing from
+/// a window the user is still using. It was never eligible, so a difference
+/// cannot name it.
+#[test]
+fn a_surface_awaiting_admission_is_never_newly_ineligible() {
+    let established = SurfaceId::new(193, 1);
+    let opening = SurfaceId::new(194, 1);
+    let mut layout = PersistentLiveLayout::default();
+    observe(
+        &mut layout,
+        established,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        true,
+    );
+    let eligible_before = layout.input_eligible_surfaces();
+
+    observe(
+        &mut layout,
+        opening,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        false,
+    );
+    assert!(
+        !layout.input_eligible(opening),
+        "a surface awaiting admission cannot answer input"
+    );
+    assert!(
+        layout
+            .newly_ineligible_surfaces(&eligible_before)
+            .is_empty(),
+        "and it takes nothing away from the window still in use"
+    );
+    assert!(layout.input_eligible(established));
+}
+
+/// A repaint does not sweep eligibility; a lifecycle change does.
+///
+/// The sweep runs on every authority batch, and most batches are repaints, so
+/// gating it is what keeps a per-frame allocation off the steady-state path.
+/// The gate has to stay generous in one direction: reparenting a mapped popup
+/// under a hidden window ends its eligibility without touching its own mapped
+/// bit, so an owner change counts even when everything reports itself mapped.
+#[test]
+fn only_lifecycle_batches_sweep_input_eligibility() {
+    let owner = SurfaceId::new(195, 1);
+    let popup = SurfaceId::new(196, 1);
+    let other = SurfaceId::new(197, 1);
+    let mut layout = PersistentLiveLayout::default();
+    observe(
+        &mut layout,
+        owner,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        true,
+    );
+    observe(
+        &mut layout,
+        other,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        true,
+    );
+    observe(
+        &mut layout,
+        popup,
+        SurfacePresentationRole::ClientPositioned,
+        Some(owner),
+        true,
+    );
+
+    let batch_for = |surface, role, parent, mapped| {
+        let mut batch =
+            crate::live_session::wm_update_coordinator_batch(TransactionId::from_raw(98));
+        batch.surface_presentations.push(
+            sophia_x_authority::XAuthoritySurfacePresentationObservation {
+                surface,
+                role,
+                kind: LayoutNodeKind::Toplevel,
+                placement_preference: SurfacePlacementPreference::Default,
+                owner: parent,
+                stack_rank: 0,
+                mapped,
+                geometry: admission_geometry(),
+                constraints: SurfaceConstraints {
+                    min_size: None,
+                    max_size: None,
+                },
+                generation: 1,
+            },
+        );
+        batch
+    };
+
+    // An ordinary repaint: same role, same owner, still mapped.
+    let repaint = batch_for(
+        popup,
+        SurfacePresentationRole::ClientPositioned,
+        Some(owner),
+        true,
+    );
+    assert!(
+        !layout.batch_can_end_input_eligibility(&repaint),
+        "a repaint cannot end eligibility and must not sweep"
+    );
+
+    // Hiding can.
+    let hide = batch_for(
+        popup,
+        SurfacePresentationRole::ClientPositioned,
+        Some(owner),
+        false,
+    );
+    assert!(layout.batch_can_end_input_eligibility(&hide));
+
+    // So can reparenting onto a different owner, with nothing unmapped.
+    let reparent = batch_for(
+        popup,
+        SurfacePresentationRole::ClientPositioned,
+        Some(other),
+        true,
+    );
+    assert!(
+        layout.batch_can_end_input_eligibility(&reparent),
+        "an owner change can hide a mapped popup and must sweep"
+    );
+
+    // And so can a removal, whatever its presentations say.
+    let mut removal = crate::live_session::wm_update_coordinator_batch(TransactionId::from_raw(99));
+    removal.removed_surfaces.push(popup);
+    assert!(layout.batch_can_end_input_eligibility(&removal));
+}
+
+/// Retiring a hidden surface clears the staged focus that would otherwise
+/// hand it the keyboard one commit later.
+///
+/// Clearing `focus_to_apply` and `retirement_focus` is not sufficient on its
+/// own: a staged proposal carries its own `focus`, and committing it puts that
+/// surface straight back into `retirement_focus` or queues a handoff for it.
+/// A hidden window would take the keyboard again a commit after it was taken
+/// away, which is a late resurrection rather than a fix.
+#[test]
+fn retiring_a_hidden_surface_clears_the_staged_focus_that_would_restore_it() {
+    let hidden = SurfaceId::new(198, 1);
+    let other = SurfaceId::new(199, 1);
+    let transaction = TransactionId::from_raw(100);
+    let geometry = admission_geometry();
+    let mut layout = PersistentLiveLayout::default();
+    observe(
+        &mut layout,
+        hidden,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        true,
+    );
+
+    let staged_layer = |surface| LayerSnapshot {
+        input_region: None,
+        translation: None,
+        output: None,
+        surface,
+        authority_local_id: None,
+        namespace: None,
+        stack_rank: 0,
+        geometry,
+        source_size: Size {
+            width: geometry.width,
+            height: geometry.height,
+        },
+        source: BufferSource::CpuBuffer { handle: 1 },
+        damage: Region::empty(),
+        opacity: 1.0,
+        crop: None,
+        transform: Transform::IDENTITY,
+        generation: 1,
+        resize_sync: ResizeSyncCapability::ImplicitOnly,
+    };
+    layout.focus_to_apply = Some((transaction, hidden));
+    layout.pending = Some(PendingLiveWmLayout {
+        transaction,
+        layers: vec![staged_layer(hidden), staged_layer(other)],
+        requested_sizes: BTreeMap::from([
+            (
+                hidden,
+                Size {
+                    width: geometry.width,
+                    height: geometry.height,
+                },
+            ),
+            (
+                other,
+                Size {
+                    width: geometry.width,
+                    height: geometry.height,
+                },
+            ),
+        ]),
+        presentation_states: BTreeMap::new(),
+        presentation_settlements: BTreeSet::new(),
+        configure_deliveries: 0,
+        focus: Some(hidden),
+        deadline: Instant::now() + Duration::from_secs(1),
+        update: sophia_engine::WmTransactionUpdate {
+            commit: TransactionCommit {
+                transaction,
+                outcome: TransactionOutcome::Committed,
+                applied_surfaces: vec![hidden],
+            },
+        },
+        moved_surfaces: 0,
+        staged_transactions: BTreeMap::new(),
+        admission_surfaces: BTreeSet::new(),
+        source: None,
+        policy_settlement: None,
+    });
+
+    layout.retire_hidden_input_claims(hidden);
+
+    let pending = layout.pending.as_ref().expect("the proposal is retained");
+    assert_eq!(
+        pending.focus, None,
+        "the staged focus cannot hand the keyboard back a commit later"
+    );
+    assert_eq!(layout.focus_to_apply, None);
+    assert!(!layout.retirement_focus.contains_key(&hidden));
+    assert_eq!(
+        pending
+            .layers
+            .iter()
+            .map(|layer| layer.surface)
+            .collect::<Vec<_>>(),
+        vec![other],
+        "the hidden surface stops being positioned, and its neighbour is untouched"
+    );
+    assert!(!pending.requested_sizes.contains_key(&hidden));
+    assert!(pending.requested_sizes.contains_key(&other));
+    // Retiring claims is not destroying: nothing here removes content,
+    // admission or the settlement identity the proposal is waiting on.
+    assert_eq!(pending.transaction, transaction);
+    assert!(pending.policy_settlement.is_none());
 }

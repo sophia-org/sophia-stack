@@ -59,3 +59,19 @@ After installing this candidate, accept one ordinary login with
 no arming prompt and a normal logout, then separately confirm that one
 Ctrl+Alt+Backspace chord returns control to greetd. These physical observations
 remain part of t013; deterministic checks do not close that gate.
+
+## Installed startup observation
+
+The user returned in a fresh session on September 7. Session
+`00000001788792259184-92b32790-8c54-4552-a0c7-811d5af1c39c` records release
+`71b9b0d1960403ccbb8922ae1f1b91f3d34d60b9` and binary SHA-256
+`11c76ed1889e891efac957fbe05227bc5287bafd4d61712db16cee012b4d92eb`.
+Its guard process has `--arming=automatic`; the session's own guard log records
+ready and armed, and its lifecycle reaches the session phase. Reduced events
+show continuing presentation and scanout. Recording reports no discarded events
+or storage errors at this observation.
+
+Evidence is under `~/.local/state/sophia/sessions/` in that session directory.
+The old logs directly under `hagia-session/` include a different release's
+failure; use the `current` directory target to attribute this startup correctly.
+Normal logout and physical emergency recovery remain unobserved for this release.

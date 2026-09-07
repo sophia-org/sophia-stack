@@ -367,6 +367,21 @@ matching the pending admission, transaction and surface lifetime; it cannot
 wait for another client request to carry a presentation snapshot. A withdrawn
 or destroyed admission cannot be revived by a late acknowledgement.
 
+Unmapping also revokes the hidden surface's Engine input ownership, including
+focus, pending focus handoffs, key repeat, pressed-key state and application
+route leases. A popup loses that ownership when its presentation owner hides.
+The session synchronizes focus clearing through the existing frontend control
+acknowledgement; the WM chooses replacement focus. Retained pixels do not grant
+a withdrawn surface membership in a WM snapshot, and passive updates while
+hidden do not constitute another map request. A remap may request admission
+without destroying the retained content.
+
+A queued focus clear can outlive its target. A correlated `UnknownSurface`
+acknowledgement for `ClearFocus` retires the request without failing the
+session: destruction has already ended that target's focus. This does not
+relax target validation for commands that establish new surface state, or
+accept missing, mismatched or rejected-authority acknowledgements.
+
 `_NET_WM_WINDOW_TYPE` is reduced at the same boundary because the external
 blind WM never receives application properties. The decoder honors the EWMH
 ordered ATOM list, skips unknown extension types, leaves `NORMAL` under policy,

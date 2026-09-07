@@ -21,6 +21,104 @@ impl PersistentLiveLayout {
         projected(surface)
     }
 
+    /// Whether a surface can still answer input.
+    ///
+    /// Mapping alone is not the question for a client-positioned surface. A
+    /// popup stays mapped while the window that owns it is hidden, and it is
+    /// not eligible then -- the owner chain decides, which is what
+    /// `client_positioned_visible` already walks. Policy is not consulted:
+    /// eligibility here is the authority's mapping, so a projection that has
+    /// not caught up cannot keep a hidden surface answering.
+    fn input_eligible(&self, surface: SurfaceId) -> bool {
+        if self.is_client_positioned(surface) {
+            self.client_positioned_visible::<()>(surface, |_| Ok(true))
+                .unwrap_or(false)
+        } else {
+            self.mapped_surfaces.contains(&surface)
+        }
+    }
+
+    /// Drops the claims the layout still holds on a surface that can no
+    /// longer answer input.
+    ///
+    /// Clearing `focus_to_apply` and `retirement_focus` is not enough on its
+    /// own. A staged proposal keeps its own `pending.focus`, and committing it
+    /// puts that surface straight back into `retirement_focus` or queues a
+    /// focus handoff for it, so the hidden window would take the keyboard again
+    /// one commit later. The pending layout also stops positioning and sizing
+    /// it, which is what destroy already does; the difference is that nothing
+    /// here touches content, admission or the settlement identity, so the
+    /// surface keeps everything it needs to come back.
+    fn retire_hidden_input_claims(&mut self, surface: SurfaceId) {
+        if self
+            .focus_to_apply
+            .is_some_and(|(_, pending)| pending == surface)
+        {
+            self.focus_to_apply = None;
+        }
+        self.retirement_focus.remove(&surface);
+        if let Some(pending) = self.pending.as_mut() {
+            if pending.focus == Some(surface) {
+                pending.focus = None;
+            }
+            pending.layers.retain(|layer| layer.surface != surface);
+            pending.requested_sizes.remove(&surface);
+        }
+    }
+
+    /// Whether this batch can end any surface input eligibility.
+    ///
+    /// Most batches are repaints, and sweeping eligibility for one would put a
+    /// per-frame allocation on the steady-state path for nothing. Only three
+    /// things can take eligibility away: a surface being removed, a surface
+    /// reporting itself unmapped, and a change of owner or role -- reparenting
+    /// a mapped popup under a hidden window hides it without touching its own
+    /// mapped bit. A surface the layout has not described yet counts as a role
+    /// change, which is a lifecycle event and rare.
+    fn batch_can_end_input_eligibility(
+        &self,
+        batch: &sophia_x_authority::XAuthorityObservedTransactionBatch,
+    ) -> bool {
+        !batch.removed_surfaces.is_empty()
+            || batch.surface_presentations.iter().any(|presentation| {
+                !presentation.mapped
+                    || self.presentation_owners.get(&presentation.surface).copied()
+                        != presentation.owner
+                    || self.presentation_roles.get(&presentation.surface).copied()
+                        != Some(presentation.role)
+            })
+    }
+
+    /// Every surface that can currently answer input.
+    ///
+    /// Enumerated over the surfaces the authority has described rather than
+    /// over retained layers: layers come from surface transactions, so a
+    /// surface can be mapped and holding focus before one exists, and sweeping
+    /// layers alone would never see it. Roles are purged on removal, so a
+    /// destroyed surface drops out here without special handling.
+    fn input_eligible_surfaces(&self) -> BTreeSet<SurfaceId> {
+        self.presentation_roles
+            .keys()
+            .copied()
+            .filter(|surface| self.input_eligible(*surface))
+            .collect()
+    }
+
+    /// Surfaces that could answer input before and cannot now.
+    ///
+    /// Taken as a difference rather than from a mapped bit, because the event
+    /// that ends a popup's eligibility is often not its own: hiding the window
+    /// that owns it leaves the popup mapped and ineligible, and a surface whose
+    /// own bit never changed would otherwise keep its focus, its pressed keys
+    /// and its route lease.
+    fn newly_ineligible_surfaces(&self, eligible_before: &BTreeSet<SurfaceId>) -> Vec<SurfaceId> {
+        eligible_before
+            .iter()
+            .copied()
+            .filter(|surface| !self.input_eligible(*surface))
+            .collect()
+    }
+
     fn client_positioned_visible<E>(
         &self,
         surface: SurfaceId,

@@ -255,10 +255,10 @@
                     }
                 }
                 for surface in removed_surfaces {
-                    if keyboard_focus_handoff.target() == Some(surface) {
-                        keyboard_focus_handoff = KeyboardFocusHandoffState::default();
-                        deferred_physical_key_timings.clear();
-                    }
+                    // Proof records a surface going missing. Only a destroy is
+                    // missing: a hidden surface can still come back, so this
+                    // accounting stays here and is not shared with the hide
+                    // path below.
                     if config.application_proof_requested()
                         && metrics.physical_pointer_buttons_routed == 0
                         && Some(surface) == input_surface
@@ -268,30 +268,7 @@
                     if config.application_proof_requested() && Some(surface) == input_surface {
                         application_surface_gone_at.get_or_insert_with(Instant::now);
                     }
-                    focus.clear_surface(surface);
-                    key_repeat.cancel_surface(surface);
-                    let abandoned = clear_client_pressed_keys_state_only(
-                        surface,
-                        &mut client_keys,
-                        &mut client_key_scratch,
-                        &mut modifiers,
-                        input_sender,
-                        &mut routed_input_saturation,
-                        &mut input_delivery.next,
-                        u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
-                    )?;
-                    if abandoned != 0 {
-                        crate::session_eprintln!(
-                            "sophia_live_session_keys schema=1 status=abandoned reason=surface_removed surface={} count={abandoned}",
-                            surface.index(),
-                        );
-                    }
-                    if applied_client_focus == Some(surface) {
-                        applied_client_focus = None;
-                    }
-                    if input_content_surface == Some(surface) {
-                        input_content_surface = None;
-                    }
+                    release_surface_input_standing!(surface, "surface_removed");
                 }
                 if let Some(surface) = input_surface
                     && runtime

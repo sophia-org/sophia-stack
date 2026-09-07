@@ -158,7 +158,7 @@ now requires an accessible, unmapped window with no pending policy admission.
 It changes the X property, not Engine state. Both byte orders, foreign namespace
 denial, pending admission, mapped feedback, and protected `WM_STATE` are tested.
 
-The reusable [GTK probe](../../../tools/probes/README.md) checks actual client
+The reusable <a href="../../../tools/probes/README.md">GTK probe</a> checks actual client
 exit and synthetic pixels in both dialog halves and every menu row. The first
 run is `/tmp/sophia-gtk-redraw-iw35swgi`: all five captures pass and GTK exits
 zero. Running the same probe against installed `4299e1ca` produces only three
@@ -275,6 +275,25 @@ against `34128d80`; candidate binary SHA-256:
 `6879d30225e9bbed11fabfe5da0fc9572f09c8d91c0a755dfa3d9d1a351da967`.
 The running desktop was not replaced. Commit and install this correction before
 the next Kitty/Thunar acceptance attempt; t061 remains open.
+
+## 2026-09-07: Installed Kitty and menu behavior confirmed
+
+In session `00000001788792259184-92b32790-8c54-4552-a0c7-811d5af1c39c`,
+release `71b9b0d1960403ccbb8922ae1f1b91f3d34d60b9`, the user confirmed that
+both checks “seem to be working”: Super+Enter opens a visible Kitty window,
+and Thunar menus work and dismiss without following the switch back to Kitty.
+This supplies physical evidence for the admission repair and the reported
+menu/popup regression, in addition to the retained deterministic tests.
+
+The installed binary SHA-256 is
+`11c76ed1889e891efac957fbe05227bc5287bafd4d61712db16cee012b4d92eb`;
+the session's manifest and reduced events remain under
+`~/.local/state/sophia/sessions/` in that session directory.
+The subsequent report of general sluggishness and all-input loss is tracked
+separately in [t065](ohkzr8kg-unmapped-dialogs-retain-input-ownership-after-leaving-the-scene.md).
+The visual report does not separately establish submenu/sidebar behavior or dialog
+reuse. Those remaining t061 observations can come from ordinary Thunar use;
+the successful Kitty and menu checks do not need to be repeated.
 
 ## Connections
 

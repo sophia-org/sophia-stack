@@ -270,6 +270,57 @@ macro_rules! track_client_key_flush {
     }};
 }
 
+// The input standing a surface can no longer act on: focus,
+// key repeat, pressed keys, the keyboard handoff, and the
+// routes that name it. Shared by destroy and hide so the two
+// cannot drift; what differs is stated at each call site rather
+// than duplicated here.
+macro_rules! release_surface_input_standing {
+    ($surface:expr, $reason:expr) => {{
+        let surface = $surface;
+        if keyboard_focus_handoff.target() == Some(surface) {
+            keyboard_focus_handoff = KeyboardFocusHandoffState::default();
+            deferred_physical_key_timings.clear();
+        }
+        // The pointer handoff decides staleness from committed surfaces and
+        // client routes, and both outlive an unmap, so it would go on deferring
+        // to a target that can no longer answer. Only a handoff naming this
+        // surface is cancelled; unrelated seat and pointer state is left alone.
+        if pointer_focus_handoff.target() == Some(surface) {
+            pointer_focus_handoff = PointerFocusHandoffState::default();
+        }
+        focus.clear_surface(surface);
+        key_repeat.cancel_surface(surface);
+        let abandoned = clear_client_pressed_keys_state_only(
+            surface,
+            &mut client_keys,
+            &mut client_key_scratch,
+            &mut modifiers,
+            input_sender,
+            &mut routed_input_saturation,
+            &mut input_delivery.next,
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        )?;
+        if abandoned != 0 {
+            crate::session_eprintln!(
+                "sophia_live_session_keys schema=1 status=abandoned reason={} surface={} count={abandoned}",
+                $reason,
+                surface.index(),
+            );
+        }
+        if applied_client_focus == Some(surface) {
+            applied_client_focus = None;
+        }
+        if input_content_surface == Some(surface) {
+            input_content_surface = None;
+        }
+        // Pending, retirement and staged focus all name a surface that
+        // is no longer eligible, and any of them can hand it back once
+        // policy catches up.
+        layout.retire_hidden_input_claims(surface);
+    }};
+}
+
 macro_rules! flush_client_keys {
     ($surface:expr, $reason:expr) => {{
         let surface = $surface;

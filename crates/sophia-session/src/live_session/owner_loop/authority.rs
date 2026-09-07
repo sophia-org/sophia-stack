@@ -402,6 +402,16 @@
                             )?;
                         }
                     }
+                    // Eligibility before the batch, so what it ends can be
+                    // named. Collected only for batches that can end it: a
+                    // repaint cannot, and sweeping one would put an allocation
+                    // on the steady-state path. An empty set allocates nothing
+                    // and names nothing.
+                    let eligible_before = if layout.batch_can_end_input_eligibility(batch) {
+                        layout.input_eligible_surfaces()
+                    } else {
+                        BTreeSet::new()
+                    };
                     let layout_observation = layout.observe_authority_batch(batch);
                     if layout_observation.client_route_invalid {
                         return Err("frontend surface-owner route changed without retirement".into());
@@ -411,6 +421,76 @@
                     }
                     if layout_observation.admission_group_overflowed {
                         return Err("pre-admission authority-group capacity exceeded".into());
+                    }
+                    // Handled here, at the observation boundary, rather than
+                    // after production: pending focus can advance during layout
+                    // service, and a surface must not still be a focus
+                    // candidate once it can no longer answer input.
+                    //
+                    // Nothing below tears down content, admission or buffers. A
+                    // hidden surface keeps all of it and may become eligible
+                    // again; only the standing it can no longer act on is given
+                    // up.
+                    for surface in layout.newly_ineligible_surfaces(&eligible_before) {
+                        // A grabbed popup keeps its application route lease
+                        // unless it is released here, and a lease with no
+                        // eligible surface behind it still lets the
+                        // application-owned guard consume pointer events.
+                        // Released while the owner route is still retained.
+                        let seats = application_route_leases
+                            .leases()
+                            .filter(|lease| {
+                                lease.target_surface == surface
+                                    && !matches!(
+                                        lease.phase,
+                                        sophia_engine::ApplicationRouteLeasePhase::Releasing { .. }
+                                    )
+                            })
+                            .map(|lease| lease.identity.seat)
+                            .collect::<Vec<_>>();
+                        for lease_seat in seats {
+                            request_application_route_lease_release(
+                                &mut application_route_leases,
+                                &layout.client_routes,
+                                route_lease_release_sender,
+                                lease_seat,
+                                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                            )?;
+                        }
+                        let held_focus = focus.focused_surface(seat) == Some(surface);
+                        release_surface_input_standing!(surface, "surface_hidden");
+                        // Clearing the session's own record is not enough: the
+                        // frontend still holds the X input focus, so a hidden
+                        // window that had the keyboard keeps answering for it.
+                        // ClearFocus reverts that to the root through the
+                        // existing control protocol, carrying the transaction
+                        // that ended eligibility so the acknowledgement
+                        // correlates. Choosing the replacement stays with the
+                        // window manager.
+                        if !held_focus {
+                            continue;
+                        }
+                        let Some(client) = layout.client_routes.client_for_surface(surface) else {
+                            continue;
+                        };
+                        session_controls
+                            .enqueue(
+                                XAuthorityClientControlCommand {
+                                    client,
+                                    command: XAuthorityControlCommand::ClearFocus {
+                                        transaction: batch.transaction,
+                                        surface,
+                                    },
+                                },
+                                Instant::now(),
+                            )
+                            .map_err(|error| {
+                                format!("failed to queue hidden-surface focus clearing: {error:?}")
+                            })?;
+                        crate::session_println!(
+                            "sophia_live_wm schema=1 status=hidden_focus_cleared transaction={}",
+                            batch.transaction.raw(),
+                        );
                     }
                     if layout_observation.output_reservations_changed
                         && let Some(wm_session) = wm_session.as_mut()

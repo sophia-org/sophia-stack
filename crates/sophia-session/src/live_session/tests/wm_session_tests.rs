@@ -1625,3 +1625,6 @@ mod policy_output_ownership;
 
 #[path = "../../../tests/support/work_area_recovery.rs"]
 mod work_area_recovery;
+
+#[path = "../../../tests/support/withdrawn_policy_snapshot.rs"]
+mod withdrawn_policy_snapshot;

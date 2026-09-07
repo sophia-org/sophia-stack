@@ -374,10 +374,20 @@ fn duplicate_and_over_capacity_controls_fail_closed() {
 
 #[test]
 fn stale_target_acknowledgements_retire_without_rejection_debt() {
+    for kind in [
+        XAuthorityControlKind::CloseSurface,
+        XAuthorityControlKind::PublishMetadataRule,
+        XAuthorityControlKind::ClearFocus,
+    ] {
+        assert_stale_target_retires(kind);
+    }
+}
+
+fn assert_stale_target_retires(kind: XAuthorityControlKind) {
     let (sender, commands) = sync_channel(SESSION_CONTROL_CAPACITY);
     let (acknowledgements, receiver) = sync_channel(SESSION_CONTROL_CAPACITY);
     let now = Instant::now();
-    let command = control(1, 1, surface(1), XAuthorityControlKind::CloseSurface);
+    let command = control(1, 1, surface(1), kind);
     let mut queue = SessionControlQueue::default();
     queue.enqueue(command, now).unwrap();
     let mut completions = Vec::new();

@@ -750,6 +750,21 @@ macro_rules! drain_physical_input {
             }
             // First-use markers cannot explain a later unresponsive window.
             // Retain counts for button batches without coordinates or codes.
+            if report.keys_observed > 0 || report.pointer_buttons_observed > 0 {
+                crate::session_println!(
+                    "sophia_live_session_input_routing schema=1 key_observed_count={} key_routed_count={} key_no_focus_count={} key_stale_focus_count={} wm_action_count={} pointer_button_count={} pointer_routed_count={} chrome_event_count={} lease_wait_count={} lease_rejected_count={}",
+                    report.keys_observed,
+                    report.keys_routed,
+                    report.keys_suppressed_no_focus,
+                    report.keys_suppressed_stale_focus,
+                    report.wm_actions.len(),
+                    report.pointer_buttons_observed,
+                    report.pointer_routed,
+                    report.chrome_events_consumed,
+                    report.pointer_lease_waits,
+                    report.pointer_lease_rejections,
+                );
+            }
             if report.pointer_buttons_observed > 0 {
                 crate::session_println!(
                     "sophia_live_session_pointer_batch schema=1 observed_count={} routed_count={} suppressed_no_target_count={} suppressed_policy_count={}",

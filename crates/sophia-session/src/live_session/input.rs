@@ -25,6 +25,7 @@ struct PhysicalInputRouteReport {
     floating_outline: FloatingPointerOutlineUpdate,
     keys_observed: usize,
     keys_suppressed_no_focus: usize,
+    keys_suppressed_stale_focus: usize,
     key_targets: Vec<SurfaceId>,
     routed_key_presses: Vec<(u64, u64)>,
     deferred_key_presses: Vec<(u64, u64)>,
@@ -32,6 +33,8 @@ struct PhysicalInputRouteReport {
     pointer_buttons_suppressed_no_target: usize,
     pointer_buttons_suppressed_by_policy: usize,
     pointer_buttons_routed: usize,
+    pointer_lease_waits: usize,
+    pointer_lease_rejections: usize,
     pointer_button_targets: Vec<SurfaceId>,
     pointer_focus_targets: Vec<SurfaceId>,
     pointer_axes_observed: usize,
@@ -664,6 +667,7 @@ fn route_input_events_with_launcher(
         floating_outline: FloatingPointerOutlineUpdate::Unchanged,
         keys_observed: 0,
         keys_suppressed_no_focus: 0,
+        keys_suppressed_stale_focus: 0,
         keys_routed: 0,
         key_targets: Vec::new(),
         routed_key_presses: Vec::new(),
@@ -675,6 +679,8 @@ fn route_input_events_with_launcher(
         pointer_axes_observed: 0,
         pointer_routed: 0,
         pointer_buttons_routed: 0,
+        pointer_lease_waits: 0,
+        pointer_lease_rejections: 0,
         pointer_button_targets: Vec::new(),
         pointer_focus_targets: Vec::new(),
         pointer_axes_routed: 0,
@@ -948,8 +954,12 @@ fn route_input_events_with_launcher(
                                 report.keys_suppressed_no_focus.saturating_add(1);
                             continue;
                         }
-                        FocusedInputRoute::StaleFocus(_)
-                        | FocusedInputRoute::UnsupportedEvent(_) => continue,
+                        FocusedInputRoute::StaleFocus(_) => {
+                            report.keys_suppressed_stale_focus =
+                                report.keys_suppressed_stale_focus.saturating_add(1);
+                            continue;
+                        }
+                        FocusedInputRoute::UnsupportedEvent(_) => continue,
                     }
                 };
                 let Some(target_surface) = event.target_surface else {
@@ -1369,6 +1379,7 @@ fn route_input_events_with_launcher(
                             == sophia_engine::ApplicationRouteLeaseOrigin::ExplicitPointer
                             && lease.phase == ApplicationRouteLeasePhase::Provisional
                     {
+                        report.pointer_lease_waits = report.pointer_lease_waits.saturating_add(1);
                         continue;
                     }
                     let current_admission = fresh_route
@@ -1402,6 +1413,8 @@ fn route_input_events_with_launcher(
                         _ => false,
                     };
                     if !authorized {
+                        report.pointer_lease_rejections =
+                            report.pointer_lease_rejections.saturating_add(1);
                         if let (Some(state), Some(sender)) = (
                             application_route_leases.as_deref_mut(),
                             route_lease_release_sender,

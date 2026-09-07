@@ -1640,16 +1640,21 @@ fn public_policy_surface_snapshots(
     >,
     chrome: sophia_engine::SurfaceChromeStyle,
 ) -> Result<Vec<sophia_protocol::PolicySurfaceSnapshot>, Box<dyn std::error::Error>> {
+    // Retained pixels outlive withdrawal. Only current authority/planning
+    // facts grant a surface standing in the WM snapshot.
     let mut surface_ids = layout
-        .layers
+        .planning_surfaces
         .keys()
-        .chain(layout.planning_surfaces.keys())
         .chain(layout.authority_surface_facts.keys())
         .copied()
         .collect::<BTreeSet<_>>();
     surface_ids.retain(|surface| {
         layout.is_policy_managed(*surface)
             && layout.client_routes.client_for_surface(*surface).is_some()
+            && (layout.mapped_surfaces.contains(surface)
+                || layout.planning_surfaces.contains_key(surface)
+                || layout.admissions.state(*surface)
+                    != sophia_engine::SurfacePresentationAdmissionState::Inactive)
     });
     let mut surfaces = Vec::with_capacity(surface_ids.len());
     for surface in surface_ids {

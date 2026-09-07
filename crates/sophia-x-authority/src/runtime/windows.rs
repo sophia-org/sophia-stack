@@ -293,7 +293,9 @@ impl XAuthorityRuntime {
              self.resources
                  .lookup(namespace, parent, XResourceKind::Window)?;
          }
-        self.windows.set_parent(window, parent).map_err(Into::into)
+        self.change_pointer_anchor_geometry(namespace, |runtime| {
+            runtime.windows.set_parent(window, parent).map_err(Into::into)
+        })
     }
 
     pub fn restack_window(
@@ -627,7 +629,7 @@ impl XAuthorityRuntime {
      ) -> Result<AuthoritySurface, XAuthorityRuntimeError> {
          self.resources
              .lookup(namespace, window, XResourceKind::Window)?;
-         self.windows.apply(XWindowLifecycleEvent::Configured {
+         self.change_pointer_anchor_geometry(namespace, |runtime| runtime.windows.apply(XWindowLifecycleEvent::Configured {
              id: window,
              x: update.x,
              y: update.y,
@@ -635,7 +637,7 @@ impl XAuthorityRuntime {
              height: update.height,
              generation: update.generation,
          })?
-         .ok_or(XAuthorityRuntimeError::UnknownResource)
+         .ok_or(XAuthorityRuntimeError::UnknownResource))
      }
  
      /// Ends an X11 window's lifetime and returns the Sophia surface that the
@@ -660,6 +662,7 @@ impl XAuthorityRuntime {
          self.windows
              .apply(XWindowLifecycleEvent::Destroyed { id: window })?;
          self.resources.remove(window);
+         self.input_authority_mut().forget_query_window(namespace, window);
          self.software_buffers.remove(window);
          self.raster_store.remove(window);
          self.render_drop_pictures_of_drawable(window);

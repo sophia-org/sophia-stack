@@ -329,6 +329,22 @@ coordinates relative to that selected window, and carry current button and
 effective modifier masks. Smooth wheel Motion and its compatibility button
 pair use `XIPointerEmulated`; Engine axis packets remain free of X11 policy.
 
+Core `QueryPointer`, `XIQueryPointer`, and the position and scroll valuators in
+`XIQueryDevice` read shared, namespace-scoped input state. A new connection in
+a trusted shared namespace sees its peers' latest admitted observation without
+selecting events. A confined namespace receives no updates from its neighbours.
+An unobserved or revoked pointer answers the initial zero position and empty
+button state; these replies do not sample physical devices on demand.
+
+Input publication follows epoch and freeze checks and precedes socket delivery.
+Button replies carry the state after a press or release, and modifier changes
+do not require another motion event. The query anchor remains the surface
+Engine selected when an X grab redirects delivery. Engine's root and transformed
+local coordinates remain distinct; the frontend derives X descendant offsets
+from its current hierarchy. Configure and reparent changes adjust a stationary
+anchor, and child lookup rejects unmapped, destroyed, or foreign resources.
+Connection cleanup retains an observation while its namespace still has clients.
+
 `WM_TRANSIENT_FOR` is reduced at the X boundary into two protocol-neutral
 facts: property presence makes the root child client-positioned, while a
 resolvable value supplies an optional presentation owner on `AuthoritySurface`.

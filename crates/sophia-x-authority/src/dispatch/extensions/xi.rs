@@ -209,30 +209,22 @@ fn dispatch_x_input_request(
                     metadata_candidates: Vec::new(),
                 },
                 XWireRequest::XiQueryPointer { window, .. } => {
-                    let output = if window.local.raw() == u64::from(X_SETUP_DEFAULT_ROOT)
-                        || runtime
-                            .validate_window_access(context.namespace, window)
-                            .is_ok()
-                    {
-                        XClientOutput::Reply(XClientReply::XiQueryPointer {
+                    let output = match runtime.query_pointer(context.namespace, window) {
+                        Ok(pointer) => XClientOutput::Reply(XClientReply::XiQueryPointer {
                             sequence: context.sequence,
                             root: XResourceId::new(u64::from(X_SETUP_DEFAULT_ROOT), 1),
-                            child: XResourceId::NONE,
-                            root_x: 0,
-                            root_y: 0,
-                            win_x: 0,
-                            win_y: 0,
-                            buttons: 0,
-                            modifiers: 0,
-                        })
-                    } else {
-                        XClientOutput::Error(crate::XClientError {
-                            code: XErrorCode::BadWindow,
-                            sequence: context.sequence,
-                            resource_id: u32::try_from(window.local.raw()).unwrap_or(0),
-                            minor_code: crate::X_INPUT_QUERY_POINTER_MINOR_OPCODE.into(),
-                            major_code: context.major_opcode,
-                        })
+                            child: pointer.child,
+                            root_x: pointer.root_x,
+                            root_y: pointer.root_y,
+                            win_x: pointer.win_x,
+                            win_y: pointer.win_y,
+                            buttons: u32::from((pointer.mask >> 8) & 0x1f) << 1,
+                            modifiers: pointer.mask & 0xff,
+                        }),
+                        Err(error) => XClientOutput::Error(x_error_from_runtime(error,
+                            context.sequence, context.major_opcode,
+                            crate::X_INPUT_QUERY_POINTER_MINOR_OPCODE.into(),
+                            u32::try_from(window.local.raw()).unwrap_or(0))),
                     };
                     XDispatchResult {
                         response: None,
@@ -378,12 +370,27 @@ fn dispatch_x_input_request(
                     // whole pair. Anything outside the pair reports no devices rather
                     // than an error, which is what a client probing an absent device
                     // expects.
+                    let pointer = runtime.input_authority_mut().pointer_query_state(context.namespace);
                     let devices = X_VIRTUAL_MASTER_DEVICES
                         .iter()
                         .filter(|device| {
                             matches!(device_id, 0 | 1) || device_id == device.device_id
                         })
-                        .map(|device| device.xi2_device_info())
+                        .map(|device| {
+                            let mut info = device.xi2_device_info();
+                            for class in &mut info.classes {
+                                if let XXiDeviceClass::Valuator { number, value, .. } = class {
+                                    *value = match *number {
+                                        0 => i64::from(pointer.position.map_or(0, |p| p.root_x)) << 32,
+                                        1 => i64::from(pointer.position.map_or(0, |p| p.root_y)) << 32,
+                                        crate::X_POINTER_HORIZONTAL_SCROLL_VALUATOR => i64::from(pointer.horizontal_scroll_v120) << 32,
+                                        crate::X_POINTER_VERTICAL_SCROLL_VALUATOR => i64::from(pointer.vertical_scroll_v120) << 32,
+                                        _ => *value,
+                                    };
+                                }
+                            }
+                            info
+                        })
                         .collect();
                     XDispatchResult {
                         response: None,

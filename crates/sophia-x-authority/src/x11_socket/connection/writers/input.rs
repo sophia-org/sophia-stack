@@ -9,6 +9,7 @@ struct X11InputWriterState {
     xkb_modifiers: Arc<AtomicU16>,
     surface_windows: Arc<Mutex<BTreeMap<SurfaceId, XResourceId>>>,
     input_authority: Option<Arc<Mutex<crate::XInputAuthorityState>>>,
+    standalone_query_authority: Option<Arc<Mutex<crate::XInputAuthorityState>>>,
     namespace: NamespaceId,
     client: XServerFrontendClientId,
 }
@@ -29,6 +30,7 @@ fn spawn_x11_input_event_writer(
         xkb_modifiers,
         surface_windows,
         input_authority,
+        standalone_query_authority,
         namespace,
         client,
     } = state;
@@ -147,6 +149,11 @@ fn spawn_x11_input_event_writer(
                     (delivered_window, Some(surface_window), Some(event_ancestry))
                 }
             };
+            if let Some(authority) = standalone_query_authority.as_ref() {
+                authority.lock()
+                    .map_err(|_| X11SetupSocketError::new("X11 input authority lock poisoned"))?
+                    .observe_query_input(namespace, pointer_surface_window.unwrap_or(focused_window), event);
+            }
             if let (Some(input_authority), Some(event_ancestry)) =
                 (input_authority.as_ref(), pointer_event_ancestry.as_ref())
             {

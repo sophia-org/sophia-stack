@@ -128,6 +128,12 @@ repository-tooling direction is defined in
   immediate-child, local-coordinate, button, and modifier state from the X
   hierarchy, and selected device events carry the same hierarchy-relative
   facts. Engine continues to route only protocol-neutral pointer packets.
+  Core and XI pointer queries share the last logically processed input in the
+  caller's namespace, including connections that selected no input events.
+  Socket delivery and grab targets do not own this observation. Queries refine
+  Engine's surface selection through the current X hierarchy; they cannot
+  sample another namespace or perform compositor hit-testing. A security epoch
+  clears the observation, and frozen input does not advance it before thaw.
 - A policy-managed X11 `MapWindow` first emits a protocol-neutral
   `SurfacePresentationIntent`; it does not make the window client-visible.
   Engine and the blind WM can therefore plan from geometry, constraints, role,

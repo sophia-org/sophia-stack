@@ -218,29 +218,23 @@ into t029.
 
 ## t060
 
-`QueryPointer` answers zero for every coordinate: `root_x`, `root_y`, `win_x`
-and `win_y` are all reported as the screen origin, `child` as none, and the
-button mask as empty, whatever the pointer is actually doing.
+Make pointer queries reflect the latest input admitted to their namespace.
+The original diagnosis here missed the socket-layer reply patch: a connection
+that had received pointer input could answer correctly, while another
+connection in the same namespace still answered zero. The
+[investigation](../investigations/knjco01f-pointer-queries-must-share-admitted-namespace-state.md)
+records the live observation, reproducer, repair, and validation limits.
 
-Found while diagnosing a GTK menu that opened offset. The offset itself was
-`TranslateCoordinates` echoing its input, fixed in `ae7b0929`; this is the
-second defect in the same area and was left out of that commit because it
-needs something that one did not.
+Keep Engine's physical-input and scene authority intact. Share query state
+within the X namespace, resolve current X descendants and coordinates, and
+preserve logical button/modifier state through grabs, freeze, and revocation.
+Core and XI replies must agree without requiring event subscriptions. Tests
+must cover two clients, both byte orders, confinement, geometry and resource
+changes, and input lifecycle transitions.
 
-A client uses this to place a menu at the pointer -- which is what a
-right-click context menu is -- and to follow a drag. Answering the origin puts
-those in the corner of the screen.
-
-The obstacle is structural rather than arithmetic. Pointer position lives in
-the socket routing layer, which encodes input events; `QueryPointer` is
-answered in dispatch, which holds the runtime and never sees a pointer. Either
-the routing layer records the last position somewhere dispatch can read it --
-the runtime already holds `input_focus`, so there is precedent for input state
-living there -- or the reply is assembled where the position is known. The
-first is smaller and matches how focus already works.
-
-Worth doing with the `child` field of `TranslateCoordinates`, which is
-unanswered for the same reason: both need to know what is under a point.
+The acceptance exit is passing deterministic checks followed by one installed
+menu-placement and drag check. The unrelated `TranslateCoordinates` offset
+repair remains `ae7b0929`; completing its child field is outside this repair.
 
 Every row above came from measurement rather than a survey of what a server
 usually has. `QueryExtension` now records what it refuses, so the next live

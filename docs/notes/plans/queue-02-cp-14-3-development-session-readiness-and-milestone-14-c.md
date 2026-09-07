@@ -69,6 +69,11 @@ is unresolved; new diagnostics must guide any follow-up. See the
 through Super+Space on installed `8921174c`. The Brave typing check remains
 required; this observation does not complete all of t002 or t003.
 
+Later live use on `ef1ba0e7` exposed a
+[repeating Brave GPU watchdog hang](../investigations/h0vxis10-brave-gpu-watchdog-repeats-during-live-use.md).
+The dumps establish the hang, but its blocking operation and the separately
+reported orange/black border flash remain unconfirmed.
+
 
 Previously completed evidence: [Accept Kitty startup and Super+Enter on a replacement release.](../sources/2026-09/todo-cutover-completed.md#legacy-done-002).
 

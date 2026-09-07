@@ -18,7 +18,7 @@ struct XServerFrontendRouteRegistry {
     /// MSC notifications whose target is still ahead of the clock, flushed as
     /// completions advance it. (window, serial, target_msc)
     pending_msc_notifies: Arc<Mutex<Vec<(XResourceId, u32, u64)>>>,
-    pointer_state: Arc<Mutex<BTreeMap<SeatId, crate::XCorePointerMapper>>>,
+    pointer_state: Arc<Mutex<BTreeMap<(NamespaceId, SeatId), crate::XCorePointerMapper>>>,
     input_authority: Arc<Mutex<crate::XInputAuthorityState>>,
     frozen_input: Arc<Mutex<VecDeque<XDeferredRoutedInput>>>,
     xkb_config: crate::XkbRmlvoConfig,

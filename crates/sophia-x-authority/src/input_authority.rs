@@ -4,6 +4,8 @@ use sophia_protocol::NamespaceId;
 
 use crate::XResourceId;
 
+include!("input_authority/pointer_query.rs");
+
 pub const X_ANY_MODIFIER: u16 = 0x8000;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -48,6 +50,8 @@ pub struct XPassiveInputGrab {
 
 #[derive(Clone, Debug, Default)]
 struct XNamespaceInputAuthority {
+    query: XPointerQueryState,
+    query_clients: std::collections::BTreeSet<u64>,
     pointer: Option<XActiveInputGrab>,
     keyboard: Option<XActiveInputGrab>,
     buttons: Vec<XPassiveInputGrab>,
@@ -283,6 +287,7 @@ impl XInputAuthorityState {
     /// or frozen delivery is allowed to cross the transition.
     pub fn advance_security_epoch(&mut self) {
         for state in self.namespaces.values_mut() {
+            state.query = XPointerQueryState::default();
             state.pointer = None;
             state.keyboard = None;
             state.pointer_frozen = false;
@@ -409,6 +414,10 @@ impl XInputAuthorityState {
         self.xi_selections
             .retain(|(_, selection_owner, _, _), _| *selection_owner != owner);
         self.namespaces.retain(|_, state| {
+            state.query_clients.remove(&owner);
+            if state.query_clients.is_empty() {
+                state.query = XPointerQueryState::default();
+            }
             if state.pointer.is_some_and(|grab| grab.owner == owner) {
                 state.pointer = None;
                 state.pointer_frozen = false;
@@ -430,6 +439,7 @@ impl XInputAuthorityState {
                 state.keyboard_frozen = false;
             }
             state.pointer.is_some()
+                || !state.query_clients.is_empty()
                 || state.keyboard.is_some()
                 || !state.buttons.is_empty()
                 || !state.keys.is_empty()

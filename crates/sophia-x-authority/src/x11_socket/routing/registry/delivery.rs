@@ -4,6 +4,8 @@ impl XServerFrontendRouteRegistry {
             .lock()
             .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
             .advance_security_epoch();
+        self.pointer_state.lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?.clear();
         let drained = {
             let mut frozen = self
                 .frozen_input
@@ -82,11 +84,21 @@ impl XServerFrontendRouteRegistry {
         }
         if route.mode == XAuthorityRoutedInputMode::StateOnly {
             if let InputEventKind::Key { keycode, pressed } = route.request.kind {
-                let _ = self.xkb_worker.request(XkbWorkerCommand::Key {
+                let mapped = self.xkb_worker.request(XkbWorkerCommand::Key {
                     seat: route.request.seat,
                     keycode,
                     pressed,
                 })?;
+                let surface = self.surfaces.lock()
+                    .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+                    .get(&route.request.target_surface).copied();
+                if let (Some(surface), Some((_, _, modifiers))) = (surface, mapped) {
+                    let mut authority = self.input_authority.lock()
+                        .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
+                    if !authority.keyboard_frozen(surface.namespace) {
+                        authority.observe_query_modifiers(surface.namespace, modifiers);
+                    }
+                }
             }
             return Ok(());
         }
@@ -133,7 +145,7 @@ impl XServerFrontendRouteRegistry {
             .lock()
             .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
         let pointer = pointers
-            .entry(route.request.seat)
+            .entry((surface_route.namespace, route.request.seat))
             .or_insert_with(crate::XCorePointerMapper::new);
         let time_msec = u32::try_from(route.request.time_msec).unwrap_or(u32::MAX);
         let event = match route.request.kind {

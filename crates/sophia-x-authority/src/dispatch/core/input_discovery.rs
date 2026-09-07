@@ -205,29 +205,20 @@ fn dispatch_core_input_discovery_request(
                     }
                 }
                 XWireRequest::QueryPointer { window } => {
-                    let output = if window.local.raw() == u64::from(X_SETUP_DEFAULT_ROOT)
-                        || runtime
-                            .validate_window_access(context.namespace, window)
-                            .is_ok()
-                    {
-                        XClientOutput::Reply(XClientReply::QueryPointer {
+                    let output = match runtime.query_pointer(context.namespace, window) {
+                        Ok(pointer) => XClientOutput::Reply(XClientReply::QueryPointer {
                             sequence: context.sequence,
                             root: XResourceId::new(u64::from(X_SETUP_DEFAULT_ROOT), 1),
-                            child: XResourceId::NONE,
-                            root_x: 0,
-                            root_y: 0,
-                            win_x: 0,
-                            win_y: 0,
-                            mask: 0,
-                        })
-                    } else {
-                        XClientOutput::Error(crate::XClientError {
-                            code: XErrorCode::BadWindow,
-                            sequence: context.sequence,
-                            resource_id: u32::try_from(window.local.raw()).unwrap_or(0),
-                            minor_code: 0,
-                            major_code: context.major_opcode,
-                        })
+                            child: pointer.child,
+                            root_x: pointer.root_x,
+                            root_y: pointer.root_y,
+                            win_x: pointer.win_x,
+                            win_y: pointer.win_y,
+                            mask: pointer.mask,
+                        }),
+                        Err(error) => XClientOutput::Error(x_error_from_runtime(error,
+                            context.sequence, context.major_opcode, 0,
+                            u32::try_from(window.local.raw()).unwrap_or(0))),
                     };
                     XDispatchResult {
                         response: None,

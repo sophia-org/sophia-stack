@@ -378,6 +378,11 @@ impl XServerFrontendRouteRegistry {
         event: XAuthorityInputEvent,
         delivery: Option<XAuthorityInputDeliveryId>,
     ) -> Result<(), XServerFrontendRouteError> {
+        // This is logical input already admitted past epoch and freeze checks.
+        // Publish it before subscription filtering or a possibly stalled writer.
+        self.input_authority.lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+            .observe_query_input(namespace, surface_window, event);
         let (xi_device, selected_type) = match event {
             XAuthorityInputEvent::Key(key) => (3, Some(if key.pressed { 2 } else { 3 })),
             XAuthorityInputEvent::Pointer(XAuthorityPointerEvent {
@@ -512,6 +517,29 @@ impl XServerFrontendRouteRegistry {
                 Err(error)
             }
         }
+    }
+
+    // Compatibility ingress already supplies X input rather than an Engine
+    // packet. It must publish query state too, without running XKB twice.
+    fn observe_direct_query_input(
+        &self,
+        route: &XAuthorityClientInputEvent,
+    ) -> Result<(), XServerFrontendRouteError> {
+        let source = {
+            let surfaces = self.surfaces.lock()
+                .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
+            match route.event {
+                XAuthorityInputEvent::Pointer(pointer) => surfaces.get(&pointer.surface).copied(),
+                XAuthorityInputEvent::Key(_) => surfaces.values()
+                    .find(|surface| surface.client == route.client).copied(),
+            }
+        };
+        if let Some(source) = source {
+            self.input_authority.lock()
+                .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+                .observe_query_input(source.namespace, source.window, route.event);
+        }
+        Ok(())
     }
 
     fn route_is_frozen(

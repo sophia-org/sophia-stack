@@ -492,6 +492,7 @@ impl XServerFrontendRouteBroker {
             }
             match self.input_receiver.try_recv() {
                 Ok(route) => {
+                    self.registry.observe_direct_query_input(&route)?;
                     if let Err(error) = self.registry.route_input(route) {
                         self.registry.send_input_delivery(
                             route.client,

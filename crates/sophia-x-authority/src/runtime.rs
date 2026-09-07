@@ -36,6 +36,7 @@ include!("runtime/render_traps.rs");
 include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");
+include!("runtime/pointer_query.rs");
 
 /// Effects of releasing every currently supported resource allocated from one
 /// X11 client connection's setup range.
@@ -274,6 +275,10 @@ impl XAuthorityRuntime {
         input_authority: Arc<Mutex<crate::XInputAuthorityState>>,
     ) {
         self.input_authority = input_authority;
+    }
+
+    pub(crate) fn shared_input_authority(&self) -> Arc<Mutex<crate::XInputAuthorityState>> {
+        self.input_authority.clone()
     }
 
     pub fn with_output_topology(

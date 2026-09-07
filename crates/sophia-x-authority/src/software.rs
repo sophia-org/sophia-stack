@@ -22,7 +22,7 @@ pub(crate) use raster_variants::{
 pub use raster_variants::{XPutImageSemantics, XRasterFallbackCause};
 pub use render_ops::XRenderPictFormatKind;
 pub(crate) use render_ops::{XRenderSamplePlane, render_operator_is_implemented};
-use render_ops::{render_composite_rect, render_fill_rect};
+use render_ops::{mask_rect_to_shape, render_composite_rect, render_fill_rect};
 pub use update::{
     X_AUTHORITY_CPU_PATCH_BATCH_MAX_RECTS, XAuthorityCpuBufferPatch, XAuthorityCpuBufferPatchBatch,
     XAuthorityCpuBufferPatchRegion, XAuthorityCpuBufferSnapshot, XAuthorityCpuBufferUpdate,
@@ -31,6 +31,10 @@ pub use update::{
 use update::{packed_patch_region, patch_is_representable};
 
 pub const X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
+/// The format a shaped presentation buffer takes. The renderer blends a
+/// layer in this format over what is beneath it, which is what turns a
+/// cleared region into a hole rather than a black patch.
+pub const X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888: u32 = u32::from_le_bytes(*b"AR24");
 pub const X_AUTHORITY_SOFTWARE_BUFFER_MAX_BYTES: usize = 64 * 1024 * 1024;
 
 #[derive(Debug, Default)]
@@ -69,6 +73,15 @@ impl XSoftwareBufferStore {
         }
     }
 
+    /// Compose a window's damage into its toplevel's presentation buffer.
+    ///
+    /// `shape` is the toplevel's bounding shape when it has one. The pixels
+    /// outside it are cleared to transparent and the buffer is published as
+    /// ARGB rather than XRGB, which is all it takes to make the shape real:
+    /// the renderer already alpha-blends an ARGB layer over whatever is
+    /// beneath it, so the cleared area stops being this window and starts
+    /// being the desktop behind it.
+    #[allow(clippy::too_many_arguments)]
     pub fn present_window_damage(
         &mut self,
         presentation: XResourceId,
@@ -77,6 +90,7 @@ impl XSoftwareBufferStore {
         source_offset_x: i32,
         source_offset_y: i32,
         damage: &[Rect],
+        shape: Option<&[Rect]>,
     ) -> Option<XAuthorityCpuBufferUpdate> {
         let (source_drawable, source_size) = {
             let source_buffer = self.buffers.get(&source)?;
@@ -173,6 +187,25 @@ impl XSoftwareBufferStore {
                 presentation_damage.push(rect);
             }
         }
+        // A shaped presentation carries alpha, an unshaped one does not.
+        // Crossing between the two changes how every pixel in the buffer is
+        // read, so the whole buffer has to ship rather than a patch that the
+        // receiver would interpret under the old format.
+        let target_format = match shape {
+            Some(_) => X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888,
+            None => X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888,
+        };
+        let format_changed = presentation_buffer.format != target_format;
+        presentation_buffer.format = target_format;
+        if let Some(shape) = shape {
+            // Only the damaged rectangles are masked. Everything outside them
+            // was masked when it was drawn, and re-masking the whole buffer
+            // every frame would cost the window's area per damage event.
+            for rect in &presentation_damage {
+                mask_rect_to_shape(presentation_buffer, *rect, shape);
+            }
+        }
+        let replace = replace || format_changed;
         presentation_buffer.generation = presentation_buffer.generation.checked_add(1)?;
         // A busy client is not a reason to resend the window. The transport
         // carries at most 32 rectangles, and a damage list longer than that
@@ -773,4 +806,146 @@ pub(crate) struct XTextDraw<'a> {
     pub text: &'a [u8],
     pub image: bool,
     pub font: XFontFace,
+}
+
+#[cfg(test)]
+mod shape_present_tests {
+    use super::*;
+
+    fn window(raw: u64) -> XResourceId {
+        XResourceId::new(raw, 1)
+    }
+
+    fn size(width: i32, height: i32) -> Size {
+        Size { width, height }
+    }
+
+    fn whole(width: i32, height: i32) -> Rect {
+        Rect {
+            x: 0,
+            y: 0,
+            width,
+            height,
+        }
+    }
+
+    /// Presenting with a shape clears the pixels outside it and publishes
+    /// the buffer in the alpha format, so the renderer blends the hole
+    /// instead of painting it.
+    #[test]
+    fn a_shaped_presentation_clears_outside_and_carries_alpha() {
+        let mut store = XSoftwareBufferStore::default();
+        let id = window(1);
+        // Something opaque to clip.
+        store
+            .paint_damage(
+                id,
+                size(4, 2),
+                &[whole(4, 2)],
+                &XGraphicsContextValues {
+                    foreground: 0x00ff_ffff,
+                    ..Default::default()
+                },
+            )
+            .expect("paint");
+
+        let left_half = [Rect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+        }];
+        let update = store
+            .present_window_damage(id, size(4, 2), id, 0, 0, &[whole(4, 2)], Some(&left_half))
+            .expect("present");
+        let snapshot = match &update {
+            XAuthorityCpuBufferUpdate::Replace(snapshot) => snapshot.clone(),
+            other => panic!("a format transition must replace the buffer: {other:?}"),
+        };
+        assert_eq!(snapshot.format, X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888);
+        for x in 0..2 {
+            assert_eq!(snapshot.bytes[x * 4 + 3], 0xff, "pixel {x} is inside");
+        }
+        for x in 2..4 {
+            assert_eq!(
+                &snapshot.bytes[x * 4..x * 4 + 4],
+                &[0, 0, 0, 0],
+                "pixel {x} is outside, and transparent rather than black"
+            );
+        }
+    }
+
+    /// Crossing between shaped and unshaped ships a whole buffer each way.
+    ///
+    /// Every pixel already in the buffer was written under the old format,
+    /// and a partial update would leave the ones it does not cover being
+    /// read the wrong way.
+    #[test]
+    fn crossing_the_format_boundary_ships_a_whole_buffer() {
+        let mut store = XSoftwareBufferStore::default();
+        let id = window(2);
+        store
+            .paint_damage(
+                id,
+                size(4, 2),
+                &[whole(4, 2)],
+                &XGraphicsContextValues::default(),
+            )
+            .expect("paint");
+        let half = [Rect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 2,
+        }];
+
+        // Unshaped first, so the buffer starts opaque.
+        let opaque = store
+            .present_window_damage(id, size(4, 2), id, 0, 0, &[whole(4, 2)], None)
+            .expect("present");
+        assert_eq!(
+            opaque.format(),
+            X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888,
+            "an unshaped presentation is opaque"
+        );
+
+        // Becoming shaped crosses the boundary.
+        let shaped = store
+            .present_window_damage(id, size(4, 2), id, 0, 0, &[whole(4, 2)], Some(&half))
+            .expect("present");
+        assert!(
+            matches!(shaped, XAuthorityCpuBufferUpdate::Replace(_)),
+            "becoming shaped replaces: {shaped:?}"
+        );
+        assert_eq!(shaped.format(), X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888);
+
+        // Staying shaped may patch, since the format no longer moves.
+        let still = store
+            .present_window_damage(
+                id,
+                size(4, 2),
+                id,
+                0,
+                0,
+                &[Rect {
+                    x: 0,
+                    y: 0,
+                    width: 1,
+                    height: 1,
+                }],
+                Some(&half),
+            )
+            .expect("present");
+        assert_eq!(still.format(), X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888);
+
+        // And unshaping crosses back.
+        let unshaped = store
+            .present_window_damage(id, size(4, 2), id, 0, 0, &[whole(4, 2)], None)
+            .expect("present");
+        assert!(
+            matches!(unshaped, XAuthorityCpuBufferUpdate::Replace(_)),
+            "unshaping replaces: {unshaped:?}"
+        );
+        assert_eq!(unshaped.format(), X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888);
+    }
 }

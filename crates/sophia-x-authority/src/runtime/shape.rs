@@ -364,3 +364,69 @@ impl XAuthorityRuntime {
         self.shape_selections.retain(|(_, id)| *id != window);
     }
 }
+
+impl XAuthorityRuntime {
+    /// Republish a window whose bounding shape moved.
+    ///
+    /// Drawing is what normally carries a shape to the screen, and a client
+    /// that changes its shape without drawing again would otherwise keep the
+    /// old outline until something else happened to it. The damage is the
+    /// whole window because the change can both add and remove covered area,
+    /// and the area it removed has to be recomposed from whatever is beneath.
+    pub(crate) fn republish_shaped_window(
+        &mut self,
+        transaction: TransactionId,
+        namespace: NamespaceId,
+        window: crate::XResourceId,
+    ) -> Option<XAuthorityResponsePacket> {
+        let record = self.windows.get(window)?;
+        let generation = record.generation;
+        let size = Size {
+            width: record.geometry.width,
+            height: record.geometry.height,
+        };
+        if size.width <= 0 || size.height <= 0 {
+            return None;
+        }
+        // Only a window that has already presented something can be
+        // republished; one that has never drawn has nothing to reshape.
+        if !self.software_buffers.has_cpu_backing(window) {
+            return None;
+        }
+        let shape = match self.effective_shape(window, crate::X_SHAPE_KIND_BOUNDING) {
+            (true, rects) => Some(rects),
+            (false, _) => None,
+        };
+        let whole = Rect {
+            x: 0,
+            y: 0,
+            width: size.width,
+            height: size.height,
+        };
+        let update = self.software_buffers.present_window_damage(
+            window,
+            size,
+            window,
+            0,
+            0,
+            &[whole],
+            shape.as_deref(),
+        )?;
+        let handle = update.handle();
+        // The composed raster has no journal representation, so density
+        // variants fall back to scaling the 1x raster, as they do for every
+        // other operation that reaches pixels this way.
+        self.pending_raster_command = Some(XAuthorityRasterCommand::Unsupported(
+            XRasterUnsupportedKind::RenderOperation,
+        ));
+        Some(self.finish_drawing_update(XDrawingUpdate::core_draw(
+            transaction,
+            namespace,
+            window,
+            handle,
+            Region::single(whole),
+            generation,
+            250,
+        )))
+    }
+}

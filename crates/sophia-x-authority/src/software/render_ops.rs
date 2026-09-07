@@ -343,3 +343,37 @@ impl XRenderSamplePlane {
         }
     }
 }
+
+/// Clear the parts of a rectangle that fall outside a window's bounding
+/// shape, and make the rest opaque.
+///
+/// The buffer's pixels are XRGB with an undefined top byte until this runs;
+/// afterwards every pixel in the rectangle carries a meaningful alpha, which
+/// is what lets the renderer treat the cleared area as a hole. Fully
+/// transparent rather than black: black would be this window painting over
+/// the desktop, which is the opposite of a shape.
+pub(super) fn mask_rect_to_shape(
+    buffer: &mut XAuthorityCpuBufferSnapshot,
+    rect: Rect,
+    shape: &[Rect],
+) {
+    let Some((left, top, right, bottom)) = clipped_bounds(buffer.size, rect) else {
+        return;
+    };
+    let stride = usize::try_from(buffer.stride).unwrap_or(0);
+    let bytes = bytes_mut(buffer);
+    for y in top..bottom {
+        for x in left..right {
+            let offset = y.saturating_mul(stride).saturating_add(x.saturating_mul(4));
+            let Some(slot) = bytes.get_mut(offset..offset.saturating_add(4)) else {
+                continue;
+            };
+            let inside = render_point_in_clip(x, y, shape);
+            if inside {
+                slot[3] = 0xff;
+            } else {
+                slot.copy_from_slice(&[0, 0, 0, 0]);
+            }
+        }
+    }
+}

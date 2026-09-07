@@ -614,13 +614,19 @@ impl XAuthorityRuntime {
                         }
                     }
                 }
+                let shape =
+                    match self.effective_shape(target_window, crate::X_SHAPE_KIND_BOUNDING) {
+                        (true, rects) => Some(rects),
+                        (false, _) => None,
+                    };
                 let Some(update) = self.software_buffers.present_window_damage(
-                target_window,
-                target_size,
+                    target_window,
+                    target_size,
                     pixmap,
-                child_x.saturating_add(i32::from(x_offset)),
-                child_y.saturating_add(i32::from(y_offset)),
+                    child_x.saturating_add(i32::from(x_offset)),
+                    child_y.saturating_add(i32::from(y_offset)),
                     &source_damage,
+                    shape.as_deref(),
                 ) else {
                     return XAuthorityResponsePacket::rejected(
                         transaction,

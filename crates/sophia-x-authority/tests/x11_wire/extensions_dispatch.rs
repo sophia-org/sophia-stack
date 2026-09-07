@@ -3800,3 +3800,163 @@ fn shape_answers_without_being_advertised_yet() {
     let encoded = query.encoded_outputs(ShapeFixture::ORDER);
     assert_eq!(encoded[0][8], 0, "SHAPE must not be advertised yet");
 }
+
+/// A bounding shape clips what the window presents, through the alpha the
+/// renderer already blends.
+///
+/// The presentation buffer is published as ARGB with the shaped-out pixels
+/// cleared to fully transparent, which is what makes the hole show the
+/// desktop rather than a black patch. Asserting the exact bytes is what
+/// distinguishes a shape that clips from a shape that is merely stored.
+#[test]
+fn a_bounding_shape_clears_what_the_window_presents_outside_it() {
+    let mut fixture = ShapeFixture::new();
+    let gc = 0x0020_0420;
+    let create_gc = create_gc_request(ShapeFixture::ORDER, gc, ShapeFixture::WINDOW);
+    assert_eq!(ShapeFixture::error_of(&fixture.send(&create_gc)), None);
+
+    // Fill the window so there is something to clip.
+    let fill = poly_fill_rectangle_request(
+        ShapeFixture::ORDER,
+        ShapeFixture::WINDOW,
+        gc,
+        &[(0, 0, 10, 10)],
+    );
+    assert_eq!(ShapeFixture::error_of(&fixture.send(&fill)), None);
+
+    // Shape it to its left half.
+    let result = fixture.set(
+        X_SHAPE_KIND_BOUNDING,
+        &[Rect {
+            x: 0,
+            y: 0,
+            width: 5,
+            height: 10,
+        }],
+    );
+    assert_eq!(ShapeFixture::error_of(&result), None);
+    assert!(
+        result.response.is_some(),
+        "a shape change republishes the window rather than waiting for a draw"
+    );
+
+    // The masked pixels live in the presentation buffer the update carries,
+    // which is what actually ships, rather than in the window's own backing.
+    let updates = fixture.runtime.take_cpu_buffer_updates();
+    let bytes = shaped_presentation_bytes(&updates).expect("a shaped presentation shipped");
+    // Row zero: five opaque pixels, then five cleared ones.
+    for x in 0..5 {
+        assert_eq!(bytes[x * 4 + 3], 0xff, "pixel {x} is inside the shape");
+    }
+    for x in 5..10 {
+        assert_eq!(
+            &bytes[x * 4..x * 4 + 4],
+            &[0, 0, 0, 0],
+            "pixel {x} is outside the shape, and transparent rather than black"
+        );
+    }
+}
+
+/// The bytes and format of the last shaped presentation an update list
+/// carries, so a test can assert on what actually ships.
+fn shaped_presentation_bytes(updates: &[XAuthorityCpuBufferUpdate]) -> Option<Vec<u8>> {
+    updates.iter().rev().find_map(|update| match update {
+        XAuthorityCpuBufferUpdate::Replace(snapshot)
+            if snapshot.format == X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888 =>
+        {
+            Some(snapshot.bytes.to_vec())
+        }
+        XAuthorityCpuBufferUpdate::PatchBatch(batch)
+            if batch.format == X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888 =>
+        {
+            batch.patches.first().map(|patch| patch.bytes.clone())
+        }
+        _ => None,
+    })
+}
+
+/// Shaping and unshaping moves the published buffer between the alpha and
+/// opaque formats.
+///
+/// The transport shape is the store's business -- it replaces the whole
+/// buffer when the format moves, which `crossing_the_format_boundary_ships_a_whole_buffer`
+/// pins directly. What matters here is that the format a client's shape
+/// request produces reaches the update that ships.
+#[test]
+fn crossing_between_shaped_and_unshaped_moves_the_published_format() {
+    let mut fixture = ShapeFixture::new();
+    let gc = 0x0020_0421;
+    let create_gc = create_gc_request(ShapeFixture::ORDER, gc, ShapeFixture::WINDOW);
+    assert_eq!(ShapeFixture::error_of(&fixture.send(&create_gc)), None);
+    let fill = poly_fill_rectangle_request(
+        ShapeFixture::ORDER,
+        ShapeFixture::WINDOW,
+        gc,
+        &[(0, 0, 10, 10)],
+    );
+    assert_eq!(ShapeFixture::error_of(&fixture.send(&fill)), None);
+
+    let shaped = fixture.set(
+        X_SHAPE_KIND_BOUNDING,
+        &[Rect {
+            x: 0,
+            y: 0,
+            width: 5,
+            height: 10,
+        }],
+    );
+    assert!(shaped.response.is_some());
+    let updates = fixture.runtime.take_cpu_buffer_updates();
+    assert!(
+        updates
+            .iter()
+            .any(|update| update.format() == X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888),
+        "a shaped window publishes in the alpha format: {updates:?}"
+    );
+
+    // And back: unshaping returns the buffer to the opaque format.
+    let unshaped = fixture.send(&shape_mask_request(
+        ShapeFixture::ORDER,
+        X_SHAPE_OP_SET,
+        X_SHAPE_KIND_BOUNDING,
+        ShapeFixture::WINDOW,
+        0,
+        0,
+        0,
+    ));
+    assert!(unshaped.response.is_some());
+    let updates = fixture.runtime.take_cpu_buffer_updates();
+    assert!(
+        updates
+            .iter()
+            .any(|update| update.format() == X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888),
+        "unshaping publishes in the opaque format again: {updates:?}"
+    );
+}
+
+/// A window nobody has drawn into is not republished.
+///
+/// There is no presentation buffer to reshape, and inventing one would ship
+/// a frame for a window that has never had content.
+#[test]
+fn shaping_a_window_that_has_never_drawn_publishes_nothing() {
+    let mut fixture = ShapeFixture::new();
+    let result = fixture.set(
+        X_SHAPE_KIND_BOUNDING,
+        &[Rect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 4,
+        }],
+    );
+    assert_eq!(ShapeFixture::error_of(&result), None);
+    assert!(
+        ShapeFixture::notify_of(&result).is_some(),
+        "the shape still changed, and subscribers are still told"
+    );
+    assert!(
+        result.response.is_none(),
+        "but there is no frame to republish"
+    );
+}

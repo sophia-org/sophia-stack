@@ -724,6 +724,13 @@ impl XAuthorityRuntime {
                 height: presentation_record.geometry.height,
             };
             update.previous_committed_generation = presentation_record.generation;
+            // A bounding shape on the toplevel is what clips the composed
+            // result; an unset one leaves the buffer opaque as before.
+            let shape = match self.effective_shape(presentation_window, crate::X_SHAPE_KIND_BOUNDING)
+            {
+                (true, rects) => Some(rects),
+                (false, _) => None,
+            };
             let Some(presentation_update) = self.software_buffers.present_window_damage(
                 presentation_window,
                 presentation_size,
@@ -731,6 +738,7 @@ impl XAuthorityRuntime {
                 offset_x,
                 offset_y,
                 &update.damage.rects,
+                shape.as_deref(),
             ) else {
                 return XAuthorityResponsePacket::rejected(
                     transaction_id,

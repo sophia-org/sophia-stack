@@ -98,7 +98,7 @@ fn dispatch_shape_request(
             );
             match runtime.combine_shape_region(context.namespace, destination, kind, op, source) {
                 Ok(change) => XDispatchResult {
-                    response: None,
+                    response: shape_republish(context, runtime, change),
                     outputs: change_output(change),
                     metadata_candidates: Vec::new(),
                 },
@@ -152,7 +152,7 @@ fn dispatch_shape_request(
             };
             match outcome {
                 Ok(change) => XDispatchResult {
-                    response: None,
+                    response: shape_republish(context, runtime, change),
                     outputs: change_output(change),
                     metadata_candidates: Vec::new(),
                 },
@@ -194,7 +194,7 @@ fn dispatch_shape_request(
             };
             match outcome {
                 Ok(change) => XDispatchResult {
-                    response: None,
+                    response: shape_republish(context, runtime, change),
                     outputs: change_output(change),
                     metadata_candidates: Vec::new(),
                 },
@@ -222,7 +222,7 @@ fn dispatch_shape_request(
             i32::from(y_offset),
         ) {
             Ok(change) => XDispatchResult {
-                response: None,
+                response: shape_republish(context, runtime, change),
                 outputs: change_output(change),
                 metadata_candidates: Vec::new(),
             },
@@ -346,4 +346,21 @@ fn dispatch_shape_request(
         },
         other => return Unhandled(other),
     })
+}
+
+/// Republish a window whose bounding shape moved, so the new outline reaches
+/// the screen without waiting for the client to draw again.
+///
+/// Only bounding changes the pixels. Clip is consumed by nothing here, and
+/// input shapes never affect what is composed.
+fn shape_republish(
+    context: XDispatchContext,
+    runtime: &mut XAuthorityRuntime,
+    change: Option<crate::XShapeChange>,
+) -> Option<XAuthorityResponsePacket> {
+    let change = change?;
+    if change.kind != crate::X_SHAPE_KIND_BOUNDING {
+        return None;
+    }
+    runtime.republish_shaped_window(context.transaction, context.namespace, change.window)
 }

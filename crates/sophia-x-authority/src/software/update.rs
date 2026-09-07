@@ -106,6 +106,19 @@ impl XAuthorityCpuBufferUpdate {
         }
     }
 
+    /// The pixel format the update's bytes are written in.
+    ///
+    /// Carried by every variant because a shaped presentation ships alpha
+    /// and an unshaped one does not, and the receiver has to read the bytes
+    /// under the format they were written in.
+    pub const fn format(&self) -> u32 {
+        match self {
+            Self::Replace(snapshot) => snapshot.format,
+            Self::Patch(patch) => patch.format,
+            Self::PatchBatch(batch) => batch.format,
+        }
+    }
+
     pub const fn generation(&self) -> u64 {
         match self {
             Self::Replace(snapshot) => snapshot.generation,

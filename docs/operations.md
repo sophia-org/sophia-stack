@@ -100,6 +100,10 @@ typed text, clipboard data, window titles, or application content.
 
 ## Mark and investigate a problem
 
+Installation exposes `sophia` in `/usr/local/bin`; it follows the selected
+release through activation and rollback. On older installations that lack this
+command, use `/opt/sophia/current/target/release/sophia` with the same arguments.
+
 In an ordinary installed session, use a terminal or switch to another TTY and run:
 
 ```sh
@@ -137,6 +141,10 @@ an approved Sophia record, separated by tabs. The manifest identifies the boot.
 The boot clock permits correlation across wall-clock corrections. Identity
 records may arrive after ordinary events; inspection orders events by their
 observation time. Guard and TTY recovery records retain their existing schemas.
+VT lifecycle fields and approved failure codes survive reduction. An
+`unclassified` failure means the cause has no approved code; it does not imply
+that the raw error was retained. Application content and arbitrary error text
+remain excluded.
 
 Resource observations continue every five seconds throughout an ordinary
 recorded session. Storage keeps four event segments of at most 15 MiB each,

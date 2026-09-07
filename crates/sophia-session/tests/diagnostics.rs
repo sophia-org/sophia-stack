@@ -256,6 +256,39 @@ fn payload_values_are_not_copied_from_session_records() {
 }
 
 #[test]
+fn vt_failure_records_retain_the_boundary_and_safe_cause() {
+    use sophia_renderer_live::LiveRendererScanoutBufferExportDetail as Detail;
+    use sophia_session::diagnostics::failure_code;
+
+    let error = Detail::WorkerDisconnected;
+    let record = format!(
+        "sophia_live_renderer_handoff schema=1 status=failed phase=export_images failure_code={} retained_count=5 error=private",
+        failure_code(&error),
+    );
+    assert_eq!(
+        reduced_record(&record).unwrap(),
+        "sophia_live_renderer_handoff schema=1 status=failed phase=export_images failure_code=renderer_worker_disconnected retained_count=5"
+    );
+    let missing: Box<dyn std::error::Error> =
+        "retained scene refers to an unavailable promoted renderer image".into();
+    assert_eq!(failure_code(missing.as_ref()), "handoff_missing_image");
+    let private = std::io::Error::other("/private/application/document");
+    assert_eq!(failure_code(&private), "unclassified");
+    assert_eq!(
+        reduced_record("sophia_live_renderer_handoff failure_code=private_document").unwrap(),
+        "sophia_live_renderer_handoff"
+    );
+    for record in [
+        "sophia_live_session_vt schema=4 status=preparing",
+        "sophia_live_input_epoch schema=1 reason=virtual_terminal epoch=3",
+        "sophia_live_session_runtime_fatal schema=1 status=detected source=owner_loop action=bounded_cleanup",
+        "sophia_live_session_vt schema=6 status=quiesced outcome=forced_detach_timeout",
+    ] {
+        assert_eq!(reduced_record(record).unwrap(), record);
+    }
+}
+
+#[test]
 fn marker_windows_follow_the_boot_clock_across_wall_clock_changes() {
     let fixture = Fixture::new();
     let store = fixture.store();

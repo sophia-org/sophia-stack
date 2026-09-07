@@ -143,6 +143,9 @@ for public_file in "$PREFIX/current/manifest" "$PREFIX/current/SHA256SUMS" \
     }
 done
 [[ ! -e "$PREFIX/previous" ]]
+[[ "$(readlink "$COMMAND_DIR/sophia")" == "$PREFIX/current/target/release/sophia" ]]
+[[ "$(readlink -f "$COMMAND_DIR/sophia")" == "$PREFIX/releases/0001/target/release/sophia" ]]
+"$COMMAND_DIR/sophia" session list
 for desktop in sophia-kitty sophia-native-chrome-proof; do
     [[ -f "$SESSION_DIR/$desktop.desktop" ]]
 done
@@ -161,6 +164,7 @@ ln -s /foreign-hagia-command "$COMMAND_DIR/sophia-hagia-session"
 
 env "${install_env[@]}" "$ROOT_DIR/tools/install_live_session.sh" "$second"
 [[ "$(readlink "$PREFIX/current")" == releases/0002 ]]
+[[ "$(readlink -f "$COMMAND_DIR/sophia")" == "$PREFIX/releases/0002/target/release/sophia" ]]
 [[ "$(readlink "$PREFIX/previous")" == releases/0001 ]]
 [[ ! -e "$SESSION_DIR/sophia.desktop" ]]
 [[ ! -e "$COMMAND_DIR/sophia-verify-xmonad-run" ]]
@@ -170,6 +174,7 @@ grep -Fqx 'Exec=/foreign-hagia-session' "$SESSION_DIR/sophia-hagia.desktop"
 env "${install_env[@]}" "$COMMAND_DIR/sophia-rollback"
 [[ "$(readlink "$PREFIX/current")" == releases/0001 ]]
 [[ "$(readlink "$PREFIX/previous")" == releases/0002 ]]
+[[ "$(readlink -f "$COMMAND_DIR/sophia")" == "$PREFIX/releases/0001/target/release/sophia" ]]
 
 hagia_prefix="$TEMP_DIR/hagia/prefix"
 hagia_sessions="$TEMP_DIR/hagia/sessions"

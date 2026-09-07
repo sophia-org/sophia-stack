@@ -1292,6 +1292,7 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 })();
 if let Err(error) = session_loop_result {
+    let failure_code = crate::diagnostics::failure_code(error.as_ref());
     let original = error.to_string();
     terminal_runtime_error = Some(original.clone());
     if let Err(error) = stop_frontend_intake(
@@ -1301,7 +1302,7 @@ if let Err(error) = session_loop_result {
         terminal_client_cleanup_failures.push(format!("frontend intake stop failed: {error}"));
     }
     crate::session_println!(
-        "sophia_live_session_runtime_fatal schema=1 status=detected source=owner_loop action=bounded_cleanup error={original:?}"
+        "sophia_live_session_runtime_fatal schema=1 status=detected source=owner_loop action=bounded_cleanup failure_code={failure_code} error={original:?}"
     );
 }
 

@@ -86,3 +86,19 @@ visible limitations, never passing evidence.
 - [Operator contract](../../operations.md#mark-and-investigate-a-problem): commands, retention, privacy, and recovery.
 - [Tooling ownership](../../development-tooling.md): Session owns persistence; CLI owns presentation; conformance owns proof verification.
 - [Selected milestone plan](../plans/queue-05-3-make-failures-diagnosable.md): acceptance criteria and task links.
+
+## Installed-session observation
+
+The operator installed `c01663aaea09be57fd8fba7c5c050da3f818bbcd` and reported
+successful login. Read-only inspection found ordinary Hagia session
+`00000001788743375093-ef5c2c4c-345b-4afc-a4f0-d816f34de8d6` running with its
+recorder active. At sequence 1307, health reported zero discarded records,
+zero rotated bytes, and zero storage errors. The identity journal retained
+core/desktop profile digests and completed WM/native-shell executable hashes.
+These are observations of capture in the installed session; the independent-TTY
+marker and retrieval after another login still need operator acceptance.
+
+The subsequent switch to tty3 ended the session. The
+[VT incident investigation](tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
+records the preserved evidence, missing installed CLI command, and diagnostic
+fields lost by reduction. Physical acceptance remains open.

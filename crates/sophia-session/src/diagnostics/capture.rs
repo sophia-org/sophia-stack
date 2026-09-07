@@ -409,7 +409,31 @@ pub fn reduced_record(line: &str) -> Option<String> {
                 | "native"
                 | "hagia"
                 | "kitty"
+                | "queued"
+                | "preparing"
+                | "quiesced"
+                | "requested"
+                | "detected"
+                | "bounded_cleanup"
+                | "owner_loop"
+                | "virtual_terminal"
+                | "modifier_release_timeout"
+                | "quiesce"
+                | "request"
+                | "disable_timeout"
+                | "release_pending"
+                | "suspended"
+                | "active"
+                | "captured"
+                | "restored"
+                | "discarded"
+                | "export_images"
+                | "drained"
+                | "forced_detach_timeout"
+                | "forced_detach_drain_error"
+                | "forced_detach_revoked"
         );
+        let failure = key == "failure_code" && super::failure::approved_failure_code(value);
         let panic_site = name == "sophia_session_panic"
             && key == "source_file"
             && value.len() <= 128
@@ -419,7 +443,7 @@ pub fn reduced_record(line: &str) -> Option<String> {
         let panic_line = name == "sophia_session_panic"
             && key == "source_line"
             && value.bytes().all(|c| c.is_ascii_digit());
-        if numeric || digest || fixed || panic_site || panic_line {
+        if numeric || digest || fixed || failure || panic_site || panic_line {
             result.push(' ');
             result.push_str(field);
         }

@@ -45,3 +45,8 @@ an event from an independent TTY, log out, log in again, and inspect/preserve
 the earlier session by ID. The current session must remain usable while marking.
 This is a normal-use canary, not a resumption of the comparison matrix. A passed
 deterministic test does not close this physical exit or earlier milestone gates.
+
+The first installed attempt ended during VT preparation and exposed missing
+CLI installation and failure fields. The [incident investigation](../investigations/tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
+records the repairs and the evidence needed to diagnose the VT failure before
+repeating physical acceptance.

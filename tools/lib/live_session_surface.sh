@@ -91,6 +91,10 @@ sophia_surface_validate_entries() {
     local release="$1" command desktop
 
     sophia_surface_select_entries "$release" || return
+    [[ -x "$release/target/release/sophia" ]] || {
+        echo "Release is missing the Sophia CLI." >&2
+        return 1
+    }
     for command in "${SOPHIA_SURFACE_COMMANDS[@]}"; do
         [[ -x "$release/bin/$command" ]] || {
             echo "Release is missing operator command: $command" >&2
@@ -157,6 +161,9 @@ sophia_surface_install() {
     for command in "${SOPHIA_SURFACE_COMMANDS[@]}"; do
         ln -sfn "$prefix/current/bin/$command" "$command_dir/$command"
     done
+    # Every supported release already carries the CLI here. Point through
+    # current so activation and rollback select the same binary as the session.
+    ln -sfn "$prefix/current/target/release/sophia" "$command_dir/sophia"
 
     sed_prefix="${prefix//\\/\\\\}"
     sed_prefix="${sed_prefix//&/\\&}"

@@ -21,6 +21,7 @@ SESSION_PROFILE="${SOPHIA_TTY_PROFILE:-}"
 SESSION_STARTUP="${SOPHIA_SESSION_STARTUP:-terminal}"
 SESSION_WATCHDOG_SECONDS="${SOPHIA_SESSION_WATCHDOG_SECONDS:-}"
 INPUT_GUARD_ARM_TIMEOUT_SECONDS="${SOPHIA_INPUT_GUARD_ARM_TIMEOUT_SECONDS:-30}"
+INPUT_GUARD_ARMING="${SOPHIA_INPUT_GUARD_ARMING:-manual}"
 SESSION_HANDOFF="${SOPHIA_SESSION_HANDOFF:-display_manager}"
 TRUECOLOR_PROOF="${SOPHIA_TRUECOLOR_PROOF:-false}"
 FIREFOX_M10_PROOF=false
@@ -74,6 +75,10 @@ if [[ ! "$INPUT_GUARD_ARM_TIMEOUT_SECONDS" =~ ^[1-9][0-9]*$
     exit 1
 fi
 INPUT_GUARD_ARM_WAIT_TICKS=$((INPUT_GUARD_ARM_TIMEOUT_SECONDS * 20))
+if [[ "$INPUT_GUARD_ARMING" != manual && "$INPUT_GUARD_ARMING" != automatic ]]; then
+    echo "SOPHIA_INPUT_GUARD_ARMING must be manual or automatic." >&2
+    exit 1
+fi
 if [[ "$SESSION_HANDOFF" != display_manager && "$SESSION_HANDOFF" != cycle_runner ]]; then
     echo "SOPHIA_SESSION_HANDOFF must be display_manager or cycle_runner." >&2
     exit 1
@@ -393,12 +398,17 @@ lifecycle_current_phase=input_guard
 lifecycle_phase entering input_guard
 "$SOPHIA_BIN" session input-guard \
     "${input_source_args[@]}" \
+    --arming="$INPUT_GUARD_ARMING" \
     --armed-file="$GUARD_ARMED_FILE" \
     --triggered-file="$GUARD_TRIGGERED_FILE" \
     --owner-pid="$$" >>"$GUARD_LOG" 2>&1 &
 guard_pid=$!
-echo "Safety check: press and release Ctrl-Alt-Backspace once to arm recovery."
-echo "During Sophia, press Ctrl-Alt-Backspace again for emergency recovery."
+if [[ "$INPUT_GUARD_ARMING" == manual ]]; then
+    echo "Safety check: press and release Ctrl-Alt-Backspace once to arm recovery."
+    echo "During Sophia, press Ctrl-Alt-Backspace again for emergency recovery."
+else
+    echo "Waiting for the emergency input guard to open keyboard input."
+fi
 for ((guard_wait_tick = 0; guard_wait_tick < INPUT_GUARD_ARM_WAIT_TICKS; guard_wait_tick++)); do
     [[ ! -s "$GUARD_ARMED_FILE" ]] || break
     kill -0 "$guard_pid" 2>/dev/null || {
@@ -1023,6 +1033,16 @@ elif [[ "$SESSION_PROFILE" == standalone
     printf 'sophia_terminal_benchmark schema=2 workload=xterm-cpu duration_seconds=%s surface_width=%s surface_height=%s lines_per_iteration=%s interval_msec=%s\n' \
         "$xterm_duration" "$xterm_width" "$xterm_height" \
         "$xterm_lines" "$xterm_interval_msec" >>"$SESSION_LOG"
+fi
+# Preparation can outlive guard readiness. Never take over after recovery was
+# requested or after the independent reader failed while we were preparing.
+if [[ -s "$GUARD_TRIGGERED_FILE" ]]; then
+    echo "Emergency recovery requested before graphics takeover."
+    exit 130
+fi
+if ! kill -0 "$guard_pid" 2>/dev/null; then
+    echo "Input guard exited before graphics takeover; see $GUARD_LOG" >&2
+    exit 1
 fi
 lifecycle_current_phase=graphics_takeover
 python3 "$TTY_MODE_HELPER" graphics

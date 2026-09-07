@@ -5,6 +5,11 @@ use crate::emergency_input::{EmergencyChordAction, EmergencyChordState};
 const INPUT_GUARD_GRACE_MSEC: u64 = 250;
 
 pub(crate) fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
+    let automatic_arming = match arg_value(args, "--arming").as_deref() {
+        None | Some("manual") => false,
+        Some("automatic") => true,
+        Some(_) => return Err("input guard --arming must be manual or automatic".into()),
+    };
     let input_devices = arg_value(args, "--input-devices")
         .unwrap_or_default()
         .split(',')
@@ -40,7 +45,16 @@ pub(crate) fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         sophia_backend_live::open_native_libinput_path_poller(&input_devices, devices, 64)?
     };
     let policy = poller.reader().policy_report();
-    let mut chord = EmergencyChordState::awaiting_arm();
+    // Path-based polling can open a pointer alone. It cannot protect a session
+    // that is about to take over the display, even if no handshake is required.
+    if policy.keyboards == 0 {
+        return Err("input guard requires an opened keyboard".into());
+    }
+    let mut chord = if automatic_arming {
+        EmergencyChordState::armed()
+    } else {
+        EmergencyChordState::awaiting_arm()
+    };
     crate::session_println!(
         "sophia_session_input_guard schema=2 status=ready source={} seat={} devices={} keyboards={}",
         if policy.udev_managed { "udev" } else { "paths" },
@@ -49,6 +63,11 @@ pub(crate) fn run(args: &[String]) -> Result<(), Box<dyn std::error::Error>> {
         policy.keyboards,
     );
     std::io::stdout().flush()?;
+    if automatic_arming {
+        std::fs::write(&armed_file, b"armed\n")?;
+        crate::session_println!("sophia_session_input_guard schema=1 status=armed");
+        std::io::stdout().flush()?;
+    }
 
     loop {
         if !std::path::Path::new(&format!("/proc/{owner_pid}")).exists() {

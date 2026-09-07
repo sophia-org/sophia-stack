@@ -230,11 +230,19 @@ profile is useful.
 
 ## Emergency Recovery And Fallback
 
-The independent input guard is armed before graphics takeover. If both
-rendering and routed input are unusable, press and release
-`Ctrl+Alt+Backspace`. The guard does not depend on Sophia, Hagia, or Narthex. It
-ends the supervised process group, restores keyboard/KD/termios state, and
-returns control to greetd.
+An ordinary installed login arms the independent input guard automatically,
+after it opens keyboard input and before graphics takeover. There is no login
+chord to rehearse. If rendering and routed input become unusable, press
+`Ctrl+Alt+Backspace` once for emergency recovery. The guard runs outside the
+compositor, WM, and shell; the supervisor ends the session process group,
+restores keyboard/KD/termios state, and returns control to greetd.
+
+Development launchers and installed proof or promotion sessions retain manual
+arming: press and release the chord when prompted, then use it again if recovery
+is needed. Set `SOPHIA_INPUT_GUARD_ARMING=manual` to request this check for an
+ordinary installed login too. The underlying `sophia session input-guard`
+command accepts `--arming=manual|automatic` and defaults to manual. Neither mode
+disables recovery or permits graphics takeover without guard readiness.
 
 After greetd returns:
 

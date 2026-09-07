@@ -107,6 +107,12 @@ validation now refuses a trigger Sophia cannot bind to a keycode — the second
 defect that ended a login, and one `hagia config check` had been calling
 valid. Installation of that release awaits local sudo authentication.
 
+The September 7 [guard update](../investigations/6q35cl9y-normal-login-arms-recovery-without-a-keyboard-rehearsal.md)
+removes manual arming from ordinary installed logins while retaining independent
+recovery and the manual proof handshake. Accept login without the handshake,
+normal logout, and a separate emergency recovery after installing the candidate;
+these observations do not replace the other t013 identity and fallback exits.
+
 
 ## t014
 

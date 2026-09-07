@@ -227,4 +227,99 @@ fi
 wait "$stop_pid" 2>/dev/null || true
 stop_pid=""
 
+# Ordinary logins default to automatic arming; proofs retain a physical
+# handshake even when the environment requests automatic arming.
+arming_release="$TEMP_DIR/arming-release"
+arming_capture="$TEMP_DIR/arming-observed"
+install -d -m 755 "$arming_release/bin" "$arming_release/target/release" \
+    "$arming_release/tools/lib"
+install -m 644 "$ROOT_DIR/tools/lib/session_lifecycle.sh" \
+    "$arming_release/tools/lib/session_lifecycle.sh"
+install -m 755 "$ROOT_DIR/tools/installed/sophia-session" \
+    "$arming_release/bin/sophia-session"
+make_executable "$arming_release/target/release/sophia-wm-demo"
+make_executable "$arming_release/target/release/hagia"
+make_executable "$arming_release/target/release/narthex"
+make_executable "$arming_release/bin/capture-runtime-identity"
+printf 'version=0.1.0\ncommit=%040d\n' 0 >"$arming_release/manifest"
+# Capture both exits: the ordinary supervisor and the direct proof runner.
+for entry in target/release/sophia tools/run_sophia_session.sh; do
+    printf '#!/usr/bin/env bash\nprintf "%%s\\n" "${SOPHIA_INPUT_GUARD_ARMING-unset}" >"$SOPHIA_ARMING_CAPTURE"\nexit 0\n' \
+        >"$arming_release/$entry"
+    chmod 755 "$arming_release/$entry"
+done
+printf '#!/usr/bin/env bash\nif [[ "${1:-}" == begin ]]; then mktemp -d "${SOPHIA_ARMING_CAPTURE}.attempt.XXXXXX"; fi\nexit 0\n' \
+    >"$arming_release/bin/sophia-record-hagia-run"
+chmod 755 "$arming_release/bin/sophia-record-hagia-run"
+
+arming_profile_mode=explicit
+arming_attempt_mode=hagia
+arming_extra_env=()
+observed_arming() {
+    local ambient="$1"
+    shift
+    rm -f "$arming_capture"
+    local -a fixture_env=(
+        PATH="$PATH"
+        HOME="$TEMP_DIR/arming-home"
+        XDG_STATE_HOME="$TEMP_DIR/arming-state"
+        SOPHIA_ARMING_CAPTURE="$arming_capture"
+        SOPHIA_TTY_PROFILE=hagia
+        SOPHIA_INSTALLED_ATTEMPT_MODE="$arming_attempt_mode"
+        SOPHIA_HAGIA_PROFILE_MODE="$arming_profile_mode"
+        SOPHIA_DESKTOP_PROFILE_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+    )
+    fixture_env+=("${arming_extra_env[@]}")
+    if [[ "$ambient" != - ]]; then
+        fixture_env+=(SOPHIA_INPUT_GUARD_ARMING="$ambient")
+    fi
+    env -i "${fixture_env[@]}" "$arming_release/bin/sophia-session" "$@" \
+        >"$TEMP_DIR/arming-launch.log" 2>&1 || true
+    if [[ -s "$arming_capture" ]]; then
+        cat "$arming_capture"
+    else
+        printf 'never-reached-the-session\n'
+    fi
+}
+
+arming_expect() {
+    local expected="$1" observed="$2" description="$3"
+    if [[ "$observed" != "$expected" ]]; then
+        echo "installed launcher arming: $description expected $expected, observed $observed" >&2
+        exit 1
+    fi
+}
+
+# An ordinary desktop arms itself.
+arming_expect automatic "$(observed_arming -)" "ordinary session with no ambient arming"
+# An explicit request survives the default, so a development session on an
+# ordinary profile can still ask for the handshake.
+arming_expect manual "$(observed_arming manual)" "ordinary session with manual requested"
+# A proof run keeps the handshake even when the environment asks for
+# automatic, so ambient automatic cannot skip the rehearsal.
+arming_expect manual "$(observed_arming automatic --proof)" "proof run under ambient automatic"
+arming_expect manual "$(observed_arming automatic --max-runtime-ms=1000)" \
+    "bounded run under ambient automatic"
+# A promotion session is a proof by profile rather than by argument.
+arming_profile_mode=packaged-promotion
+arming_expect manual "$(observed_arming automatic)" "packaged promotion under ambient automatic"
+arming_profile_mode=explicit
+arming_attempt_mode=hagia-promotion
+arming_expect manual "$(observed_arming automatic)" "promotion attempt under ambient automatic"
+arming_attempt_mode=hagia
+# Some runs select the proof path by environment rather than by argument.
+# Diagnostics and arming have to agree on which path that is, or a run would
+# collect proof evidence while arming itself.
+arming_extra_env=(SOPHIA_TRUECOLOR_PROOF=true)
+arming_expect manual "$(observed_arming automatic)" \
+    "truecolor proof by environment under ambient automatic"
+arming_extra_env=(SOPHIA_SESSION_WATCHDOG_SECONDS=30)
+arming_expect manual "$(observed_arming automatic)" \
+    "watchdog-bounded run by environment under ambient automatic"
+# A false value is not a proof request and must not cost a desktop its default.
+arming_extra_env=(SOPHIA_TRUECOLOR_PROOF=false)
+arming_expect automatic "$(observed_arming -)" \
+    "ordinary session with truecolor proof explicitly disabled"
+arming_extra_env=()
+
 echo "native-only live-session install, activation, and rollback checks passed"

@@ -748,6 +748,17 @@ macro_rules! drain_physical_input {
                 crate::session_println!("sophia_live_session_pointer schema=2 status=motion_routed");
                 input_observations.pointer_motion_routed = true;
             }
+            // First-use markers cannot explain a later unresponsive window.
+            // Retain counts for button batches without coordinates or codes.
+            if report.pointer_buttons_observed > 0 {
+                crate::session_println!(
+                    "sophia_live_session_pointer_batch schema=1 observed_count={} routed_count={} suppressed_no_target_count={} suppressed_policy_count={}",
+                    report.pointer_buttons_observed,
+                    report.pointer_buttons_routed,
+                    report.pointer_buttons_suppressed_no_target,
+                    report.pointer_buttons_suppressed_by_policy,
+                );
+            }
             if !input_observations.pointer_button_observed
                 && report.pointer_buttons_observed > 0
             {

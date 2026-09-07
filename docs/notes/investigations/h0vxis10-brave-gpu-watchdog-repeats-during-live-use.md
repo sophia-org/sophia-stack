@@ -60,6 +60,41 @@ the recorder omits the frame and focus counts from those records. A generation
 change alone cannot distinguish focus changes, changed geometry, or missing
 chrome during composition. The border cause remains unconfirmed.
 
+## Replacement-session recurrence
+
+Installed `86ab21e4`, session
+`00000001788751946481-31db6852-d07f-4f08-8ed9-87f63a561f59`, produced dump
+`70caf92a-1dba-4215-9b18-57045b6dab1b.dmp` at 23:41:18 EDT on September 6.
+Selective inspection identifies a GPU process and the same watchdog source
+file. The user reports that all Brave interaction stops after a few clicks,
+then recovers after switching windows.
+
+At 23:46:55 EDT, browser PID 29334 and replacement GPU PID 28919 were both
+sleeping in `poll_schedule_timeout.constprop.0`; the GPU watchdog thread was
+waiting on a futex. No newer dump existed. These are waiting-state samples,
+not stack traces or proof of a particular blocked X request.
+
+Source inspection found that deferred `PresentNotifyMSC` requests advance only
+through Present completions. A future timing request can therefore lack progress
+when there are no further completions; reading the clock and queuing a request
+also use separate locks. This is a liveness hypothesis, not an attribution of
+the browser freeze. An invisible temporary probe window subscribed only to its
+own Present events and asked for current MSC followed by MSC + 1. Two probes
+returned in approximately 1 ms and 14 ms, including the one immediately after
+the latest freeze report. The second advanced from 19566741 to 19566742.
+The probe did not reproduce a stopped global presentation clock. It never
+mapped a window, took focus, injected input, or changed another application's
+subscription. Its observed script path is `/tmp/sophia-present-clock-probe.py`.
+
+The [Present specification](https://sources.debian.org/src/xorgproto/2025.1-1/presentproto.txt)
+defines timing notifications independently of submitting new pixmaps. Any
+repair must use Engine/backend timing and retain frontend event ownership,
+without fabricated frame completions or a WM timing policy.
+
+[Interaction diagnostics](ce2b55uy-blank-thunar-menus-and-frozen-brave-need-separate-pixel-and-delivery-evidence.md)
+now preserve delivery and grab counters that the old recorder discarded. This
+is an evidence repair; neither the graphics hang nor the freeze is fixed.
+
 ## Next diagnostic step
 
 On a deliberate browser relaunch, retain browser stderr in a private bounded

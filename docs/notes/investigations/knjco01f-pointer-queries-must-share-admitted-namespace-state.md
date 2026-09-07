@@ -79,9 +79,25 @@ compiled-test identity, and verified SHA-256 inventory. The candidate is
 `7664a3905c3bb42191e46f80db1725e21db9127a748db450ce2c004bb7bec990`.
 These records exclude session credentials and browser dumps.
 
-These are deterministic checks. The installed session still runs the earlier
-binary. One installed menu-placement and drag check remains the physical
-acceptance gate for t060; reloading Hagia cannot replace this frontend code.
+These are deterministic checks. One installed menu-placement and drag check
+remains the physical acceptance gate for t060.
+
+The user's replacement live session is
+`00000001788751946481-31db6852-d07f-4f08-8ed9-87f63a561f59`, running
+`86ab21e4879cc5b3154ca1192775de73e6e6a030`. Its binary SHA-256 is
+`0d972718c734751aba7fe58eb5075eb9f2f776bb4da7fdea3d69e80f98ac4d06`.
+Preflight, input guard, and graphics takeover completed; the recorder was
+running with no discarded records or storage errors, and the inspected startup
+events contained no failure, rejection, protocol-error, or recovery record.
+A fresh read-only QueryPointer probe still returned the empty initial state.
+Pointer activity in an application had not yet been confirmed, so this is
+neither physical acceptance nor evidence that the repair failed.
+
+After pointer activity, another fresh connection returned root and window
+coordinates `(604, 760)`, mask zero, and a nonzero child. The namespace-shared
+observation is now demonstrated in the installed session. The user reports
+[blank or black Thunar menu portions](ce2b55uy-blank-thunar-menus-and-frozen-brave-need-separate-pixel-and-delivery-evidence.md);
+menu rendering and the unreported drag check still prevent physical acceptance.
 
 ## Connections
 

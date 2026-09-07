@@ -146,6 +146,15 @@ VT lifecycle fields and approved failure codes survive reduction. An
 that the raw error was retained. Application content and arbitrary error text
 remain excluded.
 
+Interaction records retain counts for input-lease and pointer-grab outcomes,
+focused and unfocused frames, and available Present timing feedback. Each
+observed pointer-button batch records observed, routed, and suppressed counts,
+including after the first successful click. These counts distinguish session
+routing from an application that fails to respond; they do not prove that the
+application consumed an event. Coordinates, button and key codes, and application
+content remain excluded. Present detail records still require their existing
+diagnostic setting; retaining their fields does not enable that setting.
+
 Ordinary logout reports lifecycle and cleanup success independently of X11
 error replies. Those replies remain compatibility evidence in
 `sophia_live_session_protocol_error_tally` schema 3: bounded major/minor/error

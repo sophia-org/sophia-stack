@@ -52,3 +52,4 @@ Any new application protocol or compatibility frontend without a specification a
 VRR until physical hardware reports vrr_capable=1. +deferred @planning id:t056 order:056 [details](docs/notes/plans/queue-21-other-deferred-work.md#t056)
 General X11 conformance not required by a retained daily-driver client. +deferred @planning id:t057 order:057 [details](docs/notes/plans/queue-21-other-deferred-work.md#t057)
 Runtime effect plug-ins or a sandboxed effect host until the private build-linked provider proves a need and a safe lifecycle. +deferred @planning id:t058 order:058 [details](docs/notes/plans/queue-21-other-deferred-work.md#t058)
+(B) Diagnose and repair blank or black Thunar menus with mapped-popup pixel evidence and installed acceptance. +parallel @development id:t061 order:061 [details](docs/notes/investigations/ce2b55uy-blank-thunar-menus-and-frozen-brave-need-separate-pixel-and-delivery-evidence.md)

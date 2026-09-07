@@ -256,6 +256,44 @@ fn payload_values_are_not_copied_from_session_records() {
 }
 
 #[test]
+fn interaction_records_distinguish_delivery_rejection_and_chrome_without_payloads() {
+    let records = [
+        "sophia_live_session_pointer_batch schema=1 observed_count=2 routed_count=0 suppressed_no_target_count=2 suppressed_policy_count=0",
+        "sophia_live_session_pointer schema=8 status=button_suppressed reason=no_target count=2",
+        "sophia_live_session_pointer schema=2 status=button_routed count=2",
+        "sophia_live_session_input_pipeline schema=2 status=key_suppressed reason=no_focus",
+        "sophia_live_input_lease schema=1 confirmed=2 rejected=1 released=1 stale=0",
+        "sophia_live_input_lease schema=1 status=quarantined reason=release_timeout",
+        "sophia_live_explicit_pointer_grab schema=1 prepared=1 activated=1 released=0 aborted=0 rejected=2",
+        "sophia_live_compositor_chrome_set schema=1 status=composed generation=42 eligible_surfaces=2 frames=2 focused_frames=1 unfocused_frames=1 focus_rings=1 primitives=3 clearance=2",
+        "sophia_live_session_present_feedback schema=1 kind=complete transaction=42 routed=true ust=234569038838 msc=19564390",
+        "sophia_live_session_present_feedback schema=1 kind=idle transaction=42 routed=true",
+    ];
+    for record in records {
+        let raw = format!(
+            "{record} admission=123 namespace=456 xid=789 title=secret pointer_x=10 pointer_y=20 keycode=38 text=secret"
+        );
+        assert_eq!(reduced_record(&raw).as_deref(), Some(record));
+    }
+}
+
+#[test]
+fn interaction_vocabulary_is_scoped_and_rejects_unbounded_values() {
+    for record in [
+        "sophia_other status=button_suppressed reason=no_target confirmed=2 prepared=1 frames=2 ust=123 msc=456",
+        "sophia_live_input_lease confirmed=secret rejected=-1 released=18446744073709551616 stale=1.5",
+        "sophia_live_explicit_pointer_grab prepared=secret status=secret reason=secret",
+        "sophia_live_session_pointer status=secret reason=secret",
+        "sophia_live_compositor_chrome_set frames=18446744073709551616",
+    ] {
+        assert_eq!(
+            reduced_record(record).as_deref(),
+            record.split_whitespace().next()
+        );
+    }
+}
+
+#[test]
 fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
     for status in ["clean", "compatibility_refusals", "degraded"] {
         let safe = format!(

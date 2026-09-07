@@ -472,7 +472,8 @@ pub fn reduced_record(line: &str) -> Option<String> {
         let panic_line = name == "sophia_session_panic"
             && key == "source_line"
             && value.bytes().all(|c| c.is_ascii_digit());
-        if numeric
+        if interaction_field(name, key, value)
+            || numeric
             || digest
             || fixed
             || protocol_status
@@ -487,4 +488,61 @@ pub fn reduced_record(line: &str) -> Option<String> {
         }
     }
     Some(result)
+}
+
+// These records describe delivery and composition, never input contents.
+// Scope the vocabulary to its producer so arbitrary child text cannot become
+// an approved status or an identifier disguised as a numeric measurement.
+fn interaction_field(record: &str, key: &str, value: &str) -> bool {
+    let measurement = match record {
+        "sophia_live_input_lease" => {
+            matches!(key, "confirmed" | "rejected" | "released" | "stale")
+        }
+        "sophia_live_explicit_pointer_grab" => matches!(
+            key,
+            "prepared" | "activated" | "released" | "aborted" | "rejected"
+        ),
+        "sophia_live_compositor_chrome_set" => matches!(
+            key,
+            "eligible_surfaces"
+                | "frames"
+                | "focused_frames"
+                | "unfocused_frames"
+                | "focus_rings"
+                | "primitives"
+                | "clearance"
+        ),
+        "sophia_live_session_present_feedback" => matches!(key, "ust" | "msc"),
+        _ => false,
+    };
+    if measurement {
+        return !value.is_empty()
+            && value.bytes().all(|byte| byte.is_ascii_digit())
+            && value.parse::<u64>().is_ok();
+    }
+    match (record, key) {
+        ("sophia_live_session_pointer", "status") => matches!(
+            value,
+            "motion_observed"
+                | "motion_routed"
+                | "button_observed"
+                | "button_routed"
+                | "button_suppressed"
+                | "axis_observed"
+                | "axis_routed"
+                | "axis_batch"
+                | "target_routed"
+        ),
+        ("sophia_live_session_pointer", "reason") => matches!(value, "no_target" | "policy"),
+        ("sophia_live_session_input_pipeline", "status") => matches!(
+            value,
+            "key_observed" | "key_routed" | "key_suppressed" | "focus_applied" | "focus_ready"
+        ),
+        ("sophia_live_session_input_pipeline", "reason") => value == "no_focus",
+        ("sophia_live_input_lease", "status") => value == "quarantined",
+        ("sophia_live_input_lease", "reason") => value == "release_timeout",
+        ("sophia_live_compositor_chrome_set", "status") => value == "composed",
+        ("sophia_live_session_present_feedback", "kind") => value == "idle",
+        _ => false,
+    }
 }

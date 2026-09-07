@@ -1280,3 +1280,53 @@ fn put_image_request_at_depth(
     pad_to_four(&mut out);
     out
 }
+
+fn render_set_picture_transform_request(
+    byte_order: XByteOrder,
+    picture: u32,
+    matrix: [i32; 9],
+) -> Vec<u8> {
+    let mut out = vec![
+        X_RENDER_MAJOR_OPCODE,
+        X_RENDER_SET_PICTURE_TRANSFORM_MINOR_OPCODE,
+    ];
+    push_u16(&mut out, byte_order, 11);
+    push_u32(&mut out, byte_order, picture);
+    for entry in matrix {
+        push_u32(&mut out, byte_order, entry as u32);
+    }
+    out
+}
+
+fn render_query_filters_request(byte_order: XByteOrder, drawable: u32) -> Vec<u8> {
+    let mut out = vec![X_RENDER_MAJOR_OPCODE, X_RENDER_QUERY_FILTERS_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 2);
+    push_u32(&mut out, byte_order, drawable);
+    out
+}
+
+fn render_set_picture_filter_request(
+    byte_order: XByteOrder,
+    picture: u32,
+    name: &str,
+    params: &[i32],
+) -> Vec<u8> {
+    let mut out = vec![
+        X_RENDER_MAJOR_OPCODE,
+        X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE,
+    ];
+    let padded_name = (12 + name.len()).next_multiple_of(4);
+    let len_units = (padded_name + params.len() * 4) / 4;
+    push_u16(&mut out, byte_order, len_units as u16);
+    push_u32(&mut out, byte_order, picture);
+    push_u16(&mut out, byte_order, name.len() as u16);
+    push_u16(&mut out, byte_order, 0);
+    out.extend_from_slice(name.as_bytes());
+    while out.len() % 4 != 0 {
+        out.push(0);
+    }
+    for param in params {
+        push_u32(&mut out, byte_order, *param as u32);
+    }
+    out
+}

@@ -1708,7 +1708,7 @@ fn render_handshake_answers_the_lower_version_and_the_visuals_formats() {
     let mut properties = XPropertyTable::new();
 
     // The version answered is the lower of the two.
-    for (asked, answered) in [((0, 99), (0, 5)), ((0, 2), (0, 2)), ((1, 0), (0, 5))] {
+    for (asked, answered) in [((0, 99), (0, 6)), ((0, 2), (0, 2)), ((1, 0), (0, 6))] {
         let request = decode_x11_core_request(
             context(namespace, 701, byte_order),
             &render_query_version_request(byte_order, asked.0, asked.1),
@@ -1866,7 +1866,7 @@ fn render_refusals_split_between_not_offered_and_not_that_version() {
         assert_eq!(named, u16::from(minor));
     }
     // Beyond 0.4, or defined by no version at all.
-    for minor in [2, 16, 28, 31, 32, 33, 36, 99] {
+    for minor in [2, 16, 31, 32, 33, 36, 99] {
         let (code, named) = refusal_for(minor);
         assert_eq!(code, XErrorCode::BadRequest, "minor {minor}");
         assert_eq!(named, u16::from(minor));
@@ -3969,5 +3969,277 @@ fn shaping_a_window_that_has_never_drawn_publishes_nothing() {
     assert!(
         result.response.is_none(),
         "but there is no frame to republish"
+    );
+}
+
+impl RenderFixture {
+    /// Compose the source picture over the destination with no mask, so a
+    /// test can read what the source's transform and filter produced.
+    fn composite_source_over(&mut self, width: u16, height: u16) -> XDispatchResult {
+        self.send(&render_composite_request(
+            Self::ORDER,
+            1,
+            Self::SOURCE_PICTURE,
+            0,
+            Self::PICTURE,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            width,
+            height,
+        ))
+    }
+}
+
+/// A picture transform moves where a composite reads its source from.
+///
+/// RENDER's matrix maps a destination-relative coordinate to the source
+/// pixel, so it is applied forward. GTK sends these at startup, which is why
+/// refusing them ended both toolkits before they drew anything.
+#[test]
+fn render_picture_transforms_move_where_a_composite_samples() {
+    // A two-pixel source: red then green, so which pixel was sampled is
+    // visible in the result.
+    let build = |transform: [i32; 9]| -> Vec<[u8; 4]> {
+        let mut fixture = RenderFixture::with_argb_pixmap(4, 1);
+        fixture.add_source(2, 1, false);
+        fixture.fill_source(
+            [0xffff, 0, 0, 0xffff],
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        );
+        fixture.fill_source(
+            [0, 0xffff, 0, 0xffff],
+            Rect {
+                x: 1,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        );
+        let set = fixture.send(&render_set_picture_transform_request(
+            RenderFixture::ORDER,
+            RenderFixture::SOURCE_PICTURE,
+            transform,
+        ));
+        assert_eq!(RenderFixture::error_of(&set), None);
+        assert_eq!(
+            RenderFixture::error_of(&fixture.composite_source_over(4, 1)),
+            None
+        );
+        (0..4).map(|x| fixture.pixel(x, 0)).collect()
+    };
+
+    const RED: [u8; 4] = [0, 0, 0xff, 0xff];
+    const GREEN: [u8; 4] = [0, 0xff, 0, 0xff];
+    const NOTHING: [u8; 4] = [0, 0, 0, 0];
+
+    // Identity samples one-to-one, and the source is only two wide, so the
+    // pixels beyond it read as transparent.
+    assert_eq!(
+        build(X_RENDER_IDENTITY_TRANSFORM),
+        vec![RED, GREEN, NOTHING, NOTHING],
+        "identity"
+    );
+
+    // Translation by one source pixel shifts the read left.
+    let translate = [65536, 0, 65536, 0, 65536, 0, 0, 0, 65536];
+    assert_eq!(
+        build(translate),
+        vec![GREEN, NOTHING, NOTHING, NOTHING],
+        "translated"
+    );
+
+    // A constant divisor scales: with w = 2 every coordinate halves, so the
+    // two source pixels each cover two destination pixels. This is the shape
+    // conformance suites use for transform coverage, and it falls out of the
+    // homogeneous divide rather than needing a special case.
+    let half = [65536, 0, 0, 0, 65536, 0, 0, 0, 131072];
+    assert_eq!(build(half), vec![RED, RED, GREEN, GREEN], "half scale");
+}
+
+/// A projective transform that sends a point to infinity has no source pixel
+/// there, and the protocol's answer for no source is transparent black.
+#[test]
+fn render_projective_transforms_answer_nothing_where_they_diverge() {
+    let mut fixture = RenderFixture::with_argb_pixmap(4, 1);
+    fixture.add_source(4, 1, true);
+    fixture.fill_source(
+        [0xffff, 0xffff, 0xffff, 0xffff],
+        Rect {
+            x: 0,
+            y: 0,
+            width: 4,
+            height: 1,
+        },
+    );
+    // w = x - 1.5, which is zero at the centre of destination pixel 1.
+    let diverging = [65536, 0, 0, 0, 65536, 0, 65536, 0, -98304];
+    let set = fixture.send(&render_set_picture_transform_request(
+        RenderFixture::ORDER,
+        RenderFixture::SOURCE_PICTURE,
+        diverging,
+    ));
+    assert_eq!(RenderFixture::error_of(&set), None);
+    assert_eq!(
+        RenderFixture::error_of(&fixture.composite_source_over(4, 1)),
+        None
+    );
+    assert_eq!(
+        fixture.pixel(1, 0),
+        [0, 0, 0, 0],
+        "a point with no source samples transparent rather than panicking"
+    );
+}
+
+/// Bilinear filtering blends the pixels either side of the sample point.
+#[test]
+fn render_bilinear_filtering_blends_between_source_pixels() {
+    let mut fixture = RenderFixture::with_argb_pixmap(4, 1);
+    fixture.add_source(2, 1, false);
+    // Black then white, so the blend is readable as a midpoint grey.
+    fixture.fill_source(
+        [0, 0, 0, 0xffff],
+        Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+    fixture.fill_source(
+        [0xffff, 0xffff, 0xffff, 0xffff],
+        Rect {
+            x: 1,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+    let filter = fixture.send(&render_set_picture_filter_request(
+        RenderFixture::ORDER,
+        RenderFixture::SOURCE_PICTURE,
+        "bilinear",
+        &[],
+    ));
+    assert_eq!(RenderFixture::error_of(&filter), None);
+    // Half scale, so destination pixel 1 samples exactly halfway between the
+    // two source pixels: (1.5)/2 = 0.75, minus the half-pixel tap offset is
+    // 0.25 into the span from pixel 0 to pixel 1.
+    let half = [65536, 0, 0, 0, 65536, 0, 0, 0, 131072];
+    let set = fixture.send(&render_set_picture_transform_request(
+        RenderFixture::ORDER,
+        RenderFixture::SOURCE_PICTURE,
+        half,
+    ));
+    assert_eq!(RenderFixture::error_of(&set), None);
+    assert_eq!(
+        RenderFixture::error_of(&fixture.composite_source_over(4, 1)),
+        None
+    );
+    let blended = fixture.pixel(1, 0);
+    assert!(
+        blended[0] > 0 && blended[0] < 0xff,
+        "a bilinear tap between black and white is neither: {blended:?}"
+    );
+    // Nearest would have produced one or the other exactly.
+    assert_ne!(blended[0], 0);
+    assert_ne!(blended[0], 0xff);
+}
+
+/// The filter table is what a client reads before deciding what to ask for,
+/// so its bytes are pinned.
+///
+/// Aliases come first on the wire, one slot per name, carrying the index of
+/// the name each resolves to. `convolution` is deliberately absent: a client
+/// that finds it missing disables its own kernel work cleanly.
+#[test]
+fn render_query_filters_answers_the_filters_this_server_honours() {
+    let mut fixture = RenderFixture::new();
+    let result = fixture.send(&render_query_filters_request(
+        RenderFixture::ORDER,
+        X_SETUP_DEFAULT_ROOT,
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+    let encoded = result.encoded_outputs(RenderFixture::ORDER);
+    let reply = &encoded[0];
+    assert_eq!(reply.len(), 76, "five aliases, five names, both padded");
+    assert_eq!(read_u32(RenderFixture::ORDER, &reply[8..12]), 5, "aliases");
+    assert_eq!(read_u32(RenderFixture::ORDER, &reply[12..16]), 5, "names");
+    // Canonical entries carry no alias; the three aliases point at the names
+    // they resolve to.
+    let aliases: Vec<u16> = (0..5)
+        .map(|i| read_u16(RenderFixture::ORDER, &reply[32 + i * 2..34 + i * 2]))
+        .collect();
+    assert_eq!(aliases, vec![0xffff, 0xffff, 0, 1, 1]);
+    // Names follow the padded alias list.
+    let names = &reply[44..76];
+    let mut offset = 0;
+    let mut read = Vec::new();
+    while offset < names.len() {
+        let len = usize::from(names[offset]);
+        if len == 0 {
+            break;
+        }
+        read.push(String::from_utf8_lossy(&names[offset + 1..offset + 1 + len]).to_string());
+        offset += 1 + len;
+    }
+    assert_eq!(read, vec!["nearest", "bilinear", "fast", "good", "best"]);
+
+    // A drawable that does not exist is refused rather than answered.
+    let refused = fixture.send(&render_query_filters_request(
+        RenderFixture::ORDER,
+        0x0020_09ff,
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&refused),
+        Some(XErrorCode::BadDrawable)
+    );
+}
+
+/// Filter names are accepted, aliased, or refused on the terms the protocol
+/// sets.
+#[test]
+fn render_set_picture_filter_accepts_what_it_advertises_and_refuses_the_rest() {
+    let mut fixture = RenderFixture::with_argb_pixmap(2, 2);
+    for name in ["nearest", "bilinear", "fast", "good", "best"] {
+        let result = fixture.send(&render_set_picture_filter_request(
+            RenderFixture::ORDER,
+            RenderFixture::PICTURE,
+            name,
+            &[],
+        ));
+        assert_eq!(RenderFixture::error_of(&result), None, "filter {name}");
+    }
+    // Not advertised, so not a filter this server has.
+    let convolution = fixture.send(&render_set_picture_filter_request(
+        RenderFixture::ORDER,
+        RenderFixture::PICTURE,
+        "convolution",
+        &[],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&convolution),
+        Some(XErrorCode::BadValue)
+    );
+    // A filter this server does have, sent with parameters it does not take,
+    // is a mismatch between the request and its argument rather than a bad
+    // name.
+    let with_params = fixture.send(&render_set_picture_filter_request(
+        RenderFixture::ORDER,
+        RenderFixture::PICTURE,
+        "nearest",
+        &[65536],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&with_params),
+        Some(XErrorCode::BadMatch)
     );
 }

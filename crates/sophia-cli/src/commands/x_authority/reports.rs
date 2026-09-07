@@ -234,6 +234,49 @@ struct ExternalProbeSmokeSpec {
 
 const EXTERNAL_PROBE_SMOKES: &[ExternalProbeSmokeSpec] = &[
     ExternalProbeSmokeSpec {
+        // Thunar is the client whose live-session crash put RENDER 0.6 on the
+        // critical path, so it is probed by name rather than by proxy. A
+        // running Thunar will answer for this one over the session bus and
+        // exit without opening the display; run it under `dbus-run-session`
+        // when that matters.
+        command_name: "x-authority-thunar-smoke",
+        label: "thunar",
+        binary: "thunar",
+        display_mode: ExternalProbeDisplayMode::Environment,
+        args: &["--daemon"],
+        display_base: 8150,
+        namespace: 67,
+        require_transactions: false,
+        pixel_proof: ExternalProbePixelProof::None,
+        allow_proof_kill_without_transactions: true,
+        allow_client_failure_without_x_error: true,
+        proof_timeout_secs: 20,
+    },
+    ExternalProbeSmokeSpec {
+        // The GTK3 regression probe. GTK3 draws through cairo's xlib
+        // backend, which is the RENDER client the live session crashed in;
+        // mousepad is the lightest GTK3 window that still takes that path,
+        // and `--disable-server` stops a running instance answering for it
+        // and exiting before the display is ever opened.
+        command_name: "x-authority-gtk3-smoke",
+        label: "mousepad",
+        binary: "mousepad",
+        display_mode: ExternalProbeDisplayMode::Environment,
+        args: &["--disable-server"],
+        display_base: 8050,
+        namespace: 66,
+        // No transaction is required, for the same reason the Quickshell
+        // probe requires none: nothing here admits a window, and a GTK
+        // toplevel is not drawn until something maps it. What this probe
+        // proves is the request trace and the absence of a refusal, which is
+        // exactly what the live crash was.
+        require_transactions: false,
+        pixel_proof: ExternalProbePixelProof::None,
+        allow_proof_kill_without_transactions: true,
+        allow_client_failure_without_x_error: true,
+        proof_timeout_secs: 12,
+    },
+    ExternalProbeSmokeSpec {
         command_name: "x-authority-xclock-smoke",
         label: "xclock",
         binary: "xclock",

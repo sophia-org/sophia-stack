@@ -500,7 +500,13 @@ fn interaction_field(record: &str, key: &str, value: &str) -> bool {
         }
         "sophia_live_explicit_pointer_grab" => matches!(
             key,
-            "prepared" | "activated" | "released" | "aborted" | "rejected"
+            "prepared"
+                | "activated"
+                | "released"
+                | "aborted"
+                | "rejected"
+                | "deferred"
+                | "cancelled"
         ),
         "sophia_live_compositor_chrome_set" => matches!(
             key,
@@ -539,8 +545,29 @@ fn interaction_field(record: &str, key: &str, value: &str) -> bool {
             "key_observed" | "key_routed" | "key_suppressed" | "focus_applied" | "focus_ready"
         ),
         ("sophia_live_session_input_pipeline", "reason") => value == "no_focus",
-        ("sophia_live_input_lease", "status") => value == "quarantined",
-        ("sophia_live_input_lease", "reason") => value == "release_timeout",
+        ("sophia_live_input_lease", "status") => {
+            matches!(value, "quarantined" | "refused" | "release_deferred")
+        }
+        ("sophia_live_input_lease", "reason") => matches!(
+            value,
+            "release_timeout"
+                | "capacity"
+                | "binding_timeout"
+                | "held_evidence"
+                | "outside_scope"
+                | "target_evidence"
+                | "device"
+                | "output"
+                | "control_epoch"
+                | "authority_session"
+                | "readiness"
+                | "identity"
+        ),
+        ("sophia_live_explicit_pointer_grab", "status") => value == "rejected",
+        ("sophia_live_explicit_pointer_grab", "reason") => matches!(
+            value,
+            "anchor_admission" | "anchor_unmapped" | "anchor_owner" | "no_anchor"
+        ),
         ("sophia_live_compositor_chrome_set", "status") => value == "composed",
         ("sophia_live_session_present_feedback", "kind") => value == "idle",
         _ => false,

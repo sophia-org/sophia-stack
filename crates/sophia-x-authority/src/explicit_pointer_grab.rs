@@ -5,7 +5,9 @@ use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_cha
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant};
 
-use sophia_protocol::{ApplicationRouteLeaseIdentity, ClientAdmissionContext, SurfaceId};
+use sophia_protocol::{
+    ApplicationRouteLeaseIdentity, ClientAdmissionContext, SurfaceId, TransactionId,
+};
 
 pub const X_EXPLICIT_POINTER_GRAB_TIMEOUT: Duration = Duration::from_millis(500);
 
@@ -29,6 +31,8 @@ pub enum XAuthorityExplicitPointerGrabRequestKind {
     Prepare {
         anchor: XAuthorityExplicitPointerGrabAnchor,
         replaces: Option<ApplicationRouteLeaseIdentity>,
+        after_observation: Option<TransactionId>,
+        control_epoch: u64,
     },
     Activate {
         identity: ApplicationRouteLeaseIdentity,
@@ -49,6 +53,7 @@ pub struct XAuthorityExplicitPointerGrabRequest {
     pub id: XAuthorityExplicitPointerGrabRequestId,
     pub admission: ClientAdmissionContext,
     pub kind: XAuthorityExplicitPointerGrabRequestKind,
+    pub deadline: Instant,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -86,11 +91,18 @@ impl core::fmt::Display for XAuthorityExplicitPointerGrabBridgeError {
 
 impl std::error::Error for XAuthorityExplicitPointerGrabBridgeError {}
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum XAuthorityExplicitPointerGrabResponseDisposition {
+    Delivered,
+    Cancelled,
+}
+
 #[derive(Default)]
 struct XAuthorityExplicitPointerGrabResponseState {
     responses:
         BTreeMap<XAuthorityExplicitPointerGrabRequestId, XAuthorityExplicitPointerGrabResponse>,
     cancelled: BTreeSet<XAuthorityExplicitPointerGrabRequestId>,
+    outstanding: BTreeMap<XAuthorityExplicitPointerGrabRequestId, (Instant, bool)>,
     closed: bool,
 }
 
@@ -100,6 +112,7 @@ struct XAuthorityExplicitPointerGrabShared {
     ready: Condvar,
     next_id: AtomicU64,
     pending: AtomicUsize,
+    prepare_capacity: usize,
 }
 
 #[derive(Clone)]
@@ -124,6 +137,7 @@ impl XAuthorityExplicitPointerGrabClient {
         kind: XAuthorityExplicitPointerGrabRequestKind,
     ) -> Result<XAuthorityExplicitPointerGrabResponse, XAuthorityExplicitPointerGrabBridgeError>
     {
+        let deadline = Instant::now() + X_EXPLICIT_POINTER_GRAB_TIMEOUT;
         let raw = self
             .shared
             .next_id
@@ -136,14 +150,38 @@ impl XAuthorityExplicitPointerGrabClient {
             id,
             admission,
             kind,
+            deadline,
         };
         let request_gate = self
             .shared
             .request_gate
             .lock()
             .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
+        let mut state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
+        if state.closed {
+            return Err(XAuthorityExplicitPointerGrabBridgeError::Disconnected);
+        }
+        let prepare = matches!(
+            kind,
+            XAuthorityExplicitPointerGrabRequestKind::Prepare { .. }
+        );
+        if prepare
+            && state
+                .outstanding
+                .values()
+                .filter(|(_, prepare)| *prepare)
+                .count()
+                >= self.shared.prepare_capacity
+        {
+            return Err(XAuthorityExplicitPointerGrabBridgeError::Capacity);
+        }
         match self.requests.try_send(request) {
             Ok(()) => {
+                state.outstanding.insert(id, (deadline, prepare));
                 self.shared.pending.fetch_add(1, Ordering::AcqRel);
             }
             Err(TrySendError::Full(_)) => {
@@ -154,13 +192,6 @@ impl XAuthorityExplicitPointerGrabClient {
             }
         }
         drop(request_gate);
-
-        let deadline = Instant::now() + X_EXPLICIT_POINTER_GRAB_TIMEOUT;
-        let mut state = self
-            .shared
-            .state
-            .lock()
-            .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
         loop {
             if let Some(response) = state.responses.remove(&id) {
                 return Ok(response);
@@ -168,9 +199,16 @@ impl XAuthorityExplicitPointerGrabClient {
             if state.closed {
                 return Err(XAuthorityExplicitPointerGrabBridgeError::Disconnected);
             }
+            if state.cancelled.remove(&id) {
+                return Err(XAuthorityExplicitPointerGrabBridgeError::Timeout);
+            }
             let now = Instant::now();
             if now >= deadline {
-                state.cancelled.insert(id);
+                if state.outstanding.contains_key(&id) {
+                    state.cancelled.insert(id);
+                } else {
+                    state.cancelled.remove(&id);
+                }
                 return Err(XAuthorityExplicitPointerGrabBridgeError::Timeout);
             }
             let wait = deadline.saturating_duration_since(now);
@@ -181,7 +219,11 @@ impl XAuthorityExplicitPointerGrabClient {
                 .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
             state = next;
             if timeout.timed_out() && !state.responses.contains_key(&id) {
-                state.cancelled.insert(id);
+                if state.outstanding.contains_key(&id) {
+                    state.cancelled.insert(id);
+                } else {
+                    state.cancelled.remove(&id);
+                }
                 return Err(XAuthorityExplicitPointerGrabBridgeError::Timeout);
             }
         }
@@ -207,32 +249,54 @@ impl XAuthorityExplicitPointerGrabOwner {
         let Ok(_request_gate) = self.shared.request_gate.lock() else {
             return Err(TryRecvError::Disconnected);
         };
-        let result = self.requests.try_recv();
-        if result.is_ok() {
-            self.shared.pending.fetch_sub(1, Ordering::AcqRel);
-        }
-        result
+        self.requests.try_recv()
     }
 
     pub fn respond(
         &self,
         id: XAuthorityExplicitPointerGrabRequestId,
         response: XAuthorityExplicitPointerGrabResponse,
-    ) -> Result<(), XAuthorityExplicitPointerGrabBridgeError> {
+    ) -> Result<
+        XAuthorityExplicitPointerGrabResponseDisposition,
+        XAuthorityExplicitPointerGrabBridgeError,
+    > {
         let mut state = self
             .shared
             .state
             .lock()
             .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
-        if state.cancelled.remove(&id) {
-            return Ok(());
-        }
-        if state.closed {
-            return Err(XAuthorityExplicitPointerGrabBridgeError::Disconnected);
+        let Some((deadline, _)) = state.outstanding.remove(&id) else {
+            return Ok(XAuthorityExplicitPointerGrabResponseDisposition::Cancelled);
+        };
+        self.shared.pending.fetch_sub(1, Ordering::AcqRel);
+        let caller_cancelled = state.cancelled.remove(&id);
+        if caller_cancelled || state.closed || Instant::now() >= deadline {
+            if !caller_cancelled {
+                state.cancelled.insert(id);
+            }
+            self.shared.ready.notify_all();
+            return Ok(XAuthorityExplicitPointerGrabResponseDisposition::Cancelled);
         }
         state.responses.insert(id, response);
         self.shared.ready.notify_all();
-        Ok(())
+        Ok(XAuthorityExplicitPointerGrabResponseDisposition::Delivered)
+    }
+
+    pub fn is_cancelled(
+        &self,
+        id: XAuthorityExplicitPointerGrabRequestId,
+    ) -> Result<bool, XAuthorityExplicitPointerGrabBridgeError> {
+        let state = self
+            .shared
+            .state
+            .lock()
+            .map_err(|_| XAuthorityExplicitPointerGrabBridgeError::Poisoned)?;
+        Ok(state.closed
+            || state.cancelled.contains(&id)
+            || state
+                .outstanding
+                .get(&id)
+                .is_none_or(|(deadline, _)| Instant::now() >= *deadline))
     }
 
     pub fn pending(&self) -> usize {
@@ -255,13 +319,14 @@ pub fn x_authority_explicit_pointer_grab_bridge(
     XAuthorityExplicitPointerGrabClient,
     XAuthorityExplicitPointerGrabOwner,
 ) {
-    let (requests, receiver) = sync_channel(capacity.get());
+    let (requests, receiver) = sync_channel(capacity.get().saturating_mul(2));
     let shared = Arc::new(XAuthorityExplicitPointerGrabShared {
         request_gate: Mutex::new(()),
         state: Mutex::new(XAuthorityExplicitPointerGrabResponseState::default()),
         ready: Condvar::new(),
         next_id: AtomicU64::new(1),
         pending: AtomicUsize::new(0),
+        prepare_capacity: capacity.get(),
     });
     (
         XAuthorityExplicitPointerGrabClient {

@@ -39,7 +39,7 @@ fi
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
-for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation XAuthorityShutdown; do
+for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation XAuthorityShutdown; do
     cp "$MODEL_DIR/$model.tla" "$TEMP_DIR/"
     cp "$MODEL_DIR/$model.cfg" "$TEMP_DIR/"
     (
@@ -282,3 +282,28 @@ grep -Fq 'Invariant CpuHasOnlyCpuSources is violated.' "$control_dir/control.log
     echo "TLA+ retained-composition control failed for the wrong reason" >&2
     exit 1
 }
+
+# Admission must consume published prerequisites and retire cancelled ownership.
+for control in PointerGrabAdmissionWithoutPrerequisite PointerGrabAdmissionReviveCancelled; do
+    control_dir="$TEMP_DIR/$control"
+    mkdir "$control_dir"
+    cp "$MODEL_DIR/PointerGrabAdmission.tla" "$MODEL_DIR/$control.cfg" "$control_dir/"
+    log="$control_dir/control.log"
+    if (
+        cd "$control_dir"
+        timeout 30m java -XX:+UseParallelGC -jar "$JAR_PATH" \
+            -deadlock -workers 1 -fp 0 -config "$control.cfg" PointerGrabAdmission.tla
+    ) >"$log" 2>&1; then
+        echo "TLA+ grab-admission negative control unexpectedly passed: $control" >&2
+        exit 1
+    fi
+    case "$control" in
+        PointerGrabAdmissionWithoutPrerequisite) invariant=AppliedBeforeGrant ;;
+        PointerGrabAdmissionReviveCancelled) invariant=CancelledHasNoOwnership ;;
+    esac
+    grep -Fq "Invariant $invariant is violated." "$log" || {
+        echo "TLA+ grab-admission control failed for the wrong reason: $control" >&2
+        cat "$log" >&2
+        exit 1
+    }
+done

@@ -4,6 +4,9 @@ use floating_pointer::*;
 #[path = "input/explicit_pointer_grab.rs"]
 mod explicit_pointer_grab;
 use explicit_pointer_grab::*;
+#[path = "input/lease_routing.rs"]
+mod lease_routing;
+use lease_routing::*;
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct PhysicalInputRouteReport {
@@ -269,8 +272,7 @@ fn application_route_lease_for_request(
                 authority: admission.namespace.id,
             },
             authority_session_epoch: admission.auth_provenance.session_generation,
-            output,
-            presentation_epoch: input_presentation_epoch,
+            binding: sophia_engine::ApplicationRouteLeaseBinding::Bound { output, revision: input_presentation_epoch },
             initiating_device: Some(request.device),
             initiating_button: Some(button),
         })
@@ -292,14 +294,25 @@ fn request_application_route_lease_release(
         .admission_for_surface(lease.target_surface)
         .filter(|admission| {
             admission.client_id == lease.admission
-                && admission.auth_provenance.session_generation
-                    == lease.authority_session_epoch
-        })
-        .ok_or("application lease admission became stale before release")?;
-    sender.try_send(XAuthorityRouteLeaseRelease {
-        identity: lease.identity,
-        admission,
-    })?;
+                && admission.auth_provenance.session_generation == lease.authority_session_epoch
+        });
+    let Some(admission) = admission else {
+        // The authority already retired this route. Its exact old ownership
+        // cannot be addressed through a replacement client or surface.
+        let _ = state.acknowledge_release(lease.identity, lease.admission);
+        return Ok(());
+    };
+    match sender.try_send(XAuthorityRouteLeaseRelease { identity: lease.identity, admission }) {
+        Ok(()) => {}
+        Err(std::sync::mpsc::TrySendError::Full(_)) => {
+            // Releasing is already non-routable. The existing bounded release
+            // deadline quarantines this admission if the notice cannot fit.
+            crate::session_println!("sophia_live_input_lease schema=1 status=release_deferred reason=capacity");
+        }
+        Err(std::sync::mpsc::TrySendError::Disconnected(_)) => {
+            let _ = state.acknowledge_release(lease.identity, lease.admission);
+        }
+    }
     Ok(())
 }
 
@@ -367,6 +380,7 @@ struct PhysicalInputRoutingContext<'a> {
     applied_client_focus: Option<SurfaceId>,
     floating_gesture: &'a mut FloatingPointerGestureState,
     application_route_leases: &'a mut ApplicationRouteLeaseState,
+    pending_lease_input: &'a mut PendingLeaseInput,
     chrome_captures: &'a mut sophia_engine::ChromeCaptureState,
     descriptor_captures: &'a mut sophia_engine::PresentedChromeCaptureState,
     reference_capture: &'a mut sophia_engine::ReferenceSheetCapture,
@@ -412,6 +426,7 @@ fn route_physical_input<P: NonBlockingInputPoller>(
         applied_client_focus,
         floating_gesture,
         application_route_leases,
+        pending_lease_input,
         chrome_captures,
         descriptor_captures,
         reference_capture,
@@ -459,6 +474,7 @@ fn route_physical_input<P: NonBlockingInputPoller>(
         Some(pointer_outputs),
         Some(reference_capture),
         Some((launcher_capture, launcher_keyboard)),
+        Some(pending_lease_input),
     )
 }
 
@@ -607,6 +623,7 @@ fn route_input_events_with_pointer_focus(
         pointer_outputs,
         reference_capture,
         None,
+        None,
     )
 }
 
@@ -649,6 +666,7 @@ fn route_input_events_with_launcher(
     pointer_outputs: Option<&[sophia_engine::HeadlessOutput]>,
     mut reference_capture: Option<&mut sophia_engine::ReferenceSheetCapture>,
     mut launcher: Option<(&mut sophia_engine::LauncherCapture, &mut sophia_engine::LauncherKeyboard)>,
+    mut pending_lease_input: Option<&mut PendingLeaseInput>,
 ) -> Result<PhysicalInputRouteReport, Box<dyn std::error::Error>> {
     let mut report = PhysicalInputRouteReport {
         ingress_saturation: RoutedInputIngressSaturation::default(),
@@ -702,6 +720,14 @@ fn route_input_events_with_launcher(
         pointer_boundary_reversals: Vec::new(),
         pointer_output_transitions: Vec::new(),
     };
+    if routing_mode == PhysicalInputRoutingMode::Full
+        && let (Some(held), Some(state), Some(projections), Some(release_sender)) = (
+            pending_lease_input.as_deref_mut(), application_route_leases.as_deref_mut(), input_projections, route_lease_release_sender,
+        )
+    {
+        flush_held_lease_input(held, state, client_routes, projections, input_sender, release_sender,
+            next_input_delivery, now_msec, &mut report)?;
+    }
     let mut routed_events = VecDeque::new();
     if let Some(handoff) = keyboard_focus_handoff.as_deref_mut() {
         if handoff.cancel_if_target_stale(|target| {
@@ -1366,76 +1392,91 @@ fn route_input_events_with_launcher(
                 let pending_target = pointer_focus_handoff
                     .as_deref()
                     .and_then(PointerFocusHandoffState::target);
-                let fresh_route =
-                    sophia_engine::hit_test_scene_surface_for_input(&event, input_layers);
                 let held_lease = application_route_leases
                     .as_deref()
                     .and_then(|state| state.lease(event.seat));
-                let route = if let Some(target) = pending_target {
-                    sophia_engine::route_scene_surface_for_input(&event, input_layers, target)
-                } else if let Some(lease) = held_lease {
-                    if matches!(lease.phase, ApplicationRouteLeasePhase::Releasing { .. })
-                        || lease.origin
-                            == sophia_engine::ApplicationRouteLeaseOrigin::ExplicitPointer
-                            && lease.phase == ApplicationRouteLeasePhase::Provisional
+                let tab_occlusions = input_projections.into_iter().flatten()
+                    .find(|projection| Some(projection.output) == input_output)
+                    .map_or(&[][..], |projection| projection.tab_occlusions.as_slice());
+                let route = if let Some(mut lease) = held_lease {
+                    let Some(state) = application_route_leases.as_deref_mut() else { unreachable!() };
+                    if state.routing_readiness(event.seat) == Some(sophia_engine::ApplicationRouteLeaseReadiness::Releasing) {
+                        report.pointer_lease_waits += 1;
+                        continue;
+                    }
+                    let scope = presented_application_scope(&event, input_layers, chrome_targets, chrome_occlusion,
+                        descriptor_targets, descriptor_occlusion, tab_occlusions, client_routes);
+                    let owner = client_routes.admission_for_surface(lease.target_surface);
+                    let authorized_scope = scope.is_some_and(|scope| lease.scope.covers(scope))
+                        && owner.is_some_and(|owner| owner.client_id == lease.admission
+                            && owner.auth_provenance.session_generation == lease.authority_session_epoch)
+                        && lease.identity.control_epoch == state.control_epoch()
+                        && lease.initiating_device.is_none_or(|device| device == event.device);
+                    let pinned = input_output.is_some_and(|output| match lease.binding() {
+                        sophia_engine::ApplicationRouteLeaseBinding::Bound { output: bound, .. } => bound == output,
+                        sophia_engine::ApplicationRouteLeaseBinding::AwaitingPresentation { .. } =>
+                            state.pin_output(lease.identity, output).is_ok(),
+                    });
+                    if !authorized_scope || !pinned {
+                        report.pointer_lease_rejections += 1;
+                        record_application_lease_refusal(if !pinned { "output" } else { "outside_scope" });
+                        if let Some(sender) = route_lease_release_sender {
+                            if let Some(held) = pending_lease_input.as_deref_mut() {
+                                cancel_application_lease(state, client_routes, sender, held, lease.identity, now_msec)?;
+                            } else {
+                                request_application_route_lease_release(state, client_routes, sender, event.seat, now_msec)?;
+                            }
+                        }
+                        continue;
+                    }
+                    let output = input_output.expect("validated output");
+                    lease = state.lease(event.seat).expect("pinned current lease");
+                    if matches!(lease.binding(), sophia_engine::ApplicationRouteLeaseBinding::AwaitingPresentation { .. })
+                        && sophia_engine::scene_contains_input_surface(input_layers, lease.target_surface)
                     {
-                        report.pointer_lease_waits = report.pointer_lease_waits.saturating_add(1);
-                        continue;
+                        lease = state.bind_presentation(lease.identity, output, input_presentation_epoch)
+                            .map_err(|error| format!("failed to bind presented input: {error:?}"))?;
                     }
-                    let current_admission = fresh_route
-                        .target_surface
-                        .and_then(|surface| client_routes.admission_for_surface(surface));
-                    let owner_admission =
-                        client_routes.admission_for_surface(lease.target_surface);
-                    let authorized = match (
-                        application_route_leases.as_deref(),
-                        current_admission,
-                        owner_admission,
-                        input_output,
-                    ) {
-                        (Some(state), Some(current), Some(owner), Some(output))
-                            if owner.client_id == lease.admission =>
-                        {
-                            state
-                                .authorize(
-                                    event.seat,
-                                    ApplicationRouteScope {
-                                        profile: current.namespace.profile,
-                                        authority: current.namespace.id,
-                                    },
-                                    event.device,
-                                    output,
-                                    input_presentation_epoch,
-                                    owner.auth_provenance.session_generation,
-                                )
-                                .is_ok()
+                    match state.routing_readiness(event.seat) {
+                        Some(sophia_engine::ApplicationRouteLeaseReadiness::WaitForActivation
+                            | sophia_engine::ApplicationRouteLeaseReadiness::WaitForPresentation) => {
+                            report.pointer_lease_waits += 1;
+                            if let Some(held) = pending_lease_input.as_deref_mut()
+                                && let Err(error) = held.defer(lease, output, now_msec, event)
+                                && let Some(sender) = route_lease_release_sender
+                            {
+                                record_application_lease_refusal(match error {
+                                    HeldLeaseInputError::OutputChanged => "output",
+                                    HeldLeaseInputError::Expired => "binding_timeout",
+                                    HeldLeaseInputError::Capacity => "capacity",
+                                });
+                                cancel_application_lease(state, client_routes, sender, held, lease.identity, now_msec)?;
+                                report.pointer_focus_handoff_capacity_drops += 1;
+                            }
+                            continue;
                         }
-                        _ => false,
-                    };
-                    if !authorized {
-                        report.pointer_lease_rejections =
-                            report.pointer_lease_rejections.saturating_add(1);
-                        if let (Some(state), Some(sender)) = (
-                            application_route_leases.as_deref_mut(),
-                            route_lease_release_sender,
-                        ) {
-                            request_application_route_lease_release(
-                                state,
-                                client_routes,
-                                sender,
-                                event.seat,
-                                now_msec,
-                            )?;
+                        Some(sophia_engine::ApplicationRouteLeaseReadiness::ReadyForEvidenceValidation) => {}
+                        _ => { report.pointer_lease_waits += 1; continue; }
+                    }
+                    if let Err(reason) = authorize_presented_lease(state, lease, &event, client_routes,
+                        scope.expect("validated scope"), output, input_presentation_epoch, input_layers)
+                    {
+                        report.pointer_lease_rejections += 1;
+                        record_application_lease_refusal(application_lease_refusal_reason(reason));
+                        if let Some(sender) = route_lease_release_sender {
+                            if let Some(held) = pending_lease_input.as_deref_mut() {
+                                cancel_application_lease(state, client_routes, sender, held, lease.identity, now_msec)?;
+                            } else {
+                                request_application_route_lease_release(state, client_routes, sender, event.seat, now_msec)?;
+                            }
                         }
                         continue;
                     }
-                    sophia_engine::route_scene_surface_for_input(
-                        &event,
-                        input_layers,
-                        lease.target_surface,
-                    )
+                    sophia_engine::route_scene_surface_for_input(&event, input_layers, lease.target_surface)
+                } else if let Some(target) = pending_target {
+                    sophia_engine::route_scene_surface_for_input(&event, input_layers, target)
                 } else {
-                    fresh_route
+                    sophia_engine::hit_test_scene_surface_for_input(&event, input_layers)
                 };
                 if is_button && route.target_surface.is_none() {
                     report.pointer_buttons_suppressed_no_target = report
@@ -1466,7 +1507,7 @@ fn route_input_events_with_launcher(
                     local_position: local,
                     kind,
                 };
-                let starts_focus_handoff = pointer_press_starts_focus_handoff(
+                let starts_focus_handoff = held_lease.is_none() && pointer_press_starts_focus_handoff(
                     &kind,
                     applied_client_focus,
                     focus_surface,

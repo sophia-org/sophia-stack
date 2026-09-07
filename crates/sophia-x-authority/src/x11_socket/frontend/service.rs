@@ -152,7 +152,7 @@ impl XServerFrontend {
     /// frontend so every accepted connection is reaped. The observer must be
     /// thread-safe because worker callbacks may run concurrently.
     pub fn serve_next_concurrently(&mut self) -> Result<(), X11SetupSocketError> {
-        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(()));
+        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(None));
         self.serve_next_concurrently_traced(observer)
     }
 
@@ -171,7 +171,7 @@ impl XServerFrontend {
         &mut self,
         broker: &XServerFrontendRouteBroker,
     ) -> Result<(), X11SetupSocketError> {
-        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(()));
+        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(None));
         self.serve_next_concurrently_routed_traced(broker, observer)
     }
 

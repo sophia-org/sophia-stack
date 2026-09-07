@@ -13,6 +13,10 @@ pub struct ReferenceSheetCapture {
     dismissing: bool,
 }
 impl ReferenceSheetCapture {
+    pub fn active(&self) -> bool {
+        self.presented.is_some()
+    }
+
     pub fn present(&mut self, identity: Option<(OutputId, u64)>) {
         if self.presented != identity {
             self.wheel_v120 = 0;

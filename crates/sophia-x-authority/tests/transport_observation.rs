@@ -181,6 +181,73 @@ fn passive_helper_surface_routes_do_not_enter_the_engine_route_table() {
     );
 }
 
+#[test]
+fn a_client_positioned_map_publishes_its_owner_route_before_any_drawing() {
+    let surface = SurfaceId::new(0x0020_0105, 2);
+    let owner = XServerFrontendClientId::from_raw(1);
+    let mut trace = observation(Vec::new());
+    trace.major_opcode = 8;
+    trace.client = XServerFrontendClientId::from_raw(2);
+    let mut response = XAuthorityResponsePacket::accepted(trace.transaction);
+    response.surfaces.push(AuthoritySurface {
+        authority: AuthorityKind::SophiaX,
+        local_id: AuthorityLocalId::new(surface.index().into(), surface.generation()),
+        surface,
+        namespace: Some(NamespaceId::from_raw(1)),
+        presentation: SurfacePresentationRole::ClientPositioned,
+        kind: sophia_protocol::LayoutNodeKind::Popup,
+        placement_preference: sophia_protocol::SurfacePlacementPreference::Floating,
+        presentation_owner: Some(SurfaceId::new(0x0020_0100, 1)),
+        stack_rank: 2,
+        mapped: true,
+        geometry: Rect {
+            x: 12,
+            y: 24,
+            width: 64,
+            height: 32,
+        },
+        constraints: SurfaceConstraints {
+            min_size: None,
+            max_size: None,
+        },
+        generation: 1,
+    });
+    let route = XAuthoritySurfaceRouteObservation {
+        surface,
+        client: owner,
+        admission: None,
+    };
+    trace.surface_routes = vec![
+        route,
+        XAuthoritySurfaceRouteObservation {
+            surface: SurfaceId::new(surface.index(), surface.generation() - 1),
+            client: owner,
+            admission: None,
+        },
+    ];
+    trace.result.response = Some(response);
+    let batch = XAuthorityObservedTransactionBatch::from_dispatch_observation(&trace).unwrap();
+    assert!(batch.transactions.is_empty());
+    assert!(batch.cpu_buffer_updates.is_empty());
+    assert!(
+        batch.presentation_intents.is_empty(),
+        "client-positioned maps require no policy intent"
+    );
+    assert!(
+        matches!(batch.surface_presentations.as_slice(), [presentation] if presentation.surface == surface && presentation.mapped)
+    );
+    assert_eq!(
+        batch.surface_routes,
+        [route],
+        "only the exact generation's owner accompanies mapping"
+    );
+    assert_ne!(
+        batch.client,
+        Some(owner),
+        "batch sender need not own a shared-namespace surface"
+    );
+}
+
 fn error(sequence: u16, major_code: u8, resource_id: u32) -> XClientOutput {
     protocol_error(XErrorCode::BadWindow, sequence, major_code, 0, resource_id)
 }

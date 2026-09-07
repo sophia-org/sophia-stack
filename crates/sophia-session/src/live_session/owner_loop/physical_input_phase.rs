@@ -91,6 +91,7 @@ macro_rules! drain_physical_input {
                     applied_client_focus,
                     floating_gesture: &mut floating_pointer_gesture,
                     application_route_leases: &mut application_route_leases,
+                    pending_lease_input: &mut pending_lease_input,
                     chrome_captures: &mut chrome_captures,
                     descriptor_captures: &mut descriptor_captures,
                     reference_capture: &mut reference_capture,

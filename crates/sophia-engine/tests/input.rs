@@ -6,6 +6,38 @@ use sophia_engine::{
 };
 use support::*;
 
+/// Evidence for a lease whose pointer has resolved into another scope.
+fn evidence_in_scope(
+    lease: &sophia_engine::ApplicationRouteLease,
+    resolved_scope: ApplicationRouteScope,
+) -> sophia_engine::ApplicationRouteTargetEvidence {
+    sophia_engine::ApplicationRouteTargetEvidence {
+        resolved_scope,
+        ..unchanged_evidence(lease, DeviceId::from_raw(5))
+    }
+}
+
+/// Evidence for a lease that is unchanged since it was taken.
+fn unchanged_evidence(
+    lease: &sophia_engine::ApplicationRouteLease,
+    device: DeviceId,
+) -> sophia_engine::ApplicationRouteTargetEvidence {
+    let sophia_engine::ApplicationRouteLeaseBinding::Bound { output, revision } = lease.binding
+    else {
+        panic!("evidence helper expects a bound lease")
+    };
+    sophia_engine::ApplicationRouteTargetEvidence {
+        resolved_scope: lease.scope,
+        target_surface: lease.target_surface,
+        target_admission: lease.admission,
+        target_eligible: true,
+        presentation_revision: revision,
+        output,
+        device,
+        authority_session_epoch: lease.authority_session_epoch,
+    }
+}
+
 #[test]
 fn physical_pointer_is_confined_to_the_nearest_visible_output() {
     let outputs = [
@@ -881,8 +913,10 @@ fn route_lease_candidate(
             authority: NamespaceId::from_raw(authority),
         },
         authority_session_epoch: 9,
-        output: OutputId::from_raw(2),
-        presentation_epoch: 11,
+        binding: sophia_engine::ApplicationRouteLeaseBinding::Bound {
+            output: OutputId::from_raw(2),
+            revision: 11,
+        },
         initiating_device: Some(DeviceId::from_raw(5)),
         initiating_button: Some(0x110),
     }
@@ -919,16 +953,16 @@ fn explicit_pointer_lease_withholds_input_until_exact_activation() {
     candidate.initiating_button = None;
     let lease = state.begin_provisional(candidate).unwrap();
 
+    // Still withheld, and now the refusal says what it is waiting on rather
+    // than reporting a generic bad phase.
     assert_eq!(
         state.authorize(
-            lease.identity.seat,
-            lease.scope,
-            DeviceId::from_raw(99),
-            lease.output,
-            lease.presentation_epoch,
-            lease.authority_session_epoch,
+            lease.identity,
+            unchanged_evidence(&lease, DeviceId::from_raw(99))
         ),
-        Err(ApplicationRouteLeaseError::InvalidPhase)
+        Err(ApplicationRouteLeaseError::NotRoutable(
+            sophia_engine::ApplicationRouteLeaseReadiness::WaitForActivation
+        ))
     );
     state
         .confirm(
@@ -941,12 +975,8 @@ fn explicit_pointer_lease_withholds_input_until_exact_activation() {
     assert!(
         state
             .authorize(
-                lease.identity.seat,
-                lease.scope,
-                DeviceId::from_raw(99),
-                lease.output,
-                lease.presentation_epoch,
-                lease.authority_session_epoch,
+                lease.identity,
+                unchanged_evidence(&lease, DeviceId::from_raw(99))
             )
             .is_ok()
     );
@@ -971,7 +1001,10 @@ fn explicit_pointer_regrab_replaces_the_exact_active_owner_without_a_gap() {
 
     let mut replacement = first_candidate;
     replacement.target_surface = SurfaceId::new(41, 1);
-    replacement.presentation_epoch = 12;
+    replacement.binding = sophia_engine::ApplicationRouteLeaseBinding::Bound {
+        output: OutputId::from_raw(2),
+        revision: 12,
+    };
     let replacement = state
         .replace_explicit_provisional(first.identity, replacement)
         .unwrap();
@@ -1045,43 +1078,34 @@ fn confined_and_classic_application_route_scopes_do_not_cross_security_domains()
     assert!(
         confined
             .authorize(
-                SeatId::from_raw(1),
-                ApplicationRouteScope {
-                    profile: NamespaceProfile::Confined,
-                    authority: NamespaceId::from_raw(4),
-                },
-                DeviceId::from_raw(5),
-                OutputId::from_raw(2),
-                11,
-                9,
+                confined_lease.identity,
+                evidence_in_scope(
+                    &confined_lease,
+                    ApplicationRouteScope {
+                        profile: NamespaceProfile::Confined,
+                        authority: NamespaceId::from_raw(4),
+                    }
+                )
             )
             .is_ok()
     );
     assert_eq!(
         confined.authorize(
-            SeatId::from_raw(1),
-            ApplicationRouteScope {
-                profile: NamespaceProfile::Confined,
-                authority: NamespaceId::from_raw(5),
-            },
-            DeviceId::from_raw(5),
-            OutputId::from_raw(2),
-            11,
-            9,
+            confined_lease.identity,
+            evidence_in_scope(
+                &confined_lease,
+                ApplicationRouteScope {
+                    profile: NamespaceProfile::Confined,
+                    authority: NamespaceId::from_raw(5),
+                }
+            )
         ),
         Err(ApplicationRouteLeaseError::OutsideScope)
     );
     assert_eq!(
         confined.authorize(
-            SeatId::from_raw(1),
-            ApplicationRouteScope {
-                profile: NamespaceProfile::Confined,
-                authority: NamespaceId::from_raw(4),
-            },
-            DeviceId::from_raw(6),
-            OutputId::from_raw(2),
-            11,
-            9,
+            confined_lease.identity,
+            unchanged_evidence(&confined_lease, DeviceId::from_raw(6)),
         ),
         Err(ApplicationRouteLeaseError::WrongDevice)
     );
@@ -1101,29 +1125,27 @@ fn confined_and_classic_application_route_scopes_do_not_cross_security_domains()
     assert!(
         classic
             .authorize(
-                SeatId::from_raw(1),
-                ApplicationRouteScope {
-                    profile: NamespaceProfile::ClassicShared,
-                    authority: NamespaceId::from_raw(99),
-                },
-                DeviceId::from_raw(5),
-                OutputId::from_raw(2),
-                11,
-                9,
+                classic_lease.identity,
+                evidence_in_scope(
+                    &classic_lease,
+                    ApplicationRouteScope {
+                        profile: NamespaceProfile::ClassicShared,
+                        authority: NamespaceId::from_raw(99),
+                    }
+                )
             )
             .is_ok()
     );
     assert_eq!(
         classic.authorize(
-            SeatId::from_raw(1),
-            ApplicationRouteScope {
-                profile: NamespaceProfile::Confined,
-                authority: NamespaceId::from_raw(4),
-            },
-            DeviceId::from_raw(5),
-            OutputId::from_raw(2),
-            11,
-            9,
+            classic_lease.identity,
+            evidence_in_scope(
+                &classic_lease,
+                ApplicationRouteScope {
+                    profile: NamespaceProfile::Confined,
+                    authority: NamespaceId::from_raw(4),
+                }
+            )
         ),
         Err(ApplicationRouteLeaseError::OutsideScope)
     );
@@ -1170,7 +1192,7 @@ fn presentation_or_admission_invalidation_cancels_exact_route_leases() {
     let first = state
         .begin_provisional(route_lease_candidate(NamespaceProfile::Confined, 4))
         .unwrap();
-    assert_eq!(state.invalidate_output(OutputId::from_raw(2), 12), [first]);
+    assert_eq!(state.lose_output(OutputId::from_raw(2)), [first]);
 
     let second = state
         .begin_provisional(route_lease_candidate(NamespaceProfile::Confined, 4))

@@ -24,9 +24,10 @@ DefaultProfile == CHOOSE profile \in Profiles : TRUE
 DefaultId == CHOOSE id \in Ids : TRUE
 
 NoChoice == [kind |-> "none", authority |-> DefaultAuthority,
-    profile |-> DefaultProfile, id |-> DefaultId, generation |-> 0]
+    profile |-> DefaultProfile, id |-> DefaultId, generation |-> 0,
+    eligible |-> {}]
 
-NoLease == [state |-> "none", leaseId |-> 0,
+NoLease == [state |-> "none", origin |-> "automatic", leaseId |-> 0,
     authority |-> DefaultAuthority, authoritySession |-> 0,
     profile |-> DefaultProfile, id |-> DefaultId, generation |-> 0,
     presented |-> 0, controlEpoch |-> 0, frontendSequence |-> 0]
@@ -61,17 +62,22 @@ Init ==
     /\ releaseRequests = 0 /\ releaseAcks = 0 /\ rejectedGrabs = 0
     /\ securityTransitions = 0
 
-ChoiceTemplate(template, generation) ==
+ChoiceTemplate(template, generation, priorEligible) ==
     [kind |-> IF template = 4 THEN "shell"
               ELSE IF template = 5 THEN "none" ELSE "app",
      authority |-> IF template \in {2, 3} THEN 2 ELSE 1,
-     profile |-> IF template = 3 THEN "classic-shared" ELSE "confined",
-     id |-> DefaultId, generation |-> generation]
+     profile |-> IF template \in {3, 6} THEN "classic-shared" ELSE "confined",
+     id |-> DefaultId, generation |-> generation,
+     eligible |-> priorEligible \cup
+         IF template \in {4, 5} THEN {} ELSE
+         {[authority |-> IF template \in {2, 3} THEN 2 ELSE 1,
+           id |-> DefaultId, generation |-> generation]}]
 
-CommitChoice(template) ==
+CommitChoice(template, retainPrior) ==
     LET old == scenes[committedScene] IN
-    LET choice == ChoiceTemplate(template, old.generation + 1) IN
-    /\ committedScene < MaxScene /\ template \in 1..5
+    LET choice == ChoiceTemplate(template, old.generation + 1,
+         IF retainPrior THEN old.eligible ELSE {}) IN
+    /\ committedScene < MaxScene /\ template \in 1..6
     /\ authorityLive[choice.authority]
     /\ scenes' = [scenes EXCEPT ![committedScene + 1] =
          choice]
@@ -108,13 +114,23 @@ Present ==
          nextLeaseId, frontendSequence, releaseRequests, releaseAcks,
          rejectedGrabs, securityTransitions>>
 
+(***************************************************************************
+ * Engine route_lease.rs authorization and session input scope resolution:  *
+ * eligibility names the original target independently of the current hit.  *
+ * A scene revision is evidence to refresh, not a grant identity barrier.    *
+ *************************************************************************)
+LeaseTargetEligible(held) ==
+    [authority |-> held.authority, id |-> held.id,
+     generation |-> held.generation] \in scenes[presentedScene].eligible
+
 RouteRecord(source, seat, choice, routeAuthority, routeProfile) ==
     [serial |-> nextSerial, epoch |-> controlEpoch, source |-> source,
      seat |-> seat, kind |-> choice.kind, authority |-> choice.authority,
      profile |-> choice.profile, id |-> choice.id,
      generation |-> choice.generation, presented |-> presentedScene,
      routeAuthority |-> routeAuthority, routeProfile |-> routeProfile,
-     leaseState |-> lease[seat].state, shortcut |-> reservedShortcut[seat],
+     leaseState |-> lease[seat].state, leaseOrigin |-> lease[seat].origin,
+     heldTargetEligible |-> LeaseTargetEligible(lease[seat]), shortcut |-> reservedShortcut[seat],
      secure |-> secureActive]
 
 Emit(source, seat, choice, routeAuthority, routeProfile) ==
@@ -137,10 +153,13 @@ RouteExistingLease(seat) ==
     /\ held.controlEpoch = controlEpoch
     /\ held.authoritySession = authoritySession[held.authority]
     /\ LeaseCovers(current, held)
+    /\ LeaseTargetEligible(held)
+    /\ (held.origin = "automatic" \/ held.state = "active")
     /\ authorityLive[held.authority]
     /\ Emit("lease", seat, current, held.authority, held.profile)
+    /\ lease' = [lease EXCEPT ![seat].presented = presentedScene]
     /\ UNCHANGED <<scenes, committedScene, submittedScene, presentedScene,
-         authorityLive, authoritySession, secureActive, controlEpoch, lease,
+         authorityLive, authoritySession, secureActive, controlEpoch,
          shellCapture, reservedShortcut, delivered, releaseRequests,
          releaseAcks, rejectedGrabs, securityTransitions,
          nextLeaseId, frontendSequence>>
@@ -149,7 +168,7 @@ RequestLeaseRelease(seat) ==
     LET held == lease[seat] IN
     LET current == scenes[presentedScene] IN
     /\ ~secureActive /\ held.state \in {"provisional", "active"}
-    /\ ~LeaseCovers(current, held)
+    /\ (~LeaseCovers(current, held) \/ ~LeaseTargetEligible(held))
     /\ lease' = [lease EXCEPT ![seat].state = "releasing"]
     /\ releaseRequests' = releaseRequests + 1
     /\ UNCHANGED <<scenes, committedScene, submittedScene, presentedScene,
@@ -214,14 +233,14 @@ EndShellCapture(seat) ==
          nextLeaseId, frontendSequence, releaseRequests, releaseAcks,
          rejectedGrabs, securityTransitions>>
 
-BeginFrontendGrab(seat) ==
+BeginFrontendGrab(seat, origin) ==
     LET choice == scenes[presentedScene] IN
     /\ ~secureActive /\ lease[seat].state = "none"
     /\ nextLeaseId <= MaxLeases
     /\ ~shellCapture[seat].live /\ choice.kind = "app"
     /\ authorityLive[choice.authority]
     /\ lease' = [lease EXCEPT ![seat] =
-         [state |-> "provisional", leaseId |-> nextLeaseId,
+         [state |-> "provisional", origin |-> origin, leaseId |-> nextLeaseId,
           authority |-> choice.authority,
           authoritySession |-> authoritySession[choice.authority],
           profile |-> choice.profile, id |-> choice.id,
@@ -328,13 +347,15 @@ Drain ==
          rejectedGrabs, securityTransitions>>
 
 Next ==
-    \/ \E template \in 1..5 : CommitChoice(template)
+    \/ \E template \in 1..6, retainPrior \in BOOLEAN :
+         CommitChoice(template, retainPrior)
     \/ Submit \/ Present
     \/ \E seat \in Seats :
           RouteExistingLease(seat) \/ RequestLeaseRelease(seat)
           \/ FrontendReleaseAck(seat) \/ ResolveFresh(seat)
           \/ RouteShellCapture(seat) \/ EndShellCapture(seat)
-          \/ BeginFrontendGrab(seat) \/ ConfirmFrontendGrab(seat)
+          \/ (\E origin \in {"automatic", "explicit"} : BeginFrontendGrab(seat, origin))
+          \/ ConfirmFrontendGrab(seat)
           \/ RejectFrontendGrab(seat)
           \/ ArmShortcut(seat) \/ ConsumeShortcut(seat)
     \/ SecurityTransition \/ EndSecurityTransition
@@ -350,6 +371,8 @@ EventType(event) ==
     /\ event.authority \in Authorities /\ event.profile \in Profiles
     /\ event.routeAuthority \in Authorities /\ event.routeProfile \in Profiles
     /\ event.leaseState \in {"none", "provisional", "active", "releasing"}
+    /\ event.leaseOrigin \in {"automatic", "explicit"}
+    /\ event.heldTargetEligible \in BOOLEAN
     /\ event.shortcut \in BOOLEAN
     /\ event.id \in Ids /\ event.generation \in 0..MaxScene
     /\ event.presented \in 0..MaxScene /\ event.secure \in BOOLEAN
@@ -357,7 +380,8 @@ EventType(event) ==
 TypeOK ==
     /\ scenes \in [0..MaxScene ->
          [kind : Kinds, authority : Authorities, profile : Profiles,
-          id : Ids, generation : 0..MaxScene]]
+          id : Ids, generation : 0..MaxScene,
+          eligible : SUBSET [authority : Authorities, id : Ids, generation : 0..MaxScene]]]
     /\ committedScene \in 0..MaxScene /\ submittedScene \in 0..MaxScene
     /\ presentedScene \in 0..MaxScene
     /\ authorityLive \in [Authorities -> BOOLEAN]
@@ -365,7 +389,7 @@ TypeOK ==
     /\ secureActive \in BOOLEAN /\ controlEpoch \in 1..MaxEpoch
     /\ lease \in [Seats ->
          [state : {"none", "provisional", "active", "releasing"},
-          leaseId : Nat, authority : Authorities,
+          origin : {"automatic", "explicit"}, leaseId : Nat, authority : Authorities,
           authoritySession : 0..MaxEpoch, profile : Profiles, id : Ids,
           generation : 0..MaxScene, presented : 0..MaxScene,
           controlEpoch : 0..MaxEpoch, frontendSequence : Nat]]
@@ -399,6 +423,9 @@ RoutesUsePresentedChoice ==
 ApplicationLeasesAreProfileScoped ==
     \A index \in 1..Len(routed) : routed[index].source = "lease" =>
         /\ routed[index].kind = "app"
+        /\ routed[index].heldTargetEligible
+        /\ (routed[index].leaseOrigin = "automatic"
+            \/ routed[index].leaseState = "active")
         /\ routed[index].leaseState \in {"provisional", "active"}
         /\ routed[index].profile = routed[index].routeProfile
         /\ (routed[index].routeProfile = "classic-shared"
@@ -434,5 +461,24 @@ LiveLeasesUseCurrentEpochs ==
 FrontendConfirmationIsExact ==
     \A seat \in Seats : lease[seat].state = "active" =>
         lease[seat].frontendSequence = frontendSequence[seat]
+
+(***************************************************************************
+ * This obligation would fail if exact scene equality were restored. It is  *
+ * about routing availability with current evidence, not spatial overlap     *
+ * with the original application target. Capacity and shortcut guards remain.*
+ *************************************************************************)
+EligibleLeaseRemainsRoutable ==
+    \A seat \in Seats :
+        LET held == lease[seat] IN
+        (/\ ~secureActive /\ ~reservedShortcut[seat]
+         /\ nextSerial <= MaxEvents
+         /\ held.state \in {"provisional", "active"}
+         /\ (held.origin = "automatic" \/ held.state = "active")
+         /\ held.controlEpoch = controlEpoch
+         /\ held.authoritySession = authoritySession[held.authority]
+         /\ authorityLive[held.authority]
+         /\ LeaseTargetEligible(held)
+         /\ LeaseCovers(scenes[presentedScene], held))
+        => ENABLED RouteExistingLease(seat)
 
 =============================================================================

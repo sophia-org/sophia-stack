@@ -471,14 +471,33 @@ TLC then violates `PrimarySubmitNeverBlocked`, `NoScannedGenerationIsReleased`,
 respectively. The first is today's implementation: restoring the rule the code
 currently follows is what the fast head being blocked looks like in the model.
 
-`InputAuthorityArbitration.tla` models the coexistence prerequisite between
-application routing and future shell targets. It separates committed,
-submitted, and presented choices; creates an exact provisional frontend lease;
-requires matching confirmation or rejection; preserves it only inside its
-profile/output/session/control epochs; and waits for exact normal-release
-acknowledgement. Security transition instead revokes immediately and fences
-stale queued input. The bounded configuration explores 352,311 generated
-states and 99,680 distinct states to depth 20.
+`InputAuthorityArbitration.tla` models application route leases and shell
+capture. Committed, submitted, and presented choices remain separate. The
+original leased target has its own eligible-presentation evidence, independent
+of the application currently under the pointer. Both automatic and explicit
+origins are represented; automatic provisional input remains eligible, while
+explicit input requires activation. A scene revision with valid target and
+scope evidence leaves routing available. Shell ownership, exact confirmation,
+release acknowledgement, authority/control barriers, and stale queued-input
+fencing remain intact. The t066 configuration explores 1,635,555 generated
+states and 432,648 distinct states to depth 20. Restoring exact scene equality
+in a temporary copy violates `EligibleLeaseRemainsRoutable`.
+
+`PointerGrabAdmission.tla` covers the complementary map/Prepare race. Published
+observations have noncontiguous transaction ids. Dequeue and effect accounting
+are separate, and a request may name a later no-Engine-work observation after
+its map. Preparation waits for the applied prefix, but activation permits a
+client to draw before its first presentation. Output binding, held events,
+absolute expiry, and cancellation are explicit. The bounded configuration
+explores 184,589 generated states and 44,213 distinct states to depth 25.
+
+Two retained negative configurations remove the prerequisite or revive a
+cancelled reservation on late response. They violate `AppliedBeforeGrant` and
+`CancelledHasNoOwnership`, respectively. The runner checks those exact failures;
+a parser error or an unrelated invariant is not successful negative evidence.
+The [scenario coverage and boundary map](pointer-grab/brief-coverage.md) record
+the model's abstractions and limits. These checks validate the intended
+contract, not an execution-trace refinement of the Rust implementation.
 
 The first connection run found that `(client, connection epoch)` was not a
 unique transfer identity when one connection reused it for later work. The

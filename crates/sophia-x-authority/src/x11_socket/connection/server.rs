@@ -155,8 +155,8 @@ pub fn run_x11_core_socket_server_once_channels(
         },
         move |trace| {
             try_emit_x_authority_observation(&transaction_sender, &trace)
-                .map_err(|error| X11SetupSocketError::new(error.to_string()))?;
-            Ok(())
+                .map(|batch| batch.map(|batch| batch.transaction))
+                .map_err(|error| X11SetupSocketError::new(error.to_string()))
         },
     )
 }
@@ -197,8 +197,8 @@ pub fn run_x11_core_socket_server_once_session_channels(
         },
         move |trace| {
             try_emit_x_authority_observation(&transaction_sender, &trace)
-                .map_err(|error| X11SetupSocketError::new(error.to_string()))?;
-            Ok(())
+                .map(|batch| batch.map(|batch| batch.transaction))
+                .map_err(|error| X11SetupSocketError::new(error.to_string()))
         },
     )
 }
@@ -228,7 +228,7 @@ pub fn run_x11_core_socket_server_once_routed(
         .set_input_authority(broker.registry.input_authority.clone());
     let observer: Arc<X11CoreTraceObserver> = Arc::new(move |trace| {
         try_emit_x_authority_observation(&transaction_sender, &trace)
-            .map(|_| ())
+            .map(|batch| batch.map(|batch| batch.transaction))
             .map_err(x_authority_observation_client_error)
     });
     frontend.serve_next_concurrently_routed_traced(&broker, observer)?;
@@ -623,10 +623,14 @@ pub fn run_x_server_frontend_routed_until_stopped_with_backpressure_observer(
     ));
     let worker_egress = ordered_egress.clone();
     let observer: Arc<X11CoreTraceObserver> = Arc::new(move |trace| {
-        worker_egress.submit_blocking(XAuthorityBoundedEgressEnvelope::new(
-            trace.transaction,
-            XAuthorityObservedTransactionBatch::from_dispatch_observation(&trace),
-        ))
+        if trace.failure == Some(X11ObservedDispatchFailure::UnpublishedEffects) {
+            worker_egress.cancel();
+            return Err(X11SetupSocketError::new("X11 dispatch ended with unpublished authority effects"));
+        }
+        let batch = XAuthorityObservedTransactionBatch::from_dispatch_observation(&trace);
+        let receipt = batch.as_ref().map(|batch| batch.transaction);
+        worker_egress.submit_blocking(XAuthorityBoundedEgressEnvelope::new(trace.transaction, batch))?;
+        Ok(receipt)
     });
     let mut accepting = true;
     let mut pending_raster_egress = None::<XAuthorityBoundedEgressEnvelope>;
@@ -1302,7 +1306,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_setup_authorization(
     state: &X11CoreSocketServerState,
     authorization: &XServerFrontendSetupAuthorization,
     admission_policy: Option<Arc<dyn XServerFrontendAdmissionPolicy>>,
-    observer: impl FnMut(X11DispatchObservation) -> Result<(), X11SetupSocketError>,
+    mut observer: impl FnMut(X11DispatchObservation) -> Result<(), X11SetupSocketError>,
 ) -> Result<(), X11SetupSocketError> {
     serve_x11_core_socket_client_with_trace_observer_and_input(
         stream,
@@ -1318,6 +1322,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_setup_authorization(
             admission_policy,
             worker_admission: None,
         },
-        observer,
+        move |trace| observer(trace).map(|()| None),
     )
 }

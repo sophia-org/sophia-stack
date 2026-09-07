@@ -48,30 +48,123 @@ and generational surface. Reserved shortcuts remain live, and any focus,
 surface, authority, topology, timeout, or capacity invalidation drops the whole
 held client sequence.
 
-An ordinary or passive-grab pointer press now creates a provisional, exact
-Engine lease. The frontend confirms that lease after applying its X11 grab,
-and motion or release retains the original target only while the pointer
-remains inside the admitted profile scope and the output, presentation,
-authority-session, surface, and control epochs remain exact. Normal scope exit
-uses an ordered release request and acknowledgement. VT and seat-security
-transitions advance a shared epoch, clear active frontend grabs, and reject
-queued or frozen old-epoch input without waiting. Client-initiated core
-`GrabPointer` and admitted master-pointer XI grabs use a passive bounded
-prepare/activate/release handshake with the same Engine lease state. Engine
-routes no physical input while an explicit lease is provisional, and a shell
-capture cannot displace an active or releasing application owner. The compiled
-profile therefore enables the live switcher; its signed physical proof remains
-open.
+An ordinary or passive-grab pointer press creates a provisional, exact Engine
+lease. The frontend confirms that lease after applying its X11 grab. Motion
+and release retain the original target while that target remains eligible and
+the pointer remains inside the admitted application profile scope. The pointer
+need not remain within the original target's geometry: another application
+surface inside the same admitted scope may lie beneath it.
+
+Surface generation, admission, authority-session, control epoch, device
+restriction, and pinned output remain exact. An output-local scene revision
+invalidates cached presentation evidence; it does not by itself revoke the
+lease. Before continuing delivery, Engine validates the original target's
+current eligible presentation and the permitted scope at the pointer. Scope
+resolution follows compositor order, including shell, descriptor, chrome,
+tab, and secure occlusion. Upper chrome blocks an application hit. Tab chrome
+is composed below applications: an eligible application hit above it wins;
+an exposed tab supplies no application scope. Input shapes and transforms
+participate in that hit test. Unrelated popup or scene changes
+may therefore preserve a lease without extending its grant.
+
+Normal scope exit uses an ordered release request and acknowledgement. If a
+client ungrab races Engine release of the same exact lease, it joins that
+release without extending its deadline. VT, seat-security, authority, and
+output lifecycle changes revoke affected leases
+and queued old-epoch input without waiting. An unbound reservation must be
+handled explicitly by these invalidation paths; having no output does not
+exempt it from invalidation. Ordinary release and security revocation remain
+distinct from presentation-evidence refresh.
+
+### Explicit grab preparation
+
+Client-initiated core `GrabPointer` and admitted master-pointer XI grabs use a
+bounded prepare/activate/release handshake with the same Engine lease state.
+Prepare names the requesting connection's last authority observation actually
+enqueued before the request. Transactions that publish no observation leave
+this receipt unchanged. Neither the grab's own transaction nor arithmetic on
+transaction identifiers is a valid prerequisite.
+
+Engine evaluates Prepare only after the observation prefix has been applied
+and its lifecycle and route effects accounted for. Dequeue alone is not
+application. A run skipped because every batch has no Engine work may be
+accounted without applying nonexistent effects. A processed batch advances the
+frontier only after observation and lifecycle cleanup. Synthetic WM work does
+not advance this authority frontier.
+
+The frontend may wait for its synchronous X11 reply, but it releases shared
+authority-state locks across every bridge wait. It preserves per-client
+request ordering and revalidates exact X window identity, mapping, admission,
+and grab ownership after reacquiring them. Prepare validates authoritative
+mapping, admission, and popup-owner eligibility; it refuses a seat already
+captured by shell. It does not wait for WM policy, a frame, or scanout. A client
+that draws only after grab success must be able to obtain ownership.
+
+### Readiness and presentation binding
+
+Lease phase and presentation binding are independent. Phases remain
+`Provisional`, `Active`, and `Releasing`; binding is either
+`AwaitingPresentation` or `Bound`. Engine owns the shared readiness decision:
+
+| First applicable condition | Readiness |
+| --- | --- |
+| Releasing, regardless of origin or binding | Releasing |
+| Explicit pointer lease is provisional | Wait for activation |
+| Awaiting presentation | Wait for presentation |
+| Otherwise | Ready for evidence validation |
+
+An automatic `PointerBoundary` lease that is provisional and bound remains
+ready for evidence validation. An explicit provisional lease never delivers
+physical input. The session uses this Engine decision rather than maintaining
+a second phase match. Readiness is informational, not a permission token:
+authorization resolves the exact current lease, evaluates readiness again,
+and checks current identity, scope, and presentation evidence. An earlier
+readiness result cannot survive release or revocation as authority to deliver.
+
+Automatic click leases start bound. Explicit reservations may be activated
+before their first eligible presentation. The current physical pointer output pins
+the candidate output, including when its first spatial event must be held;
+binding requires eligible retired presentation evidence for the target on
+that output. No output is selected by vector order. A
+reservation cannot cross outputs to obtain a binding. Activation alone does
+not make an unpresented target a physical-input destination.
 
 The frontend stores the Engine lease identity on an automatic click grab.
 A client's explicit grab can replace its own automatic grab through that exact
-identity, with the same admission, namespace scope, seat, and authority-session
-epoch. Promotion may precede the click-delivery acknowledgement; late updates
-for the old identity cannot change the replacement. Engine still withholds
-physical routing until the explicit replacement is activated. Further button
-presses preserve the current grab, and button releases do not end an explicit
-grab. Explicit ungrab and Engine-ordered scope exit retain their release
-handshakes; a releasing lease cannot be promoted.
+identity, preserving admission, namespace scope, seat, authority-session epoch,
+and pinned output. Replacement validation and allocation precede the swap.
+Promotion may precede click-delivery acknowledgement; late updates for the old
+identity cannot alter or restore the replacement. Engine withholds physical
+routing until explicit activation and presentation readiness. Further button
+presses preserve ownership, and button releases do not end an explicit grab.
+A releasing lease cannot be promoted.
+
+### Bounds and cancellation
+
+Queued and deferred Prepares share a 32-request capacity and the existing
+500 ms absolute request deadline. Expiry or capacity exhaustion refuses the
+request; a missing prerequisite never permits evaluation against stale state.
+Release, abort, and cancellation service do not wait behind a blocked Prepare.
+
+An unpresented reservation expires four seconds after creation. Held spatial
+input is bounded to 256 events and expires at the earlier of that reservation
+deadline and four seconds after the first held event. Neither timer resets on
+motion, a frame, or promotion. Existing bound focus handoffs retain their
+first-event deadline. Only events inside the currently permitted presented
+scope may be held, including events arriving during explicit activation.
+Adjacent motion may coalesce; button and axis ordering remains intact.
+
+Cancellation retires the exact pending request, reservation, and held sequence
+together. Timeout, overflow, disconnect, withdrawal, owner loss, scope exit,
+and security/topology invalidation use that same cleanup. A late response
+cannot publish success for a cancelled request or recreate its lease. Before
+releasing buffered events, Engine revalidates each event and derives local
+coordinates from the eligible presented target. Failed acquisition returns the
+existing X failure response after cleanup; it does not end the desktop.
+
+The [grab ownership decision](notes/decisions/mbvdvhk5-separate-grab-ownership-from-presentation-evidence.md)
+records why observation ordering and presentation evidence are separate. These
+application rules do not relax shell target identity or disclosure contracts.
 
 | Dimension | Application surface routing | Target-resolved shell input |
 | --- | --- | --- |
@@ -357,7 +450,14 @@ security cancellation without post-revocation output.
 `validation/tla/InputAuthorityArbitration.tla` covers committed, submitted, and
 presented route choices; profile-scoped frontend leases; release
 acknowledgement; mutually exclusive shell capture; reserved shortcuts; secure
-preemption; and stale control-epoch quarantine.
+preemption; current application-target evidence; and stale control-epoch
+quarantine.
+
+`validation/tla/PointerGrabAdmission.tla` covers actually published observation
+prerequisites, deferred preparation, activation before presentation, bounded
+reservation/input lifetime, cancellation, and rejection of late responses.
+Its negative controls exercise missing-prerequisite authorization and cancelled
+reservation resurrection.
 
 `validation/architecture/alloy/PresentedTargetTopology.als` separately searches
 bounded static ownership, occlusion, trust-order, modal, identity, and grant

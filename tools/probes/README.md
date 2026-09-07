@@ -42,3 +42,43 @@ physical composition, replacement-focus policy, or pointer grabs. The synthetic 
 no physical trigger event; GTK may report that warning. Installed-session
 acceptance still requires opening Thunar menus and submenus, dismissing them,
 and switching windows without missing pixels or lingering overlays.
+
+# Qt popup probe
+
+`qt_popup.cpp` opens an owned QMenu, selects an action, reopens it, opens and
+selects a nested menu, then dismisses another opening with Escape. A separately labelled raw-X phase
+uses the same XCB connection to create an owned popup, map it and immediately
+grab without drawing first. Only GrabSuccess permits its marker drawing. This
+checks the client pattern that cannot wait for presentation before receiving
+the grab reply. Its events
+are delivered locally to its own Qt widgets. It never injects physical input.
+The executable forwards Qt's core and XI2 grab calls unchanged and records their
+actual replies; it sends no extra X request between mapping and grabbing.
+This observation is local to the probe process, with no desktop-wide interposer.
+
+```sh
+python3 tools/run_qt_popup_probe.py --sophia /path/to/sophia --wm /path/to/wm
+python3 -m unittest discover -s tools/tests -p qt_popup_probe_test.py
+```
+
+Building needs a C++17 compiler, `pkg-config`, Qt6 Widgets, Xlib, XCB and XCB
+XInput development files. The runner creates a private headless session with no
+input devices, records executable/source hashes and configuration, and retains
+four own-window PPM captures under the printed evidence directory. It does not
+use the current display or restart the installed session.
+
+A pass requires observed successful grabs on the actual first, reopened and
+final menu windows, with mapping preceding each grab. Missing observations fail
+the check. It also requires mapped menus with the expected transient-owner
+chain, light backgrounds and dark text, successful selections and dismissal,
+and successful raw grab followed by exact marker pixels. It also requires
+a successful client exit, and clean session health and cleanup.
+
+Own-window `GetImage` checks frontend pixels. The compositor's nonempty-scene
+witness establishes only that composition occurred; neither establishes exact
+composed menu pixels. The Engine scene regressions cover exact composition
+separately. These local Qt events also do not prove physical click delivery or
+recovery from a real application grab. Installed-session acceptance remains
+necessary. Use `--authority-trace` to retain synthetic X request diagnostics; this changes
+scheduling and is recorded in the identity file. The ordering race can depend
+on scheduling: preserve repeated baseline runs and do not interpret one successful baseline as a disproof.

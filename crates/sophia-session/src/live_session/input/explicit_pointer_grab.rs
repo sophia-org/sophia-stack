@@ -1,5 +1,26 @@
 use super::*;
 
+#[derive(Default)]
+pub(super) struct ExplicitPointerGrabQueue {
+    applied: Option<TransactionId>,
+    requests: VecDeque<sophia_x_authority::XAuthorityExplicitPointerGrabRequest>,
+}
+
+impl ExplicitPointerGrabQueue {
+    pub(super) fn account(&mut self, batch: &XAuthorityObservedTransactionBatch) {
+        // Only actual socket observations can certify a socket prerequisite.
+        // WM coordinator ticks share TransactionId but are not this stream.
+        if batch.client.is_some() {
+            self.applied = Some(self.applied.map_or(batch.transaction, |prior| prior.max(batch.transaction)));
+        }
+    }
+
+    fn prerequisite_applied(&self, prerequisite: Option<TransactionId>) -> bool {
+        prerequisite.is_none_or(|required| self.applied.is_some_and(|applied| applied >= required))
+    }
+}
+
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub(super) struct ExplicitPointerGrabControlReport {
     pub prepared: usize,
@@ -7,6 +28,8 @@ pub(super) struct ExplicitPointerGrabControlReport {
     pub released: usize,
     pub aborted: usize,
     pub rejected: usize,
+    pub deferred: usize,
+    pub cancelled: usize,
 }
 
 fn explicit_pointer_grab_rejection(
@@ -27,39 +50,68 @@ fn explicit_pointer_grab_rejection(
     }
 }
 
-fn presented_input_identity(
-    surface: SurfaceId,
-    projections: &[sophia_backend_live::LivePresentedInputProjection],
-) -> Option<(sophia_protocol::OutputId, u64)> {
-    projections.iter().find_map(|projection| {
-        projection
-            .layers
-            .iter()
-            .any(|layer| layer.surface == surface)
-            .then_some((projection.output, projection.epoch))
-    })
-}
-
 pub(super) fn drain_explicit_pointer_grab_controls(
     owner: &sophia_x_authority::XAuthorityExplicitPointerGrabOwner,
     state: &mut ApplicationRouteLeaseState,
-    client_routes: &XAuthorityClientSurfaceRoutes,
+    pending: &mut ExplicitPointerGrabQueue,
+    layout: &PersistentLiveLayout,
+    held_input: &mut PendingLeaseInput,
+    release_sender: &SyncSender<XAuthorityRouteLeaseRelease>,
+    seat_owned: bool,
     focus: &InputFocusState,
-    projections: &[sophia_backend_live::LivePresentedInputProjection],
     seat: SeatId,
     now_msec: u64,
 ) -> Result<ExplicitPointerGrabControlReport, Box<dyn std::error::Error>> {
     let mut report = ExplicitPointerGrabControlReport::default();
+    let client_routes = &layout.client_routes;
     while let Ok(request) = owner.try_recv() {
+        pending.requests.push_back(request);
+    }
+    // Visit each request once. An unmet prerequisite never blocks a release
+    // behind it or prevents the owner from consuming the authority queue.
+    for _ in 0..pending.requests.len() {
+        let request = pending.requests.pop_front().expect("bounded pending request");
+        if owner.is_cancelled(request.id)? || Instant::now() >= request.deadline {
+            if let Some(identity) = explicit_request_identity(request.kind) {
+                cancel_application_lease(state, client_routes, release_sender, held_input, identity, now_msec)?;
+            }
+            let _ = owner.respond(request.id, sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
+                sophia_x_authority::XAuthorityExplicitPointerGrabRejection::Stale,
+            ))?;
+            report.cancelled += 1;
+            continue;
+        }
+        if let sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind::Prepare { after_observation, control_epoch, .. } = request.kind {
+            if control_epoch != state.control_epoch() {
+                let _ = owner.respond(request.id, sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
+                    sophia_x_authority::XAuthorityExplicitPointerGrabRejection::Stale,
+                ))?;
+                report.rejected += 1;
+                continue;
+            }
+            if !pending.prerequisite_applied(after_observation) {
+                pending.requests.push_back(request);
+                report.deferred += 1;
+                continue;
+            }
+        }
         let admission = request.admission;
         let response = match request.kind {
             sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind::Prepare {
                 anchor,
                 replaces,
+                ..
             } => {
+                if seat_owned {
+                    let _ = owner.respond(request.id, sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
+                        sophia_x_authority::XAuthorityExplicitPointerGrabRejection::AlreadyOwned,
+                    ))?;
+                    report.rejected += 1;
+                    continue;
+                }
                 let surface = match anchor {
                     sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::Surface(surface) => {
-                        (client_routes.admission_for_surface(surface) == Some(admission))
+                        (client_routes.admission_for_surface(surface) == Some(admission) && layout.input_eligible(surface))
                             .then_some(surface)
                     }
                     sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault => {
@@ -67,31 +119,28 @@ pub(super) fn drain_explicit_pointer_grab_controls(
                             .focused_surface(seat)
                             .filter(|surface| {
                                 client_routes.admission_for_surface(*surface) == Some(admission)
-                                    && presented_input_identity(*surface, projections).is_some()
+                                    && layout.input_eligible(*surface)
                             })
                             .or_else(|| {
                                 client_routes
                                     .surfaces_for_admission(admission)
                                     .into_iter()
                                     .find(|surface| {
-                                        presented_input_identity(*surface, projections).is_some()
+                                        layout.input_eligible(*surface)
                                     })
                             })
                     }
                 };
                 let Some(surface) = surface else {
-                    report.rejected = report.rejected.saturating_add(1);
-                    owner.respond(
-                        request.id,
-                        sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
-                            sophia_x_authority::XAuthorityExplicitPointerGrabRejection::NotViewable,
-                        ),
-                    )?;
-                    continue;
-                };
-                let Some((output, presentation_epoch)) =
-                    presented_input_identity(surface, projections)
-                else {
+                    let reason = match anchor {
+                        sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::Surface(surface)
+                            if client_routes.admission_for_surface(surface) != Some(admission) => "anchor_admission",
+                        sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::Surface(surface)
+                            if !layout.mapped_surfaces.contains(&surface) => "anchor_unmapped",
+                        sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::Surface(_) => "anchor_owner",
+                        sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault => "no_anchor",
+                    };
+                    crate::session_println!("sophia_live_explicit_pointer_grab schema=2 status=rejected reason={reason}");
                     report.rejected = report.rejected.saturating_add(1);
                     owner.respond(
                         request.id,
@@ -111,8 +160,10 @@ pub(super) fn drain_explicit_pointer_grab_controls(
                         authority: admission.namespace.id,
                     },
                     authority_session_epoch: admission.auth_provenance.session_generation,
-                    output,
-                    presentation_epoch,
+                    binding: sophia_engine::ApplicationRouteLeaseBinding::AwaitingPresentation {
+                        pinned_output: None,
+                        deadline_msec: now_msec.saturating_add(sophia_engine::POINTER_FOCUS_HANDOFF_TIMEOUT_MSEC),
+                    },
                     initiating_device: None,
                     initiating_button: None,
                 };
@@ -194,21 +245,39 @@ pub(super) fn drain_explicit_pointer_grab_controls(
                 }
             },
             sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind::Abort { identity } => {
-                match state.reject(identity) {
-                    Ok(_) => {
-                        report.aborted = report.aborted.saturating_add(1);
-                        sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Aborted
-                    }
-                    Err(error) => {
-                        report.rejected = report.rejected.saturating_add(1);
-                        sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
-                            explicit_pointer_grab_rejection(error),
-                        )
-                    }
+                if state.lease(identity.seat).is_some_and(|lease| {
+                    lease.identity == identity && lease.admission == admission.client_id
+                        && lease.authority_session_epoch == admission.auth_provenance.session_generation
+                }) {
+                    cancel_application_lease(state, client_routes, release_sender, held_input, identity, now_msec)?;
+                    report.aborted += 1;
+                    sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Aborted
+                } else {
+                    report.rejected += 1;
+                    sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Rejected(
+                        sophia_x_authority::XAuthorityExplicitPointerGrabRejection::Stale,
+                    )
                 }
             }
         };
-        owner.respond(request.id, response)?;
+        let identity = match response {
+            sophia_x_authority::XAuthorityExplicitPointerGrabResponse::Prepared(identity) => Some(identity),
+            _ => explicit_request_identity(request.kind),
+        };
+        if owner.respond(request.id, response)? == sophia_x_authority::XAuthorityExplicitPointerGrabResponseDisposition::Cancelled {
+            if let Some(identity) = identity {
+                cancel_application_lease(state, client_routes, release_sender, held_input, identity, now_msec)?;
+            }
+            report.cancelled += 1;
+        }
     }
     Ok(report)
+}
+
+fn explicit_request_identity(kind: sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind) -> Option<sophia_protocol::ApplicationRouteLeaseIdentity> {
+    use sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind::*;
+    match kind {
+        Prepare { .. } => None,
+        Activate { identity } | BeginRelease { identity } | FinishRelease { identity } | Abort { identity } => Some(identity),
+    }
 }

@@ -378,6 +378,7 @@ fn stale_target_acknowledgements_retire_without_rejection_debt() {
         XAuthorityControlKind::CloseSurface,
         XAuthorityControlKind::PublishMetadataRule,
         XAuthorityControlKind::ClearFocus,
+        XAuthorityControlKind::FocusSurface,
     ] {
         assert_stale_target_retires(kind);
     }
@@ -422,11 +423,9 @@ fn assert_stale_target_retires(kind: XAuthorityControlKind) {
     assert!(completions[0].failure.is_some_and(|failure| {
         failure.is_stale_target_for(XAuthorityControlKind::PublishMetadataRule)
     }));
-    assert!(
-        completions[0].failure.is_some_and(
-            |failure| !failure.is_stale_target_for(XAuthorityControlKind::FocusSurface)
-        )
-    );
+    assert!(completions[0].failure.is_some_and(|failure| {
+        !failure.is_stale_target_for(XAuthorityControlKind::ConfigureSurface)
+    }));
 
     let gone = control(1, 2, surface(2), XAuthorityControlKind::FocusSurface);
     queue.enqueue(gone, now).unwrap();
@@ -460,7 +459,7 @@ fn unexpected_target_rejection_remains_terminal_debt() {
     let (sender, commands) = sync_channel(SESSION_CONTROL_CAPACITY);
     let (acknowledgements, receiver) = sync_channel(SESSION_CONTROL_CAPACITY);
     let now = Instant::now();
-    let command = control(1, 1, surface(1), XAuthorityControlKind::FocusSurface);
+    let command = control(1, 1, surface(1), XAuthorityControlKind::ConfigureSurface);
     let mut queue = SessionControlQueue::default();
     queue.enqueue(command, now).unwrap();
     let mut completions = Vec::new();

@@ -470,6 +470,8 @@ fn run_session_loop_inner(
     let mut keyboard_focus_handoff = KeyboardFocusHandoffState::default();
     let mut pointer_focus_handoff = PointerFocusHandoffState::default();
     let mut application_route_leases = ApplicationRouteLeaseState::default();
+    let mut explicit_grab_queue = ExplicitPointerGrabQueue::default();
+    let mut pending_lease_input = PendingLeaseInput::default();
     let mut shell_proof_visible_presentations = 0_u32;
     let mut shell_proof_restart_triggered = false;
     // Carries the shell's committed work-area claim from the shell phase to

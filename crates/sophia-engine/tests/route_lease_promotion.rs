@@ -1,6 +1,7 @@
 use sophia_engine::{
-    ApplicationRouteLeaseCandidate, ApplicationRouteLeaseError, ApplicationRouteLeaseOrigin,
-    ApplicationRouteLeasePhase, ApplicationRouteLeaseState, ApplicationRouteScope,
+    ApplicationRouteLeaseBinding, ApplicationRouteLeaseCandidate, ApplicationRouteLeaseError,
+    ApplicationRouteLeaseOrigin, ApplicationRouteLeasePhase, ApplicationRouteLeaseState,
+    ApplicationRouteScope,
 };
 use sophia_protocol::{
     ClientAdmissionId, DeviceId, NamespaceId, NamespaceProfile, OutputId, SeatId, SurfaceId,
@@ -17,8 +18,10 @@ fn click() -> ApplicationRouteLeaseCandidate {
             authority: NamespaceId::from_raw(4),
         },
         authority_session_epoch: 9,
-        output: OutputId::from_raw(2),
-        presentation_epoch: 11,
+        binding: ApplicationRouteLeaseBinding::Bound {
+            output: OutputId::from_raw(2),
+            revision: 11,
+        },
         initiating_device: Some(DeviceId::from_raw(5)),
         initiating_button: Some(0x110),
     }

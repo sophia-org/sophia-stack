@@ -59,16 +59,15 @@ pub enum SessionControlFailure {
 }
 
 impl SessionControlFailure {
-    /// Returns true when an acknowledged command lost its target during the
-    /// bounded Engine-to-frontend handoff. Closing, clearing focus and metadata
-    /// publication need no surviving target. In particular, a client can destroy
-    /// a hidden window before its queued focus clear arrives. Commands that
-    /// establish new surface state still require a known target.
+    /// A target can disappear while its exact command is in flight. Retire
+    /// obsolete close, focus and metadata commands without reporting them as
+    /// applied. Admission and configuration still require a surviving target.
     pub const fn is_stale_target_for(self, kind: XAuthorityControlKind) -> bool {
         matches!(self, Self::Rejected(XAuthorityControlOutcome::ClientGone))
             || matches!(
                 kind,
                 XAuthorityControlKind::CloseSurface
+                    | XAuthorityControlKind::FocusSurface
                     | XAuthorityControlKind::ClearFocus
                     | XAuthorityControlKind::PublishMetadataRule
             ) && matches!(

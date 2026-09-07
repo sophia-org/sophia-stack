@@ -72,7 +72,7 @@ fn cross_namespace_executor_installs_property_and_notifies_requestor() {
                     coordinate_sender.send(transfer).unwrap();
                 }
             }
-            Ok(())
+            Ok(None)
         });
         frontend
             .serve_next_concurrently_routed_traced(&broker, observer.clone())
@@ -473,7 +473,7 @@ fn x_server_frontend_dispatches_two_live_clients_with_shared_x_state() {
                 .lock()
                 .unwrap()
                 .push((trace.client.raw(), trace.major_opcode));
-            Ok(())
+            Ok(None)
         });
         frontend
             .serve_next_concurrently_traced(observer.clone())

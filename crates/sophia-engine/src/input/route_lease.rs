@@ -40,6 +40,77 @@ pub enum ApplicationRouteLeaseOrigin {
     ExplicitPointer,
 }
 
+/// What a lease is waiting on before it can route input.
+///
+/// Informational, never a permit: readiness says a lease is eligible to be
+/// checked, not that an event may be delivered. It is never carried across a
+/// time boundary -- callers resolve the lease and ask again.
+///
+/// One decision, shared by the session and by `authorize`, so the two cannot
+/// disagree.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplicationRouteLeaseReadiness {
+    Releasing,
+    WaitForActivation,
+    WaitForPresentation,
+    ReadyForEvidenceValidation,
+}
+
+/// Where a lease is presented. Orthogonal to phase.
+///
+/// A grab may be taken before its surface has reached scanout, so the output is
+/// not always knowable at creation. `authorize` requires the output to match,
+/// so an unbound lease waits rather than guessing one.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplicationRouteLeaseBinding {
+    /// No output yet. `pinned_output` is inherited by a replacement, which may
+    /// bind only there. The deadline is absolute from creation and never
+    /// extended.
+    AwaitingPresentation {
+        pinned_output: Option<OutputId>,
+        deadline_msec: u64,
+    },
+    /// Pinned by the first eligible retired evidence on that output.
+    ///
+    /// `revision` is evidence of the scene last validated against, not a gate:
+    /// authorization never refuses on a revision change.
+    Bound { output: OutputId, revision: u64 },
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ApplicationRouteLeaseBindingTimeout {
+    NotAwaiting,
+    Pending,
+    Expired(ApplicationRouteLease),
+}
+
+/// What the caller must re-resolve before an event is delivered or buffered.
+///
+/// Gathered fresh per event. Readiness says a lease is eligible to be checked;
+/// these are the checks.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct ApplicationRouteTargetEvidence {
+    /// Scope of the surface now resolved under the pointer. A held lease may
+    /// cross application surfaces inside its own scope; leaving that scope is
+    /// what ends it.
+    pub resolved_scope: ApplicationRouteScope,
+    /// The surface this evidence was gathered for. Checked against the lease
+    /// target, so evidence about a surface that has since been replaced on the
+    /// same seat cannot validate its replacement.
+    pub target_surface: SurfaceId,
+    /// Freshly resolved admission of the lease target, not the remembered one.
+    pub target_admission: ClientAdmissionId,
+    /// The scene this evidence was read from. Recorded onto the lease after a
+    /// successful check; never a reason to refuse.
+    pub presentation_revision: u64,
+    /// Whether the target is still presented and reachable, decided by the
+    /// caller against the current scene.
+    pub target_eligible: bool,
+    pub output: OutputId,
+    pub device: DeviceId,
+    pub authority_session_epoch: u64,
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ApplicationRouteLease {
     pub identity: ApplicationRouteLeaseIdentity,
@@ -49,8 +120,7 @@ pub struct ApplicationRouteLease {
     pub admission: ClientAdmissionId,
     pub scope: ApplicationRouteScope,
     pub authority_session_epoch: u64,
-    pub output: OutputId,
-    pub presentation_epoch: u64,
+    pub binding: ApplicationRouteLeaseBinding,
     pub initiating_device: Option<DeviceId>,
     pub initiating_button: Option<u32>,
 }
@@ -63,10 +133,113 @@ pub struct ApplicationRouteLeaseCandidate {
     pub admission: ClientAdmissionId,
     pub scope: ApplicationRouteScope,
     pub authority_session_epoch: u64,
-    pub output: OutputId,
-    pub presentation_epoch: u64,
+    pub binding: ApplicationRouteLeaseBinding,
     pub initiating_device: Option<DeviceId>,
     pub initiating_button: Option<u32>,
+}
+
+impl ApplicationRouteLease {
+    pub const fn binding(&self) -> ApplicationRouteLeaseBinding {
+        self.binding
+    }
+
+    /// What this lease is waiting on, if anything.
+    ///
+    /// Precedence, which the arm order encodes and a test pins: a releasing
+    /// lease is finished and never waits on anything else; an unactivated
+    /// explicit grab waits for its client, never for pixels; anything unbound
+    /// waits for presentation; everything else is eligible to be checked.
+    ///
+    /// Every combination is spelled out and there is no wildcard, so a new
+    /// origin, phase or binding fails to compile here rather than falling
+    /// through to routing input.
+    ///
+    /// An automatic click is routable while provisional: the lease is created
+    /// and used within one event.
+    pub const fn routing_readiness(&self) -> ApplicationRouteLeaseReadiness {
+        use ApplicationRouteLeaseBinding as Binding;
+        use ApplicationRouteLeaseOrigin as Origin;
+        use ApplicationRouteLeasePhase as Phase;
+        use ApplicationRouteLeaseReadiness as Ready;
+        match (self.origin, self.phase, self.binding) {
+            (
+                Origin::PointerBoundary | Origin::ExplicitPointer,
+                Phase::Releasing { .. },
+                Binding::AwaitingPresentation { .. } | Binding::Bound { .. },
+            ) => Ready::Releasing,
+            (
+                Origin::ExplicitPointer,
+                Phase::Provisional,
+                Binding::AwaitingPresentation { .. } | Binding::Bound { .. },
+            ) => Ready::WaitForActivation,
+            (
+                Origin::PointerBoundary,
+                Phase::Provisional | Phase::Active,
+                Binding::AwaitingPresentation { .. },
+            )
+            | (Origin::ExplicitPointer, Phase::Active, Binding::AwaitingPresentation { .. }) => {
+                Ready::WaitForPresentation
+            }
+            (
+                Origin::PointerBoundary,
+                Phase::Provisional | Phase::Active,
+                Binding::Bound { .. },
+            )
+            | (Origin::ExplicitPointer, Phase::Active, Binding::Bound { .. }) => {
+                Ready::ReadyForEvidenceValidation
+            }
+        }
+    }
+}
+
+impl ApplicationRouteLeaseBinding {
+    /// Where this binding may still land, if it has not landed already.
+    const fn pinned(self) -> Option<OutputId> {
+        match self {
+            Self::Bound { output, .. } => Some(output),
+            Self::AwaitingPresentation { pinned_output, .. } => pinned_output,
+        }
+    }
+
+    /// The binding a replacement inherits from the lease it replaces.
+    ///
+    /// A promotion may not reach an output the original could not, and may not
+    /// buy itself more time. So the original pin wins over the candidate one,
+    /// and the deadline is the earlier of the two: a client that promotes
+    /// repeatedly must not be able to hold a seat indefinitely by restarting
+    /// the clock.
+    fn inherit(self, replacement: Self) -> Result<Self, ApplicationRouteLeaseError> {
+        let inherited = self.pinned();
+        match replacement {
+            Self::Bound { output, revision } => {
+                if inherited.is_some_and(|pinned| pinned != output) {
+                    return Err(ApplicationRouteLeaseError::StalePresentation);
+                }
+                Ok(Self::Bound { output, revision })
+            }
+            Self::AwaitingPresentation {
+                pinned_output,
+                deadline_msec,
+            } => {
+                if let (Some(pinned), Some(wanted)) = (inherited, pinned_output)
+                    && pinned != wanted
+                {
+                    return Err(ApplicationRouteLeaseError::StalePresentation);
+                }
+                let deadline_msec = match self {
+                    Self::AwaitingPresentation {
+                        deadline_msec: existing,
+                        ..
+                    } => existing.min(deadline_msec),
+                    Self::Bound { .. } => deadline_msec,
+                };
+                Ok(Self::AwaitingPresentation {
+                    pinned_output: inherited.or(pinned_output),
+                    deadline_msec,
+                })
+            }
+        }
+    }
 }
 
 impl ApplicationRouteLeaseCandidate {
@@ -76,8 +249,18 @@ impl ApplicationRouteLeaseCandidate {
             && self.admission.is_valid()
             && self.scope.authority.is_valid()
             && self.authority_session_epoch != 0
-            && self.output.is_valid()
-            && self.presentation_epoch != 0
+            && match self.binding {
+                // A bound candidate must name a real output and scene.
+                ApplicationRouteLeaseBinding::Bound { output, revision } => {
+                    output.is_valid() && revision != 0
+                }
+                // An unbound one must carry a deadline, and any inherited pin
+                // must be a real output.
+                ApplicationRouteLeaseBinding::AwaitingPresentation {
+                    pinned_output,
+                    deadline_msec,
+                } => deadline_msec != 0 && pinned_output.is_none_or(OutputId::is_valid),
+            }
             && self.initiating_device.is_none_or(DeviceId::is_valid)
             && self.initiating_button.is_none_or(|button| button != 0)
     }
@@ -90,6 +273,10 @@ pub enum ApplicationRouteLeaseError {
     NoLease,
     IdentityMismatch,
     InvalidPhase,
+    /// The lease exists but is not ready to be checked, and says what it waits
+    /// on. Carrying the readiness keeps a refusal diagnosable without making
+    /// readiness itself an error type.
+    NotRoutable(ApplicationRouteLeaseReadiness),
     InvalidOrigin,
     StaleAuthoritySession,
     StaleControlEpoch,
@@ -176,8 +363,7 @@ impl ApplicationRouteLeaseState {
             admission: candidate.admission,
             scope: candidate.scope,
             authority_session_epoch: candidate.authority_session_epoch,
-            output: candidate.output,
-            presentation_epoch: candidate.presentation_epoch,
+            binding: candidate.binding,
             initiating_device: candidate.initiating_device,
             initiating_button: candidate.initiating_button,
         };
@@ -211,6 +397,12 @@ impl ApplicationRouteLeaseState {
         {
             return Err(ApplicationRouteLeaseError::IdentityMismatch);
         }
+        // The replacement inherits where the original could bind and how long
+        // it had left. Passing the candidate through unchanged would let a
+        // promotion bind to an output the original never pointed at, and reset
+        // its deadline.
+        let mut candidate = candidate;
+        candidate.binding = existing.binding.inherit(candidate.binding)?;
         self.leases.remove(&identity.seat);
         match self.begin_provisional(candidate) {
             Ok(replacement) => Ok(replacement),
@@ -249,45 +441,166 @@ impl ApplicationRouteLeaseState {
         self.remove_exact(identity, ApplicationRouteLeasePhase::Provisional)
     }
 
-    pub fn authorize(
-        &self,
-        seat: SeatId,
-        scope: ApplicationRouteScope,
-        device: DeviceId,
-        output: OutputId,
-        presentation_epoch: u64,
-        authority_session_epoch: u64,
-    ) -> Result<ApplicationRouteLease, ApplicationRouteLeaseError> {
-        let lease = self
-            .leases
+    /// What the seat's current lease is waiting on, if it holds one.
+    ///
+    /// Resolves the lease here rather than accepting one, so a lease that has
+    /// since changed cannot be asked about as though it had not. Informational:
+    /// it never says an event may be delivered.
+    pub fn routing_readiness(&self, seat: SeatId) -> Option<ApplicationRouteLeaseReadiness> {
+        self.leases
             .get(&seat)
-            .copied()
-            .ok_or(ApplicationRouteLeaseError::NoLease)?;
-        if matches!(lease.phase, ApplicationRouteLeasePhase::Releasing { .. })
-            || lease.origin == ApplicationRouteLeaseOrigin::ExplicitPointer
-                && lease.phase != ApplicationRouteLeasePhase::Active
-        {
-            return Err(ApplicationRouteLeaseError::InvalidPhase);
+            .map(ApplicationRouteLease::routing_readiness)
+    }
+
+    /// Whether this lease may receive this event.
+    ///
+    /// Resolves the lease and asks `routing_readiness` itself, and takes no
+    /// readiness argument: one produced earlier describes a lease that may
+    /// since have been released, revoked, or had its control epoch advanced.
+    ///
+    /// A changed scene revision is not a refusal. What refuses is the target
+    /// having changed or gone -- identity, eligibility, scope, output, device,
+    /// and the generational barriers. The revision is recorded only after every
+    /// check passes, so a failed validation cannot advance what the lease
+    /// claims to have been seen against.
+    pub fn authorize(
+        &mut self,
+        identity: ApplicationRouteLeaseIdentity,
+        evidence: ApplicationRouteTargetEvidence,
+    ) -> Result<ApplicationRouteLease, ApplicationRouteLeaseError> {
+        let control_epoch = self.control_epoch;
+        let lease = *self.exact_mut(identity)?;
+        match lease.routing_readiness() {
+            ApplicationRouteLeaseReadiness::ReadyForEvidenceValidation => {}
+            readiness => return Err(ApplicationRouteLeaseError::NotRoutable(readiness)),
         }
-        if lease.identity.control_epoch != self.control_epoch {
+        if lease.identity.control_epoch != control_epoch {
             return Err(ApplicationRouteLeaseError::StaleControlEpoch);
         }
-        if lease.authority_session_epoch != authority_session_epoch {
+        if lease.authority_session_epoch != evidence.authority_session_epoch {
             return Err(ApplicationRouteLeaseError::StaleAuthoritySession);
         }
         if lease
             .initiating_device
-            .is_some_and(|expected| expected != device)
+            .is_some_and(|expected| expected != evidence.device)
         {
             return Err(ApplicationRouteLeaseError::WrongDevice);
         }
-        if lease.output != output || lease.presentation_epoch != presentation_epoch {
+        let ApplicationRouteLeaseBinding::Bound { output, .. } = lease.binding else {
+            return Err(ApplicationRouteLeaseError::StalePresentation);
+        };
+        if output != evidence.output {
             return Err(ApplicationRouteLeaseError::StalePresentation);
         }
-        if !lease.scope.covers(scope) {
+        // The evidence must be about THIS lease target. Without it, evidence
+        // gathered for a surface that has since been replaced on the same seat
+        // would validate its replacement.
+        if lease.target_surface != evidence.target_surface {
+            return Err(ApplicationRouteLeaseError::IdentityMismatch);
+        }
+        if lease.admission != evidence.target_admission {
+            return Err(ApplicationRouteLeaseError::IdentityMismatch);
+        }
+        if !evidence.target_eligible {
+            return Err(ApplicationRouteLeaseError::StalePresentation);
+        }
+        if !lease.scope.covers(evidence.resolved_scope) {
             return Err(ApplicationRouteLeaseError::OutsideScope);
         }
-        Ok(lease)
+        // Recorded only now. Refreshing before the checks would let a failed
+        // validation still advance what the lease claims to have been seen
+        // against.
+        let refreshed = self.exact_mut(identity)?;
+        refreshed.binding = ApplicationRouteLeaseBinding::Bound {
+            output,
+            revision: evidence.presentation_revision,
+        };
+        Ok(*refreshed)
+    }
+
+    /// Pins the output an unbound lease will bind to, without binding it.
+    ///
+    /// The first held event names a candidate output before anything has been
+    /// presented. Pinning early stops a later binding landing somewhere the
+    /// grab never pointed at, and the pin survives promotion.
+    pub fn pin_output(
+        &mut self,
+        identity: ApplicationRouteLeaseIdentity,
+        output: OutputId,
+    ) -> Result<ApplicationRouteLease, ApplicationRouteLeaseError> {
+        if !output.is_valid() {
+            return Err(ApplicationRouteLeaseError::InvalidCandidate);
+        }
+        let lease = self.exact_mut(identity)?;
+        let ApplicationRouteLeaseBinding::AwaitingPresentation {
+            pinned_output,
+            deadline_msec,
+        } = lease.binding
+        else {
+            return Err(ApplicationRouteLeaseError::InvalidPhase);
+        };
+        if pinned_output.is_some_and(|pinned| pinned != output) {
+            return Err(ApplicationRouteLeaseError::StalePresentation);
+        }
+        lease.binding = ApplicationRouteLeaseBinding::AwaitingPresentation {
+            pinned_output: Some(output),
+            deadline_msec,
+        };
+        Ok(*lease)
+    }
+
+    /// Binds an unbound lease to the output its target was presented on.
+    pub fn bind_presentation(
+        &mut self,
+        identity: ApplicationRouteLeaseIdentity,
+        output: OutputId,
+        revision: u64,
+    ) -> Result<ApplicationRouteLease, ApplicationRouteLeaseError> {
+        if !output.is_valid() || revision == 0 {
+            return Err(ApplicationRouteLeaseError::InvalidCandidate);
+        }
+        let lease = self.exact_mut(identity)?;
+        let ApplicationRouteLeaseBinding::AwaitingPresentation { pinned_output, .. } =
+            lease.binding
+        else {
+            return Err(ApplicationRouteLeaseError::InvalidPhase);
+        };
+        // A pin inherited from the original grab decides where a promotion may
+        // bind; it is not advice.
+        if pinned_output.is_some_and(|pinned| pinned != output) {
+            return Err(ApplicationRouteLeaseError::StalePresentation);
+        }
+        lease.binding = ApplicationRouteLeaseBinding::Bound { output, revision };
+        Ok(*lease)
+    }
+
+    /// Reports an unbound lease that has passed its absolute deadline.
+    ///
+    /// Reports without removing. The frontend still holds an X grab, and
+    /// dropping the lease here would let a shell capture take the seat before
+    /// that grab is released; the caller runs the ordered release handshake and
+    /// ownership stays with this lease until acknowledgement or quarantine. A
+    /// lease already releasing is not reported again.
+    pub fn observe_binding_deadline(
+        &self,
+        seat: SeatId,
+        now_msec: u64,
+    ) -> ApplicationRouteLeaseBindingTimeout {
+        let Some(lease) = self.leases.get(&seat).copied() else {
+            return ApplicationRouteLeaseBindingTimeout::NotAwaiting;
+        };
+        if matches!(lease.phase, ApplicationRouteLeasePhase::Releasing { .. }) {
+            return ApplicationRouteLeaseBindingTimeout::NotAwaiting;
+        }
+        let ApplicationRouteLeaseBinding::AwaitingPresentation { deadline_msec, .. } =
+            lease.binding
+        else {
+            return ApplicationRouteLeaseBindingTimeout::NotAwaiting;
+        };
+        if now_msec < deadline_msec {
+            return ApplicationRouteLeaseBindingTimeout::Pending;
+        }
+        ApplicationRouteLeaseBindingTimeout::Expired(lease)
     }
 
     pub fn request_release(
@@ -318,8 +631,10 @@ impl ApplicationRouteLeaseState {
         if lease.admission != admission {
             return Err(ApplicationRouteLeaseError::IdentityMismatch);
         }
+        // Engine withdrawal and the client's ungrab can race. Joining the
+        // same release is idempotent and must not extend its deadline.
         if matches!(lease.phase, ApplicationRouteLeasePhase::Releasing { .. }) {
-            return Err(ApplicationRouteLeaseError::InvalidPhase);
+            return Ok(*lease);
         }
         lease.phase = ApplicationRouteLeasePhase::Releasing {
             deadline_msec: now_msec.saturating_add(APPLICATION_ROUTE_RELEASE_TIMEOUT_MSEC),
@@ -392,13 +707,25 @@ impl ApplicationRouteLeaseState {
         self.retain_collect(|lease| lease.admission != admission)
     }
 
-    pub fn invalidate_output(
-        &mut self,
-        output: OutputId,
-        presentation_epoch: u64,
-    ) -> Vec<ApplicationRouteLease> {
+    /// Drops every lease that depended on an output that is gone.
+    ///
+    /// Loss, not revision: an output that no longer exists cancels a lease
+    /// bound to it whatever scene it was bound against. Ordinary revision
+    /// changes must not call this -- a revision advances whenever anything on
+    /// an output is added or removed, and cancelling on that is what let one
+    /// popup end every grab on the screen. A revision change is answered by
+    /// revalidating evidence in `authorize`.
+    ///
+    /// Unbound leases go too, including unpinned ones: a lease pinned here has
+    /// lost the output it was promised, and an unpinned one was taken against a
+    /// topology that no longer exists. Only a lease pinned to a surviving
+    /// output is kept.
+    pub fn lose_output(&mut self, output: OutputId) -> Vec<ApplicationRouteLease> {
         self.retain_collect(|lease| {
-            lease.output != output || lease.presentation_epoch == presentation_epoch
+            lease
+                .binding
+                .pinned()
+                .is_some_and(|pinned| pinned != output)
         })
     }
 

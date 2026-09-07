@@ -115,6 +115,19 @@ required to complete a focus handoff. A frontend focus acknowledgement alone
 cannot release buffered pointer input: each exact generational target must also
 remain in the last-presented Engine projection and current frontend route
 table. Stale membership discards the whole buffered sequence.
+
+Explicit pointer-grab preparation carries the requesting connection's last
+actually enqueued authority-observation receipt. Engine must apply and account
+for that prefix before validating mapping, admission, and owner eligibility.
+The frontend releases shared authority-state locks while awaiting the existing
+synchronous reply, then revalidates exact X state before mutation. Neither
+Prepare nor activation waits for pixels or scanout; physical delivery waits
+for eligible presented evidence under the
+[application lease contract](target-resolved-input.md#explicit-grab-preparation).
+This distinction lets a client draw after grab success without granting it
+unpresented input. Scene revisions require current target and scope evidence;
+namespace, control, session, device, and output boundaries remain exact.
+
 Client-bound keyboard events use the analogous nonspatial boundary. Engine
 resolves shortcuts first, then retains unmatched keys while Engine focus is
 ahead of frontend focus. The bounded sequence reaches XKB/event-mask delivery

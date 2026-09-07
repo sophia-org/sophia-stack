@@ -62,6 +62,11 @@ impl X11ObservedRequestStage {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum X11ObservedDispatchFailure {
     ParseRejected,
+    /// The request ended before dispatch; its ordering ticket carries no facts.
+    DispatchAborted,
+    /// Dispatch mutated authority state but could not assemble complete effects.
+    /// Ordered publishers must stop rather than certify an incomplete prefix.
+    UnpublishedEffects,
 }
 
 /// Owned, bounded facts emitted after one X request dispatch.

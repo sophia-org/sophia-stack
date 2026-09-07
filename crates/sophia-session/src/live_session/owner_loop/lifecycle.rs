@@ -716,30 +716,38 @@
         if runtime_deadline_key_drain.is_draining() || session_quiescence.is_some() {
             input_routing_mode = PhysicalInputRoutingMode::Suppressed;
         }
-        let empty_explicit_projections = [];
-        let explicit_projections = runtime.as_ref().map_or(
-            &empty_explicit_projections[..],
-            |runtime| runtime.input_projections(),
-        );
         let explicit_controls = drain_explicit_pointer_grab_controls(
             explicit_pointer_grabs,
             &mut application_route_leases,
-            &layout.client_routes,
+            &mut explicit_grab_queue,
+            &layout,
+            &mut pending_lease_input,
+            route_lease_release_sender,
+            chrome_captures.capture(seat).is_some() || descriptor_captures.capture(seat).is_some() || reference_capture.active() || launcher_capture.active() || pointer_focus_handoff.target().is_some(),
             &focus,
-            explicit_projections,
             seat,
             u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
         )?;
-        if explicit_controls != ExplicitPointerGrabControlReport::default() {
+        if explicit_controls.prepared + explicit_controls.activated + explicit_controls.released
+            + explicit_controls.aborted + explicit_controls.rejected + explicit_controls.cancelled != 0 {
             crate::session_println!(
-                "sophia_live_explicit_pointer_grab schema=1 prepared={} activated={} released={} aborted={} rejected={}",
+                "sophia_live_explicit_pointer_grab schema=1 prepared={} activated={} released={} aborted={} rejected={} deferred={} cancelled={}",
                 explicit_controls.prepared,
                 explicit_controls.activated,
                 explicit_controls.released,
                 explicit_controls.aborted,
                 explicit_controls.rejected,
+                explicit_controls.deferred,
+                explicit_controls.cancelled,
             );
         }
+        reconcile_lease_presentation(
+            &mut application_route_leases, &layout.client_routes, route_lease_release_sender,
+            &mut pending_lease_input, seat,
+            pointer.output_index().and_then(|index| outputs.get(index)).map(|output| output.id),
+            runtime.as_ref().map_or(&[][..], |runtime| runtime.input_projections()),
+            u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+        )?;
         let input_phase_started = Instant::now();
         let input_requested_exit = input_routing_mode != PhysicalInputRoutingMode::Suppressed
             && drain_physical_input!(input_routing_mode);

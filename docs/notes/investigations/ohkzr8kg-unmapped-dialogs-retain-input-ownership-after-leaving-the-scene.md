@@ -2,7 +2,7 @@
 id: ohkzr8kg
 date: 2026-09-07
 kind: investigation
-status: awaiting-physical-acceptance
+status: closed
 tags: [investigation, input, session, x11]
 ---
 # Unmapped dialogs retain input ownership after leaving the scene
@@ -124,7 +124,7 @@ through withdrawal, hidden updates and remap. Mutation checks establish that
 the new guards distinguish their respective failures. These helper tests do
 not replace the GTK run through the actual owner loop.
 
-## Candidate and remaining gate
+## Candidate validation
 
 Base: `71b9b0d1960403ccbb8922ae1f1b91f3d34d60b9`.
 Source identity: `e4862810ae3a163676d92bd385bf42fa20cd5ec183754a8466862b0e61dbc3e9`.
@@ -138,12 +138,47 @@ The final `cargo xtask check` passes, including workspace tests, Clippy,
 formatting, architecture/source checks and installed-session fixtures. The
 canonical isolated configuration also passes the session tests that failed
 under the developer's ambient configuration during the separate lane checks.
-Task IDs and note links are valid; the new task remains open.
+Task IDs and note links are valid.
 
-Installed acceptance remains ordinary
+The installed acceptance check covers ordinary
 Thunar interaction, menu and dialog dismissal, application typing, and WM
 shortcuts. The headless probe supplies no physical input and does not prove
 pointer-grab recovery or perceived latency. These repairs close demonstrated
 lifecycle defects; they do not yet explain every part of the reported all-input
-lockup. Keep t065 open for that observation and use the new routing counters
-if it recurs.
+lockup. Use the new routing counters if it recurs.
+
+## Installed startup observation
+
+The user returned to session
+`00000001788812367995-fe320326-8322-45b2-b23e-7c1781c12d10` on September 7.
+Its manifest identifies commit `2efff4cec91392d85f81d5c8a633bf7711eea3a4`
+and installed binary SHA-256
+`de8122fce511cd422c3d18bb0975fb3c90353f4fd0123ccec21a05befd7de0c0`.
+The WM digest matches the GTK candidate's WM. Startup reached the session
+phase, the input guard was armed, and the recorder reported no discarded
+records or storage errors. The initial event log contained no runtime-fatal
+or failed-status records. Recent key batches showed routed keys with no stale
+focus suppression. No hidden-focus cleanup had yet been observed; this is
+startup confirmation, not acceptance of the hide-and-resume repair.
+
+## Installed interaction acceptance
+
+The user completed the short Thunar menu and Properties-dialog sequence, then
+explicitly confirmed that clicking, typing in Kitty and Super+Enter worked
+after dismissal. The same session remained running with no runtime-fatal or
+failed-status records, no recorder loss and no storage errors through sequence
+2717. Routing totals at that observation included 107 routed keys, six WM
+actions and 28 routed pointer events, with no stale-focus suppression or
+lease waits. Two pointer-lease rejections were each followed by a lease release;
+subsequent input continued. These counts are routing evidence, not individual
+application-response assertions.
+
+No `hidden_focus_cleared` record appeared in this short installed trace, so it
+does not independently prove that particular cleanup branch ran. The GTK
+baseline/candidate comparison supplies that evidence. Together with the
+deterministic regressions and user confirmation, this satisfies t065's short
+installed interaction gate. It does not establish a long-duration reliability
+result or resolve the separate report of general Thunar sluggishness.
+
+Acceptance evidence, including session and binary identity, is retained at
+`~/.local/state/sophia/development-evidence/t065-installed-2efff4cec913`.

@@ -129,7 +129,10 @@ impl PersistentLiveLayout {
         // ownership chain before consulting policy for a managed ancestor.
         // A cycle or a stale owner cannot establish visible ancestry.
         for _ in 0..=self.presentation_owners.len() {
-            if !self.knows_surface(current) {
+            // Mapping descriptions establish the authority lifetime before a
+            // client supplies pixels. Layout/pixel caches cannot be the
+            // prerequisite for grabbing a newly mapped popup.
+            if !self.presentation_roles.contains_key(&current) {
                 return Ok(false);
             }
             if !self.is_client_positioned(current) {

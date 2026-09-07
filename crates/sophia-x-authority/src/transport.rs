@@ -248,6 +248,15 @@ impl XAuthorityObservedTransactionBatch {
     }
 
     pub fn from_dispatch_observation(trace: &X11DispatchObservation) -> Option<Self> {
+        if matches!(
+            trace.failure,
+            Some(
+                crate::X11ObservedDispatchFailure::DispatchAborted
+                    | crate::X11ObservedDispatchFailure::UnpublishedEffects
+            )
+        ) {
+            return None;
+        }
         let dma_buf_registrations = trace
             .dri3_pixmap_import
             .and_then(|import| {
@@ -367,14 +376,20 @@ impl XAuthorityObservedTransactionBatch {
                 })
             })
             .collect::<Vec<_>>();
-        // A frontend can report passive facts for every X surface touched by
-        // a request. Only surfaces that actually cross the presentation
-        // boundary need an Engine route. Keeping route-only helper windows out
-        // preserves the public WM's blind surface vocabulary.
+        // Mapping establishes input ownership before the client draws. Publish
+        // that surface's owner route with the mapped fact; waiting for pixels
+        // deadlocks clients that wait for GrabSuccess before their first draw.
+        // Unmapped passive helpers still acquire no route merely by existing.
         let routed_surfaces = transactions
             .iter()
             .map(|transaction| transaction.surface)
             .chain(presentation_intents.iter().map(|intent| intent.surface))
+            .chain(
+                surface_presentations
+                    .iter()
+                    .filter(|surface| surface.mapped)
+                    .map(|surface| surface.surface),
+            )
             .collect::<std::collections::BTreeSet<_>>();
         let surface_routes = trace
             .surface_routes

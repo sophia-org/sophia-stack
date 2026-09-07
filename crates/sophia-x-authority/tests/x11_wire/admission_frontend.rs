@@ -245,7 +245,7 @@ fn x_server_frontend_confined_clients_reject_cross_namespace_window_property_and
         let observer: Arc<X11CoreTraceObserver> = Arc::new(move |trace| {
             let mut count = server_metadata_candidates.lock().unwrap();
             *count = count.saturating_add(trace.result.metadata_candidates.len());
-            Ok(())
+            Ok(None)
         });
         frontend
             .serve_next_concurrently_traced(observer.clone())
@@ -492,7 +492,7 @@ fn x_server_frontend_routes_selection_notify_to_the_requestor_client() {
     let server = thread::spawn(move || {
         let broker = XServerFrontendRouteBroker::new(NonZeroUsize::new(4).unwrap());
         let mut frontend = XServerFrontend::bind(config).unwrap();
-        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(()));
+        let observer: Arc<X11CoreTraceObserver> = Arc::new(|_| Ok(None));
         frontend
             .serve_next_concurrently_routed_traced(&broker, observer.clone())
             .unwrap();

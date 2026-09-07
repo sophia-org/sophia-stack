@@ -313,6 +313,9 @@
                         .as_ref()
                         .is_some_and(LiveProductionVisualRuntime::has_released_surface_content);
                 if !has_engine_work && pending_wm_update.is_none() {
+                    for batch in &authority_run {
+                        explicit_grab_queue.account(batch);
+                    }
                     continue;
                 }
                 let mut removed_surfaces = Vec::new();
@@ -492,6 +495,7 @@
                             batch.transaction.raw(),
                         );
                     }
+                    explicit_grab_queue.account(batch);
                     if layout_observation.output_reservations_changed
                         && let Some(wm_session) = wm_session.as_mut()
                     {

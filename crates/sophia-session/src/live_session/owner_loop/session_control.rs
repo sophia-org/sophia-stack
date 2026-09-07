@@ -16,6 +16,22 @@ macro_rules! service_session_controls {
         for completion in session_control_completions.drain(..) {
             if let Some(failure) = completion.failure {
                 if failure.is_stale_target_for(completion.key.kind) {
+                    if completion.key.kind == XAuthorityControlKind::FocusSurface {
+                        // This exact target no longer exists at the frontend.
+                        // Retire its claims even if destruction is still queued;
+                        // no newer target or successful-focus state is changed.
+                        release_surface_input_standing!(completion.key.surface, "focus_target_gone");
+                        if let Some(lease) = application_route_leases.lease(seat)
+                            && lease.target_surface == completion.key.surface
+                        {
+                            cancel_application_lease(
+                                &mut application_route_leases, &layout.client_routes,
+                                route_lease_release_sender, &mut pending_lease_input,
+                                lease.identity,
+                                u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX),
+                            )?;
+                        }
+                    }
                     if applied_client_focus == Some(completion.key.surface) {
                         applied_client_focus = None;
                     }

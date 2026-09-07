@@ -1484,3 +1484,6 @@ fn a_cause_naming_a_withdrawn_surface_is_not_submitted() {
         &scene
     ));
 }
+
+#[path = "../../tests/support/application_lease_routing.rs"]
+mod application_lease_routing;

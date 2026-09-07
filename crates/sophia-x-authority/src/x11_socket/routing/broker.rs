@@ -364,6 +364,7 @@ impl XServerFrontendRouteBroker {
                 metadata_candidate_sender,
                 route_lease_update_sender,
                 explicit_pointer_grabs: None,
+                input_control_epoch: input_control_epoch.clone(),
                 per_client_input_capacity: capacities.input,
                 per_client_control_capacity: capacities.control,
                 per_client_protocol_capacity: capacities.protocol,

@@ -17,7 +17,11 @@ struct X11ClientAdmissionContext<'a> {
 enum X11ExplicitPointerGrabPreparation {
     Unmanaged,
     Rejected(u8),
-    Prepared(sophia_protocol::ApplicationRouteLeaseIdentity),
+    Prepared {
+        identity: sophia_protocol::ApplicationRouteLeaseIdentity,
+        anchor: crate::XAuthorityExplicitPointerGrabAnchor,
+        replaces: Option<sophia_protocol::ApplicationRouteLeaseIdentity>,
+    },
 }
 
 #[cfg(unix)]
@@ -31,12 +35,13 @@ fn x11_explicit_pointer_grab_client_error(
 
 #[cfg(unix)]
 fn x11_prepare_explicit_pointer_grab(
-    runtime: &XAuthorityRuntime,
+    state: &X11CoreSocketServerState,
     routing: Option<&XServerFrontendRouteRegistry>,
     admission: Option<ClientAdmissionContext>,
     namespace: NamespaceId,
     client: XServerFrontendClientId,
     request: &crate::XWireRequest,
+    after_observation: Option<TransactionId>,
 ) -> Result<X11ExplicitPointerGrabPreparation, X11SetupSocketError> {
     let Some(control) = routing.and_then(|routing| routing.explicit_pointer_grabs.as_ref()) else {
         return Ok(X11ExplicitPointerGrabPreparation::Unmanaged);
@@ -64,42 +69,56 @@ fn x11_prepare_explicit_pointer_grab(
         }
         _ => return Ok(X11ExplicitPointerGrabPreparation::Unmanaged),
     };
+    let control_epoch = routing
+        .expect("control has a route registry")
+        .input_control_epoch
+        .load(Ordering::Acquire);
+    let runtime = lock_x11_request_runtime(&state.runtime, &state.control_runtime_pending)?;
     if pointer_mode > 1
         || keyboard_mode > 1
-        || cursor.is_some_and(|cursor| {
-            runtime
-                .validate_cursor_access(namespace, cursor)
-                .is_err()
-        })
+        || cursor.is_some_and(|cursor| runtime.validate_cursor_access(namespace, cursor).is_err())
     {
         return Ok(X11ExplicitPointerGrabPreparation::Rejected(1));
     }
     let anchor = if window.local.raw() == u64::from(X_SETUP_DEFAULT_ROOT) {
         crate::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault
     } else {
-        let Ok((_, surface, _, _)) =
-            runtime.window_presentation_root_and_offset(namespace, window)
+        let Ok((_, surface, _, _)) = runtime.window_presentation_root_and_offset(namespace, window)
         else {
             return Ok(X11ExplicitPointerGrabPreparation::Rejected(3));
         };
         crate::XAuthorityExplicitPointerGrabAnchor::Surface(surface)
     };
-    let active = runtime
-        .input_authority_mut()
-        .pointer_grab(namespace);
+    let active = runtime.input_authority_mut().pointer_grab(namespace);
     if active.is_some_and(|active| active.owner != client.raw()) {
         return Ok(X11ExplicitPointerGrabPreparation::Rejected(1));
     }
     let replaces = active.and_then(|active| active.route_lease);
-    let response = control
-        .request(
-            admission,
-            crate::XAuthorityExplicitPointerGrabRequestKind::Prepare { anchor, replaces },
-        )
-        .map_err(x11_explicit_pointer_grab_client_error)?;
+    drop(runtime);
+    let response = control.request(
+        admission,
+        crate::XAuthorityExplicitPointerGrabRequestKind::Prepare {
+            anchor,
+            replaces,
+            after_observation,
+            control_epoch,
+        },
+    );
+    let response = match response {
+        Ok(response) => response,
+        Err(
+            crate::XAuthorityExplicitPointerGrabBridgeError::Timeout
+            | crate::XAuthorityExplicitPointerGrabBridgeError::Capacity,
+        ) => return Ok(X11ExplicitPointerGrabPreparation::Rejected(1)),
+        Err(error) => return Err(x11_explicit_pointer_grab_client_error(error)),
+    };
     Ok(match response {
         crate::XAuthorityExplicitPointerGrabResponse::Prepared(identity) => {
-            X11ExplicitPointerGrabPreparation::Prepared(identity)
+            X11ExplicitPointerGrabPreparation::Prepared {
+                identity,
+                anchor,
+                replaces,
+            }
         }
         crate::XAuthorityExplicitPointerGrabResponse::Rejected(
             crate::XAuthorityExplicitPointerGrabRejection::NotViewable,
@@ -117,7 +136,7 @@ fn x11_prepare_explicit_pointer_grab(
 
 #[cfg(unix)]
 fn x11_begin_explicit_pointer_release(
-    runtime: &XAuthorityRuntime,
+    state: &X11CoreSocketServerState,
     routing: Option<&XServerFrontendRouteRegistry>,
     admission: Option<ClientAdmissionContext>,
     namespace: NamespaceId,
@@ -125,7 +144,10 @@ fn x11_begin_explicit_pointer_release(
     request: &crate::XWireRequest,
 ) -> Result<Option<sophia_protocol::ApplicationRouteLeaseIdentity>, X11SetupSocketError> {
     if !matches!(request, crate::XWireRequest::UngrabPointer { .. })
-        && !matches!(request, crate::XWireRequest::XiUngrabDevice { device_id: 2, .. })
+        && !matches!(
+            request,
+            crate::XWireRequest::XiUngrabDevice { device_id: 2, .. }
+        )
     {
         return Ok(None);
     }
@@ -135,6 +157,7 @@ fn x11_begin_explicit_pointer_release(
     let Some(admission) = admission else {
         return Ok(None);
     };
+    let runtime = lock_x11_request_runtime(&state.runtime, &state.control_runtime_pending)?;
     let Some(identity) = runtime
         .input_authority_mut()
         .pointer_grab(namespace)
@@ -143,17 +166,23 @@ fn x11_begin_explicit_pointer_release(
     else {
         return Ok(None);
     };
-    let response = control
-        .request(
-            admission,
-            crate::XAuthorityExplicitPointerGrabRequestKind::BeginRelease { identity },
-        )
-        .map_err(x11_explicit_pointer_grab_client_error)?;
+    drop(runtime);
+    let response = match control.request(
+        admission,
+        crate::XAuthorityExplicitPointerGrabRequestKind::BeginRelease { identity },
+    ) {
+        Ok(response) => response,
+        Err(
+            crate::XAuthorityExplicitPointerGrabBridgeError::Timeout
+            | crate::XAuthorityExplicitPointerGrabBridgeError::Capacity,
+        ) => return Ok(Some(identity)),
+        Err(error) => return Err(x11_explicit_pointer_grab_client_error(error)),
+    };
     match response {
         crate::XAuthorityExplicitPointerGrabResponse::ReleaseReady => Ok(Some(identity)),
         crate::XAuthorityExplicitPointerGrabResponse::Rejected(
             crate::XAuthorityExplicitPointerGrabRejection::Stale,
-        ) => Ok(None),
+        ) => Ok(Some(identity)),
         _ => Err(X11SetupSocketError::client_failure(
             "explicit pointer-grab release received an invalid response",
         )),
@@ -172,12 +201,17 @@ fn x11_finish_explicit_pointer_release(
     let Some(admission) = admission else {
         return Ok(());
     };
-    let response = control
-        .request(
-            admission,
-            crate::XAuthorityExplicitPointerGrabRequestKind::FinishRelease { identity },
-        )
-        .map_err(x11_explicit_pointer_grab_client_error)?;
+    let response = match control.request(
+        admission,
+        crate::XAuthorityExplicitPointerGrabRequestKind::FinishRelease { identity },
+    ) {
+        Ok(response) => response,
+        Err(
+            crate::XAuthorityExplicitPointerGrabBridgeError::Timeout
+            | crate::XAuthorityExplicitPointerGrabBridgeError::Capacity,
+        ) => return Ok(()),
+        Err(error) => return Err(x11_explicit_pointer_grab_client_error(error)),
+    };
     match response {
         crate::XAuthorityExplicitPointerGrabResponse::Released
         | crate::XAuthorityExplicitPointerGrabResponse::Rejected(
@@ -187,6 +221,26 @@ fn x11_finish_explicit_pointer_release(
             "explicit pointer-grab release acknowledgement was invalid",
         )),
     }
+}
+
+/// A failed post-dispatch delivery still owes the complete authority effects.
+/// Only a request that never dispatched may retire an empty ordering ticket.
+#[cfg(unix)]
+fn failed_x11_dispatch_observation(
+    pending: Option<X11DispatchObservation>,
+    started: bool,
+    complete: bool,
+) -> Option<X11DispatchObservation> {
+    pending.map(|mut observation| {
+        if !complete {
+            observation.failure = Some(if started {
+                X11ObservedDispatchFailure::UnpublishedEffects
+            } else {
+                X11ObservedDispatchFailure::DispatchAborted
+            });
+        }
+        observation
+    })
 }
 
 /// Retains the last successfully admitted Sophia surface generation for each
@@ -231,7 +285,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     state: &X11CoreSocketServerState,
     inputs: X11ClientConnectionInputs,
     admission: X11ClientAdmissionContext<'_>,
-    mut observer: impl FnMut(X11DispatchObservation) -> Result<(), X11SetupSocketError>,
+    mut observer: impl FnMut(X11DispatchObservation) -> Result<Option<TransactionId>, X11SetupSocketError>,
 ) -> Result<(), X11SetupSocketError> {
     let X11ClientConnectionInputs {
         input_receiver,
@@ -375,6 +429,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
         } else {
             (None, input_receiver, control_channels, None)
         };
+    let mut last_published_observation = None;
     let standalone_query_authority = if protocol_routing.is_none() {
         Some(state.runtime.lock()
             .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
@@ -455,6 +510,9 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     }
     let client_admission = admission_lease.as_ref().map(|lease| lease.context());
 
+    let mut pending_observation = None::<X11DispatchObservation>;
+    let mut dispatch_started = false;
+    let mut dispatch_complete = false;
     let result = (|| {
         // SCM_RIGHTS on a Unix stream is an in-band barrier, but recvmsg can
         // return the descriptors alongside bytes that precede the request
@@ -494,10 +552,43 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                 major_opcode,
                 client_id: client.raw(),
             };
+            dispatch_started = false;
+            dispatch_complete = false;
+            pending_observation = Some(X11DispatchObservation {
+                transaction,
+                client,
+                admission: client_admission,
+                resource_id_range,
+                sequence,
+                major_opcode,
+                minor_opcode: request_minor_code,
+                request_stage: X11ObservedRequestStage::Other,
+                failure: None,
+                result: XDispatchResult {
+                    response: None,
+                    outputs: Vec::new(),
+                    metadata_candidates: Vec::new(),
+                },
+                surface_routes: Vec::new(),
+                surface_output_reservations: Vec::new(),
+                cpu_buffer_updates: Vec::new(),
+                received_fd_count: 0,
+                received_fds: Vec::new(),
+                dri3_pixmap_import: None,
+                dri3_fence_import: None,
+                present_submission: None,
+                software_present_submission: None,
+                released_dma_bufs: Vec::new(),
+                released_fences: Vec::new(),
+                server_reply_fd_count: 0,
+            });
+            let mut pending_metadata_candidate = None;
+            let mut explicit_pointer_completion = None;
+            let mut explicit_pointer_release_completion = None;
             let mut parse_failed = false;
             let mut request_stage = X11ObservedRequestStage::Other;
             let (
-                mut output,
+                output,
                 cpu_buffer_updates,
                 dri3_pixmap_import,
                 dri3_fence_import,
@@ -794,6 +885,23 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     } else {
                         false
                     };
+                    let explicit_pointer_preparation = x11_prepare_explicit_pointer_grab(
+                        state,
+                        protocol_routing.as_ref(),
+                        client_admission,
+                        namespace,
+                        client,
+                        &request,
+                        last_published_observation,
+                    )?;
+                    let explicit_pointer_release = x11_begin_explicit_pointer_release(
+                        state,
+                        protocol_routing.as_ref(),
+                        client_admission,
+                        namespace,
+                        client,
+                        &request,
+                    )?;
                     let mut runtime = lock_x11_request_runtime(
                         &state.runtime,
                         &state.control_runtime_pending,
@@ -805,6 +913,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     let mut properties = state.properties.lock().map_err(|_| {
                         X11SetupSocketError::new("X11 property table lock poisoned")
                     })?;
+                    dispatch_started = true;
                     // The other half of DRI3: a client that expects the server
                     // to own the storage and asks for its descriptors back. Back
                     // the pixmap before the request is answered, so the recovery
@@ -869,23 +978,56 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             runtime.window_geometry(namespace, window).ok()
                         },
                     );
-                    let explicit_pointer_preparation = x11_prepare_explicit_pointer_grab(
-                        &runtime,
-                        protocol_routing.as_ref(),
-                        client_admission,
-                        namespace,
-                        client,
-                        &request,
-                    )?;
-                    let explicit_pointer_release = x11_begin_explicit_pointer_release(
-                        &runtime,
-                        protocol_routing.as_ref(),
-                        client_admission,
-                        namespace,
-                        client,
-                        &request,
-                    )?;
+                    let mut explicit_pointer_preparation = explicit_pointer_preparation;
+                    if let X11ExplicitPointerGrabPreparation::Prepared {
+                        identity,
+                        anchor,
+                        replaces,
+                    } = explicit_pointer_preparation
+                    {
+                        let current = runtime.input_authority_mut().pointer_grab(namespace);
+                        let same_grab = current.is_none_or(|grab| grab.owner == client.raw())
+                            && current.and_then(|grab| grab.route_lease) == replaces;
+                        let same_surface = match anchor {
+                            crate::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault => true,
+                            crate::XAuthorityExplicitPointerGrabAnchor::Surface(surface) => {
+                                let window = match &request {
+                                    crate::XWireRequest::GrabPointer { window, .. }
+                                    | crate::XWireRequest::XiGrabDevice { window, .. } => *window,
+                                    _ => unreachable!("only grab requests prepare leases"),
+                                };
+                                runtime
+                                    .window_presentation_root_and_offset(namespace, window)
+                                    .is_ok_and(|(_, current, _, _)| current == surface)
+                                    && runtime
+                                        .window_map_state(namespace, window)
+                                        .is_ok_and(|state| state == crate::XMapState::Viewable)
+                            }
+                        };
+                        let same_epoch = protocol_routing.as_ref().is_some_and(|routing| {
+                            routing.input_control_epoch.load(Ordering::Acquire) == identity.control_epoch
+                        });
+                        if !same_grab || !same_surface || !same_epoch {
+                            explicit_pointer_completion = Some((identity, false, anchor));
+                            explicit_pointer_preparation =
+                                X11ExplicitPointerGrabPreparation::Rejected(if same_surface { 1 } else { 3 });
+                        }
+                    }
+                    let release_is_stale = explicit_pointer_release.is_some_and(|identity| {
+                        runtime
+                            .input_authority_mut()
+                            .pointer_grab(namespace)
+                            .is_none_or(|grab| grab.owner != client.raw() || grab.route_lease != Some(identity))
+                    });
                     let mut output = match explicit_pointer_preparation {
+                        _ if release_is_stale => {
+                            runtime.begin_dispatch();
+                            XDispatchResult {
+                                response: None,
+                                outputs: Vec::new(),
+                                metadata_candidates: Vec::new(),
+                            }
+                        }
                         X11ExplicitPointerGrabPreparation::Rejected(status) => {
                             runtime.begin_dispatch();
                             XDispatchResult {
@@ -900,109 +1042,43 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             }
                         }
                         _ if present_queue_refused.is_some() => {
-                            let window =
-                                present_queue_refused.expect("guarded by the match arm");
+                            let window = present_queue_refused.expect("guarded by the match arm");
                             runtime.begin_dispatch();
                             XDispatchResult {
                                 response: None,
-                                outputs: vec![crate::XClientOutput::Error(
-                                    crate::XClientError {
-                                        code: crate::XErrorCode::BadWindow,
-                                        sequence: dispatch_context.sequence,
-                                        resource_id: u32::try_from(window.local.raw())
-                                            .unwrap_or(0),
-                                        minor_code: u16::from(
-                                            crate::X_PRESENT_PIXMAP_MINOR_OPCODE,
-                                        ),
-                                        major_code: crate::X_PRESENT_MAJOR_OPCODE,
-                                    },
-                                )],
+                                outputs: vec![crate::XClientOutput::Error(crate::XClientError {
+                                    code: crate::XErrorCode::BadWindow,
+                                    sequence: dispatch_context.sequence,
+                                    resource_id: u32::try_from(window.local.raw()).unwrap_or(0),
+                                    minor_code: u16::from(crate::X_PRESENT_PIXMAP_MINOR_OPCODE),
+                                    major_code: crate::X_PRESENT_MAJOR_OPCODE,
+                                })],
                                 metadata_candidates: Vec::new(),
                             }
                         }
-                        _ => dispatch_x11_wire_request(
-                            dispatch_context,
-                            request,
-                            &mut runtime,
-                            &mut atoms,
-                            &mut properties,
-                        ),
+                        _ => {
+                            dispatch_started = true;
+                            dispatch_x11_wire_request(dispatch_context, request, &mut runtime, &mut atoms, &mut properties)
+                        },
                     };
-                    if let X11ExplicitPointerGrabPreparation::Prepared(identity) =
-                        explicit_pointer_preparation
+                    if let X11ExplicitPointerGrabPreparation::Prepared {
+                        identity, anchor, ..
+                    } = explicit_pointer_preparation
                     {
                         let local_admitted = output.outputs.iter().any(|output| {
                             matches!(
                                 output,
-                                crate::XClientOutput::Reply(crate::XClientReply::GrabStatus {
-                                    status: 0,
-                                    ..
-                                })
+                                crate::XClientOutput::Reply(crate::XClientReply::GrabStatus { status: 0, .. })
                             )
                         });
-                        let control = protocol_routing
-                            .as_ref()
-                            .and_then(|routing| routing.explicit_pointer_grabs.as_ref())
-                            .ok_or_else(|| {
-                                X11SetupSocketError::client_failure(
-                                    "explicit pointer-grab control disappeared during acquisition",
-                                )
-                            })?;
-                        if local_admitted {
-                            runtime
+                        let attached = local_admitted
+                            && runtime
                                 .input_authority_mut()
                                 .set_pointer_route_lease(namespace, client.raw(), identity)
-                                .map_err(|_| {
-                                    X11SetupSocketError::client_failure(
-                                        "explicit pointer-grab state disappeared before activation",
-                                    )
-                                })?;
-                            let admission = client_admission.ok_or_else(|| {
-                                X11SetupSocketError::client_failure(
-                                    "explicit pointer-grab admission disappeared",
-                                )
-                            })?;
-                            let response = control
-                                .request(
-                                    admission,
-                                    crate::XAuthorityExplicitPointerGrabRequestKind::Activate {
-                                        identity,
-                                    },
-                                )
-                                .map_err(x11_explicit_pointer_grab_client_error)?;
-                            if response != crate::XAuthorityExplicitPointerGrabResponse::Activated {
-                                runtime
-                                    .input_authority_mut()
-                                    .ungrab_pointer(namespace, client.raw());
-                                for output in &mut output.outputs {
-                                    if let crate::XClientOutput::Reply(
-                                        crate::XClientReply::GrabStatus { status, .. },
-                                    ) = output
-                                    {
-                                        *status = 1;
-                                    }
-                                }
-                                let _ = control.request(
-                                    admission,
-                                    crate::XAuthorityExplicitPointerGrabRequestKind::Abort {
-                                        identity,
-                                    },
-                                );
-                            }
-                        } else if let Some(admission) = client_admission {
-                            let _ = control.request(
-                                admission,
-                                crate::XAuthorityExplicitPointerGrabRequestKind::Abort { identity },
-                            );
-                        }
+                                .is_ok();
+                        explicit_pointer_completion = Some((identity, attached, anchor));
                     }
-                    if let Some(identity) = explicit_pointer_release {
-                        x11_finish_explicit_pointer_release(
-                            protocol_routing.as_ref(),
-                            client_admission,
-                            identity,
-                        )?;
-                    }
+                    explicit_pointer_release_completion = explicit_pointer_release;
                     let mapped_windows = if mapped_subwindows {
                         output
                             .response
@@ -1550,7 +1626,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         && atoms
                             .name(property)
                             .is_some_and(crate::is_metadata_candidate_name)
-                        && let Some(routing) = protocol_routing.as_ref()
+                        && protocol_routing.is_some()
                     {
                         let surface = surface_windows
                             .lock()
@@ -1589,11 +1665,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                     generation,
                                 });
                                 candidate.generation = generation;
-                                routing.emit_metadata_candidate(candidate).map_err(|error| {
-                                    X11SetupSocketError::client_failure(format!(
-                                        "failed to publish reduced X11 metadata: {error:?}"
-                                    ))
-                                })?;
+                                pending_metadata_candidate = Some(candidate);
                             }
                         }
                     }
@@ -1668,6 +1740,120 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     )
                 }
             };
+            let observed_received_fds = received_fds
+                .iter()
+                .map(OwnedFd::try_clone)
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(|error| {
+                    X11SetupSocketError::new(format!(
+                        "failed to retain received X11 descriptor for observation: {error}"
+                    ))
+                })?;
+            pending_observation = Some(X11DispatchObservation {
+                transaction,
+                client,
+                admission: admission_lease.as_ref().map(|lease| lease.context()),
+                resource_id_range,
+                sequence,
+                major_opcode,
+                minor_opcode: request_minor_code,
+                request_stage,
+                failure: parse_failed.then_some(X11ObservedDispatchFailure::ParseRejected),
+                result: output,
+                surface_routes,
+                surface_output_reservations,
+                cpu_buffer_updates,
+                received_fd_count: received_fds.len(),
+                received_fds: observed_received_fds,
+                dri3_pixmap_import,
+                dri3_fence_import,
+                present_submission,
+                software_present_submission,
+                released_dma_bufs,
+                released_fences,
+                server_reply_fd_count: server_reply_fds.len(),
+            });
+            dispatch_complete = true;
+            let output = &mut pending_observation
+                .as_mut()
+                .expect("completed dispatch observation")
+                .result;
+            if let Some(candidate) = pending_metadata_candidate {
+                protocol_routing
+                    .as_ref()
+                    .expect("metadata route registry")
+                    .emit_metadata_candidate(candidate)
+                    .map_err(|error| {
+                        X11SetupSocketError::client_failure(format!(
+                            "failed to publish reduced X11 metadata: {error:?}"
+                        ))
+                    })?;
+            }
+            // Dispatch effects are already detached from the runtime. Arbitration
+            // may now wait without letting another dispatch steal those effects.
+            if let Some((identity, local_admitted, anchor)) = explicit_pointer_completion {
+                let control = protocol_routing
+                    .as_ref()
+                    .and_then(|routing| routing.explicit_pointer_grabs.as_ref())
+                    .ok_or_else(|| {
+                        X11SetupSocketError::client_failure("explicit pointer-grab control disappeared")
+                    })?;
+                let admission = client_admission.ok_or_else(|| {
+                    X11SetupSocketError::client_failure("explicit pointer-grab admission disappeared")
+                })?;
+                let activated = local_admitted
+                    && matches!(
+                        control.request(
+                            admission,
+                            crate::XAuthorityExplicitPointerGrabRequestKind::Activate { identity }
+                        ),
+                        Ok(crate::XAuthorityExplicitPointerGrabResponse::Activated)
+                    );
+                let still_owned = {
+                    let runtime = lock_x11_request_runtime(&state.runtime, &state.control_runtime_pending)?;
+                    let current = runtime.input_authority_mut().pointer_grab(namespace);
+                    let same_surface = match (anchor, current) {
+                        (crate::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault, _) => true,
+                        (crate::XAuthorityExplicitPointerGrabAnchor::Surface(surface), Some(grab)) => {
+                            runtime
+                                .window_presentation_root_and_offset(namespace, grab.window)
+                                .is_ok_and(|(_, current, _, _)| current == surface)
+                                && runtime
+                                    .window_map_state(namespace, grab.window)
+                                    .is_ok_and(|state| state == crate::XMapState::Viewable)
+                        }
+                        _ => false,
+                    };
+                    let mut input = runtime.input_authority_mut();
+                    let same = input.pointer_grab(namespace).is_some_and(|grab| {
+                        grab.owner == client.raw() && grab.route_lease == Some(identity)
+                    });
+                    let same_epoch = protocol_routing.as_ref().is_some_and(|routing| {
+                        routing.input_control_epoch.load(Ordering::Acquire) == identity.control_epoch
+                    });
+                    if (!activated || !same_epoch || !same_surface) && same {
+                        input.ungrab_pointer(namespace, client.raw());
+                    }
+                    same && same_epoch && same_surface
+                };
+                if !activated || !still_owned {
+                    for output in &mut output.outputs {
+                        if let crate::XClientOutput::Reply(crate::XClientReply::GrabStatus {
+                            status, ..
+                        }) = output
+                        {
+                            *status = 1;
+                        }
+                    }
+                    let _ = control.request(
+                        admission,
+                        crate::XAuthorityExplicitPointerGrabRequestKind::Abort { identity },
+                    );
+                }
+            }
+            if let Some(identity) = explicit_pointer_release_completion {
+                x11_finish_explicit_pointer_release(protocol_routing.as_ref(), client_admission, identity)?;
+            }
             if let Some(routing) = protocol_routing.as_ref() {
                 if let Some((window, geometry)) = present_configure {
                     let events = route_x11_present_configure(
@@ -1687,13 +1873,13 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     routing,
                     namespace,
                     client,
-                    &mut output,
+                    output,
                 )?;
             } else {
                 let selections = core_event_selections.lock().map_err(|_| {
                     X11SetupSocketError::new("X11 core event selection lock poisoned")
                 })?;
-                filter_local_core_lifecycle_events(&selections, &mut output);
+                filter_local_core_lifecycle_events(&selections, output);
             }
             if std::env::var_os("SOPHIA_X11_AUTHORITY_TRACE").is_some() {
                 let replies = output
@@ -1751,40 +1937,9 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     first_error_resource,
                 );
             }
-            let observed_received_fds = received_fds
-                .iter()
-                .map(OwnedFd::try_clone)
-                .collect::<Result<Vec<_>, _>>()
-                .map_err(|error| {
-                    X11SetupSocketError::new(format!(
-                        "failed to retain received X11 descriptor for observation: {error}"
-                    ))
-                })?;
-            observer(X11DispatchObservation {
-                transaction,
-                client,
-                admission: admission_lease.as_ref().map(|lease| lease.context()),
-                resource_id_range,
-                sequence,
-                major_opcode,
-                minor_opcode: request_minor_code,
-                request_stage,
-                failure: parse_failed.then_some(X11ObservedDispatchFailure::ParseRejected),
-                result: output.clone(),
-                surface_routes,
-                surface_output_reservations,
-                cpu_buffer_updates: cpu_buffer_updates.clone(),
-                received_fd_count: received_fds.len(),
-                received_fds: observed_received_fds,
-                dri3_pixmap_import,
-                dri3_fence_import,
-                present_submission,
-                software_present_submission,
-                released_dma_bufs: released_dma_bufs.clone(),
-                released_fences: released_fences.clone(),
-                server_reply_fd_count: server_reply_fds.len(),
-            })?;
             let encoded_outputs = output.encoded_outputs(setup.byte_order);
+            let receipt = observer(pending_observation.take().expect("one observation per allocated ticket"))?;
+            if let Some(receipt) = receipt { last_published_observation = Some(receipt); }
             {
                 let mut output_stream = lock_x11_non_control_output(
                     &output_stream,
@@ -1834,6 +1989,26 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
         Ok(())
     })();
 
+    // Resolve the allocated ticket before cleanup allocates another. Completed
+    // effects survive a later client failure, including mutations of peer-owned
+    // windows in a shared namespace. Partial dispatch is fatal, never an empty
+    // success that would certify missing authority effects.
+    let pending_publication_result = if let Some(observation) = failed_x11_dispatch_observation(
+        pending_observation.take(),
+        dispatch_started,
+        dispatch_complete,
+    ) {
+        let published = observer(observation).map(|_| ());
+        if dispatch_started && !dispatch_complete {
+            published.and(Err(X11SetupSocketError::new(
+                "X11 dispatch ended before its effects were published",
+            )))
+        } else {
+            published
+        }
+    } else {
+        Ok(())
+    };
     let writer_result: Result<(), X11SetupSocketError> = (|| {
         if let Some(writer) = input_writer {
             writer.stop.store(true, Ordering::Release);
@@ -1925,13 +2100,14 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
             released_dma_bufs: release.released_dma_bufs,
             released_fences: release.released_fences,
             server_reply_fd_count: 0,
-        })
+        }).map(|_| ())
     };
     let admission_result = admission_lease.as_mut().map_or(Ok(()), |lease| {
         lease.revoke().map_err(|error| {
             X11SetupSocketError::new(format!("failed to revoke X11 client admission: {error}"))
         })
     });
+    pending_publication_result?;
     result?;
     writer_result?;
     cleanup_observer_result?;

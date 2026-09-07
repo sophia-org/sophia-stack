@@ -1,8 +1,9 @@
 use super::super::{InputDeliveryPhase, InputDeliveryState};
 use super::*;
 use crate::live_session::{
-    FloatingPointerPolicyInteraction, RoutedInputIngressSaturation,
-    drain_explicit_pointer_grab_controls, pointer_focus_surface,
+    ExplicitPointerGrabQueue, FloatingPointerPolicyInteraction, PendingLeaseInput,
+    PersistentLiveLayout, RoutedInputIngressSaturation, drain_explicit_pointer_grab_controls,
+    pointer_focus_surface,
 };
 use sophia_engine::{ApplicationRouteLeasePhase, ApplicationRouteLeaseState, InputFocusDecision};
 use sophia_protocol::TransactionId;
@@ -64,42 +65,41 @@ fn explicit_pointer_grab_control_activates_and_releases_a_presented_root_anchor(
             generation: 1,
         });
     routes.observe(&batch).unwrap();
-    let projection = sophia_backend_live::LivePresentedInputProjection {
-        output: OutputId::from_raw(2),
-        epoch: 5,
-        layers: vec![LayerSnapshot {
-            input_region: None,
-            translation: None,
-            output: None,
+    // The control path now reads route and mapped state from the layout rather
+    // than from a bare route table, so the surface has to be described as
+    // mapped, not merely routed: an unmapped anchor is refused by design.
+    batch.surface_presentations.push(
+        sophia_x_authority::XAuthoritySurfacePresentationObservation {
             surface,
-            authority_local_id: None,
-            namespace: None,
+            role: sophia_protocol::SurfacePresentationRole::PolicyManaged,
+            kind: sophia_protocol::LayoutNodeKind::Toplevel,
+            placement_preference: sophia_protocol::SurfacePlacementPreference::Default,
+            owner: None,
             stack_rank: 0,
+            mapped: true,
             geometry: Rect {
                 x: 0,
                 y: 0,
                 width: 100,
                 height: 80,
             },
-            source_size: Size {
-                width: 100,
-                height: 80,
+            constraints: sophia_protocol::SurfaceConstraints {
+                min_size: None,
+                max_size: None,
             },
-            source: BufferSource::None,
-            damage: Region::empty(),
-            opacity: 1.0,
-            crop: None,
-            transform: Transform::IDENTITY,
             generation: 1,
-            resize_sync: ResizeSyncCapability::ImplicitOnly,
-        }],
-        chrome_targets: Vec::new(),
-        chrome_occlusion: None,
-        descriptor_targets: Vec::new(),
-        descriptor_occlusion: None,
-        descriptor_projection: None,
-        tab_occlusions: Vec::new(),
-    };
+        },
+    );
+    let mut layout = PersistentLiveLayout::default();
+    layout.observe_authority_batch(&batch);
+    // The lease state is created before the first request so its control epoch
+    // can be quoted by the Prepare; a Prepare naming a different epoch is stale
+    // by definition and would be refused.
+    let mut leases = ApplicationRouteLeaseState::default();
+    let control_epoch = leases.control_epoch();
+    let mut pending_grabs = ExplicitPointerGrabQueue::default();
+    let mut held_input = PendingLeaseInput::default();
+    let (release_sender, _release_receiver) = std::sync::mpsc::sync_channel(8);
     let (client, owner) = sophia_x_authority::x_authority_explicit_pointer_grab_bridge(
         std::num::NonZeroUsize::new(4).unwrap(),
     );
@@ -110,20 +110,26 @@ fn explicit_pointer_grab_control_activates_and_releases_a_presented_root_anchor(
             sophia_x_authority::XAuthorityExplicitPointerGrabRequestKind::Prepare {
                 anchor: sophia_x_authority::XAuthorityExplicitPointerGrabAnchor::AdmissionDefault,
                 replaces: None,
+                // No observation prerequisite: this request does not depend on
+                // anything the frontend published after it.
+                after_observation: None,
+                control_epoch,
             },
         )
     });
     while owner.pending() == 0 {
         std::thread::yield_now();
     }
-    let mut leases = ApplicationRouteLeaseState::default();
     let report = loop {
         let report = drain_explicit_pointer_grab_controls(
             &owner,
             &mut leases,
-            &routes,
+            &mut pending_grabs,
+            &layout,
+            &mut held_input,
+            &release_sender,
+            false,
             &InputFocusState::new(),
-            std::slice::from_ref(&projection),
             seat,
             10,
         )
@@ -155,9 +161,12 @@ fn explicit_pointer_grab_control_activates_and_releases_a_presented_root_anchor(
         let report = drain_explicit_pointer_grab_controls(
             &owner,
             &mut leases,
-            &routes,
+            &mut pending_grabs,
+            &layout,
+            &mut held_input,
+            &release_sender,
+            false,
             &InputFocusState::new(),
-            std::slice::from_ref(&projection),
             seat,
             11,
         )
@@ -191,9 +200,12 @@ fn explicit_pointer_grab_control_activates_and_releases_a_presented_root_anchor(
         drain_explicit_pointer_grab_controls(
             &owner,
             &mut leases,
-            &routes,
+            &mut pending_grabs,
+            &layout,
+            &mut held_input,
+            &release_sender,
+            false,
             &InputFocusState::new(),
-            std::slice::from_ref(&projection),
             seat,
             12,
         )
@@ -229,9 +241,12 @@ fn explicit_pointer_grab_control_activates_and_releases_a_presented_root_anchor(
         let report = drain_explicit_pointer_grab_controls(
             &owner,
             &mut leases,
-            &routes,
+            &mut pending_grabs,
+            &layout,
+            &mut held_input,
+            &release_sender,
+            false,
             &InputFocusState::new(),
-            std::slice::from_ref(&projection),
             seat,
             13,
         )

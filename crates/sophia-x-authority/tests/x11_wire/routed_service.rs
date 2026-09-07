@@ -227,7 +227,11 @@ fn classic_peer_mutation_preserves_creator_route_and_global_transaction() {
         }
     };
     assert_ne!(mapped.admission, Some(creator_admission));
-    assert!(mapped.surface_routes.is_empty());
+    assert_eq!(mapped.surface_routes, [XAuthoritySurfaceRouteObservation {
+        surface,
+        client: XServerFrontendClientId::from_raw(1),
+        admission: Some(creator_admission),
+    }], "mapping publishes the creator route before drawing, not the requesting peer route");
 
     let peer_gc = 0x0040_0e02;
     peer.write_all(&create_gc_values_request(

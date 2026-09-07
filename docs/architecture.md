@@ -1001,8 +1001,17 @@ output's accepted page flip; committed and submitted geometry cannot enter
 that hit test, and independently retiring heads cannot publish one another's
 input. Ordinary, passive-grab, and explicit core/XI pointer ownership uses an
 exact Engine-visible route lease with frontend confirmation and ordered
-release. Explicit grabs prepare before frontend mutation, become routable only
-after activation, and fail closed on stale epochs or a saturated control path.
+release. Explicit grabs prepare before frontend mutation, after the requesting
+connection's previously published authority observations have been applied.
+Preparation and activation do not wait for scanout. Physical delivery requires
+both activation and current presentation evidence; an unpresented reservation
+has a bounded lifetime. Engine owns the readiness decision used by both lease
+authorization and session routing. An unrelated scene revision refreshes
+application presentation evidence rather than revoking an otherwise valid
+grant. Exact identity, control, authority, device, output, and scope restrictions
+remain mandatory. Shared authority-state locks are released during bridge
+waits; stale state and saturation fail acquisition closed. The bounds and
+cancellation rules are defined in [Target-Resolved Input](target-resolved-input.md#bounds-and-cancellation).
 
 Input delivery stays off the WM path. The WM may choose focus policy in
 response to the reduced opaque click target, but it does not receive motion,

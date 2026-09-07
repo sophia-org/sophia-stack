@@ -271,9 +271,13 @@ impl Drop for XServerFrontendAdmissionLease {
 }
 
 /// A trace callback used by a bounded concurrent frontend worker.
+/// Returns a receipt only after that authority observation has been enqueued.
+/// Diagnostic-only observers return `None`, as do requests producing no batch.
 #[cfg(unix)]
-pub type X11CoreTraceObserver =
-    dyn Fn(X11DispatchObservation) -> Result<(), X11SetupSocketError> + Send + Sync + 'static;
+pub type X11CoreTraceObserver = dyn Fn(X11DispatchObservation) -> Result<Option<TransactionId>, X11SetupSocketError>
+    + Send
+    + Sync
+    + 'static;
 
 /// Receives value-free production backpressure transitions from routed workers.
 #[cfg(unix)]

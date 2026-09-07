@@ -103,11 +103,24 @@ run is therefore not a pass. Transcript:
 `cargo xtask check layout`, formatting, Cargo metadata, note links, stable task
 IDs, and `git diff --check` pass.
 
-Physical acceptance still requires switching to tty3, writing a marker,
-returning to tty7 with both outputs intact, and inspecting the earlier record
-after a later login. The independent-TTY marker and later-login acceptance criteria for
-[t015 and t016](../plans/queue-05-3-make-failures-diagnosable.md) remain open;
-this failed attempt does not satisfy them.
+The installed correction `4b4f28418829d03191d53e533d7903d07d433633` passed the
+reported tty3/tty7 round trip in session
+`00000001788745936827-954d3556-800f-4929-b3c7-bdb25c873b25`. Events 923–928
+record image capture, a drained native owner, the switch request, and seat
+suspension. Marker `2c40685a-345f-4d33-bbac-2a0a0cd52aca` was written at boot
+millisecond 227868106, between suspension at 227863714 and reactivation at
+227870017. Events 931–934 record the replacement native owner, scene and image
+restoration, and active seat. Presentation continued afterward; the recorder
+remained running with zero dropped records or storage errors. The user reported
+completion of the requested physical round trip.
+
+A checksummed snapshot of this live evidence is preserved under
+`sophia/session-investigations/` with suffix
+`b9114a77-47d4-418b-b926-069d120b59f1`. This snapshot records a still-running
+session, not a final logout outcome. The VT regression and independent-TTY
+marking checks have now passed. Inspection of this marked run after a later
+normal logout/login remains the physical acceptance step for
+[t015 and t016](../plans/queue-05-3-make-failures-diagnosable.md).
 
 ## Connections
 

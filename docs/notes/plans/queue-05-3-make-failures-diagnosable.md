@@ -49,4 +49,6 @@ deterministic test does not close this physical exit or earlier milestone gates.
 The first installed attempt ended during VT preparation and exposed missing
 CLI installation and failure fields. The [incident investigation](../investigations/tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
 records the repaired diagnostics and the subsequent multi-output renderer
-handoff correction. Repeat physical acceptance with that correction installed.
+handoff correction. The installed `4b4f2841` round trip and marker written while
+the seat was suspended passed. Inspecting that marked session after a normal
+logout and later login remains the acceptance step.

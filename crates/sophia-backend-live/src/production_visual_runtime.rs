@@ -526,6 +526,35 @@ impl LiveProductionVisualRuntime {
         true
     }
 
+    /// The surface whose chrome should read as focused.
+    ///
+    /// Input focus follows menus, tooltips and other popups, and those carry
+    /// no chrome of their own. Reporting one as the focused surface matches no
+    /// framed window, so every window's border repaints in the unfocused
+    /// colour for as long as the popup lives, then snaps back -- a visible
+    /// flash on every menu. A popup belongs to the window that opened it, so
+    /// focus landing on an unframed surface holds the framed surface it came
+    /// from. Focus genuinely going nowhere still clears it, so clicking away
+    /// from every window unfocuses them all.
+    ///
+    /// The held value was resolved the same way when it was stored, so this
+    /// cannot chain through a run of popups back to something unframed. It is
+    /// re-checked against the incoming chrome set regardless, because the
+    /// window a popup belonged to can lose its chrome while the popup is up.
+    fn chrome_focus(
+        &self,
+        focused_surface: Option<SurfaceId>,
+        chrome_surfaces: &[SurfaceId],
+    ) -> Option<SurfaceId> {
+        match focused_surface {
+            Some(surface) if chrome_surfaces.contains(&surface) => Some(surface),
+            Some(_) => self
+                .focused_surface
+                .filter(|held| chrome_surfaces.contains(held)),
+            None => None,
+        }
+    }
+
     pub fn run_cpu_production_cycle(
         &mut self,
         request: LiveProductionCycleRequest<'_>,
@@ -568,6 +597,7 @@ impl LiveProductionVisualRuntime {
         );
         retain_relevant_cpu_buffer_updates(scene, &mut updates, &self.cpu_buffer_residency);
         let native_enabled = native_scanout.is_some();
+        let focused_surface = self.chrome_focus(focused_surface, chrome_surfaces);
         let focus_changed = self.focused_surface != focused_surface;
         self.focused_surface = focused_surface;
         let presentation_order_changed =
@@ -923,7 +953,7 @@ impl LiveProductionVisualRuntime {
             &self.recent_cpu_buffer_updates,
         );
         retain_relevant_cpu_buffer_updates(scene, &mut updates, &self.cpu_buffer_residency);
-        self.focused_surface = focused_surface;
+        self.focused_surface = self.chrome_focus(focused_surface, chrome_surfaces);
         let _ = self.apply_presentation_layout(presentation_layout, geometry_routed_surfaces);
         self.set_chrome_surfaces(chrome_surfaces);
         self.set_indicator_publication(indicator_publication);

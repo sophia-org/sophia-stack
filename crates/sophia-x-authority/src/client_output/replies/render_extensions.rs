@@ -180,11 +180,16 @@ fn encode_render_extension_reply(
                         sequence,
                         u32::try_from(rects.len() * 2).unwrap_or(0),
                     );
-                    put_u16(byte_order, &mut out[8..10], rects.len() as u16);
-                    put_i16(byte_order, &mut out[16..18], extents.x as i16);
-                    put_i16(byte_order, &mut out[18..20], extents.y as i16);
-                    put_u16(byte_order, &mut out[20..22], extents.width as u16);
-                    put_u16(byte_order, &mut out[22..24], extents.height as u16);
+                    // The reply carries the extents at bytes 8 through 16 and
+                    // no count at all: a client derives the number of
+                    // rectangles from the reply's length. Writing a count here
+                    // put it where the extents' x belongs, so a client read
+                    // the rectangle count as a coordinate and zero for the
+                    // rest of the bounding box.
+                    put_i16(byte_order, &mut out[8..10], extents.x as i16);
+                    put_i16(byte_order, &mut out[10..12], extents.y as i16);
+                    put_u16(byte_order, &mut out[12..14], extents.width as u16);
+                    put_u16(byte_order, &mut out[14..16], extents.height as u16);
                     let mut offset = X_CLIENT_OUTPUT_RECORD_LEN;
                     for rect in rects {
                         put_i16(byte_order, &mut out[offset..offset + 2], rect.x as i16);

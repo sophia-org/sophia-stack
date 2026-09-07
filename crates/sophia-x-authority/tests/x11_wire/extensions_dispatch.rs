@@ -4943,3 +4943,101 @@ fn translate_coordinates_moves_a_point_between_window_spaces() {
     // The identity case still holds.
     assert_eq!(translate(&mut fixture, parent, parent, 7, 9), (7, 9));
 }
+
+/// The FetchRegion reply is read by a client at fixed offsets, so its bytes
+/// are pinned.
+///
+/// The reply carries extents at bytes 8 through 16 and no rectangle count at
+/// all -- a client derives the count from the reply's length. This encoder
+/// previously wrote a count where the extents' x belongs, so every client
+/// read the number of rectangles as a coordinate and zero for the rest of the
+/// bounding box. The test that existed destructured the reply before it was
+/// encoded and could not see it.
+#[test]
+fn xfixes_fetch_region_reply_matches_the_bytes_a_client_reads() {
+    let mut fixture = XfixesRegionFixture::new();
+    fixture.create(
+        XfixesRegionFixture::A,
+        &[
+            Rect {
+                x: 3,
+                y: 4,
+                width: 5,
+                height: 6,
+            },
+            Rect {
+                x: 20,
+                y: 30,
+                width: 2,
+                height: 2,
+            },
+        ],
+    );
+    let request = xfixes_fetch_region_request(XfixesRegionFixture::ORDER, XfixesRegionFixture::A);
+    let result = fixture.send(&request);
+    let encoded = result.encoded_outputs(XfixesRegionFixture::ORDER);
+    let reply = &encoded[0];
+
+    // Two rectangles: a 32-byte header and two eight-byte rectangles, with the
+    // length counting only what follows the header, in four-byte units.
+    assert_eq!(reply.len(), 32 + 2 * 8);
+    assert_eq!(reply[0], 1, "a reply, not an event");
+    assert_eq!(read_u32(XfixesRegionFixture::ORDER, &reply[4..8]), 4);
+
+    // Extents, at the offsets the protocol puts them.
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[8..10]), 3, "x");
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[10..12]), 4, "y");
+    assert_eq!(
+        read_u16(XfixesRegionFixture::ORDER, &reply[12..14]),
+        19,
+        "width spans both rectangles"
+    );
+    assert_eq!(
+        read_u16(XfixesRegionFixture::ORDER, &reply[14..16]),
+        28,
+        "height spans both rectangles"
+    );
+    // The rest of the header is padding, and must not carry a count.
+    assert!(
+        reply[16..32].iter().all(|byte| *byte == 0),
+        "bytes 16 through 32 are padding: {:?}",
+        &reply[16..32]
+    );
+
+    // Then the rectangles themselves.
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[32..34]), 3);
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[34..36]), 4);
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[36..38]), 5);
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[38..40]), 6);
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[40..42]), 20);
+    assert_eq!(read_u16(XfixesRegionFixture::ORDER, &reply[42..44]), 30);
+}
+
+/// The version answered is the lower of the client's and this server's.
+///
+/// It answered its own version regardless of what was asked. A client that
+/// asked for version 1 was told 6, and would then be entitled to send
+/// requests no version 1 client should know about.
+#[test]
+fn xfixes_query_version_answers_the_lower_of_the_two() {
+    let mut fixture = XfixesRegionFixture::new();
+    let ask = |fixture: &mut XfixesRegionFixture, major: u32, minor: u32| {
+        let mut out = vec![X_XFIXES_MAJOR_OPCODE, X_XFIXES_QUERY_VERSION_MINOR_OPCODE];
+        push_u16(&mut out, XfixesRegionFixture::ORDER, 3);
+        push_u32(&mut out, XfixesRegionFixture::ORDER, major);
+        push_u32(&mut out, XfixesRegionFixture::ORDER, minor);
+        let encoded = fixture.send(&out).encoded_outputs(XfixesRegionFixture::ORDER);
+        (
+            read_u32(XfixesRegionFixture::ORDER, &encoded[0][8..12]),
+            read_u32(XfixesRegionFixture::ORDER, &encoded[0][12..16]),
+        )
+    };
+
+    // A client below the server is answered its own version.
+    assert_eq!(ask(&mut fixture, 2, 0), (2, 0));
+    assert_eq!(ask(&mut fixture, 1, 0), (1, 0));
+    // A client above the server is answered the server's.
+    assert_eq!(ask(&mut fixture, 9, 0), (6, 0));
+    // Equal majors take the lower minor.
+    assert_eq!(ask(&mut fixture, 6, 0), (6, 0));
+}

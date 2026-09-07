@@ -194,8 +194,7 @@ pub const X_XFIXES_INVERT_REGION_MINOR_OPCODE: u8 = 16;
 pub const X_XFIXES_TRANSLATE_REGION_MINOR_OPCODE: u8 = 17;
 pub const X_XFIXES_REGION_EXTENTS_MINOR_OPCODE: u8 = 18;
 pub const X_XFIXES_FETCH_REGION_MINOR_OPCODE: u8 = 19;
-/// The highest minor XFIXES 6.0 defines (`DeletePointerBarrier` is 32; the
-/// client-disconnect-mode pair carries the list to 34). A minor at or below
+/// The highest minor XFIXES 6.0 defines: `GetClientDisconnectMode`. A minor at or below
 /// this that is not implemented is declined; one above it is not a request
 /// this version has.
 pub const X_XFIXES_LAST_MINOR_OPCODE: u8 = 34;

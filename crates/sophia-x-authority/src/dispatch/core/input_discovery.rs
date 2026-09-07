@@ -146,13 +146,57 @@ fn dispatch_core_input_discovery_request(
                                 0,
                                 u32::try_from(destination.local.raw()).unwrap_or(0)))
                         } else {
-                            XClientOutput::Reply(XClientReply::TranslateCoordinates {
-                                sequence: context.sequence,
-                                same_screen: true,
-                                child: None,
-                                dst_x: src_x,
-                                dst_y: src_y,
-                            })
+                            // The point moves between two windows' coordinate
+                            // spaces, which is only the identity when both
+                            // sit at the same place. Echoing the input back
+                            // told every client its window was at the screen
+                            // origin, and a toolkit that positions a menu
+                            // from its parent's screen position put the menu
+                            // wherever the window was not.
+                            let translated = runtime
+                                .window_root_position(source)
+                                .zip(runtime.window_root_position(destination))
+                                .map(|(from, to)| {
+                                    // Widened for the arithmetic and clamped
+                                    // back: the reply's fields are sixteen
+                                    // bits, and a window far off a large
+                                    // desktop can put the sum outside them.
+                                    let translate = |value: i16, from: i32, to: i32| {
+                                        i32::from(value)
+                                            .saturating_add(from)
+                                            .saturating_sub(to)
+                                            .clamp(i32::from(i16::MIN), i32::from(i16::MAX))
+                                            as i16
+                                    };
+                                    (
+                                        translate(src_x, from.0, to.0),
+                                        translate(src_y, from.1, to.1),
+                                    )
+                                });
+                            match translated {
+                                Some((dst_x, dst_y)) => XClientOutput::Reply(
+                                    XClientReply::TranslateCoordinates {
+                                        sequence: context.sequence,
+                                        same_screen: true,
+                                        // Which child of the destination holds
+                                        // the point is not reported. A client
+                                        // that needs it asks the pointer
+                                        // instead, and answering with a guess
+                                        // would be worse than answering none.
+                                        child: None,
+                                        dst_x,
+                                        dst_y,
+                                    },
+                                ),
+                                None => XClientOutput::Error(crate::XClientError {
+                                    code: XErrorCode::BadWindow,
+                                    sequence: context.sequence,
+                                    resource_id: u32::try_from(source.local.raw())
+                                        .unwrap_or(0),
+                                    minor_code: 0,
+                                    major_code: context.major_opcode,
+                                }),
+                            }
                         };
                     XDispatchResult {
                         response: None,

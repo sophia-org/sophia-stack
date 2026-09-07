@@ -4874,3 +4874,72 @@ fn render_pad_repeat_holds_a_gradients_end_colours() {
     // Past the end of the ramp the last stop's colour is held.
     assert_eq!(fixture.pixel(5, 0), [0xff, 0xff, 0xff, 0xff], "padded");
 }
+
+/// A point translated between two windows lands where it actually is.
+///
+/// A toolkit positions a dropdown by asking where its parent window sits on
+/// screen and offsetting the popup from there. Answering with the point it
+/// was handed tells every client its window is at the screen origin, so the
+/// menu opens wherever the window is not -- offset by exactly the window's
+/// position, which on a second monitor is most of a screen away.
+#[test]
+fn translate_coordinates_moves_a_point_between_window_spaces() {
+    let parent = 0x0020_0700;
+    let child = 0x0020_0701;
+    let mut fixture = RenderFixture::new();
+
+    let create = create_window_request(RenderFixture::ORDER, parent, 2553, 41, 1258, 1390);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&create)), None);
+    let nested = create_window_request_with_parent(
+        RenderFixture::ORDER,
+        child,
+        parent,
+        10,
+        20,
+        100,
+        50,
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&nested)), None);
+
+    let translate = |fixture: &mut RenderFixture, source, destination, x, y| {
+        let request =
+            translate_coordinates_request(RenderFixture::ORDER, source, destination, x, y);
+        match fixture.send(&request).outputs.as_slice() {
+            [XClientOutput::Reply(XClientReply::TranslateCoordinates { dst_x, dst_y, .. })] => {
+                (*dst_x, *dst_y)
+            }
+            other => panic!("TranslateCoordinates produced {other:?}"),
+        }
+    };
+
+    // The window's own origin, in root coordinates: where it actually is.
+    assert_eq!(
+        translate(&mut fixture, parent, X_SETUP_DEFAULT_ROOT, 0, 0),
+        (2553, 41),
+        "a toplevel's origin is its position, not the screen origin"
+    );
+    // A point inside it carries the same offset.
+    assert_eq!(
+        translate(&mut fixture, parent, X_SETUP_DEFAULT_ROOT, 100, 200),
+        (2653, 241)
+    );
+    // A nested window accumulates its ancestors' offsets.
+    assert_eq!(
+        translate(&mut fixture, child, X_SETUP_DEFAULT_ROOT, 0, 0),
+        (2563, 61),
+        "a child's root position includes every parent between it and the root"
+    );
+    // And back the other way.
+    assert_eq!(
+        translate(&mut fixture, X_SETUP_DEFAULT_ROOT, child, 2563, 61),
+        (0, 0)
+    );
+    // Between siblings in the same space, the translation is the difference.
+    assert_eq!(
+        translate(&mut fixture, child, parent, 0, 0),
+        (10, 20),
+        "a child's origin in its parent's space is its own geometry"
+    );
+    // The identity case still holds.
+    assert_eq!(translate(&mut fixture, parent, parent, 7, 9), (7, 9));
+}

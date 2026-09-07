@@ -488,6 +488,36 @@ impl XWindowTable {
             .collect()
     }
 
+    /// Where a window's origin sits in root coordinates.
+    ///
+    /// This is what a client is asking for when it translates a point to the
+    /// root, and it is how a toolkit decides where on screen to put a menu:
+    /// it takes the position of the widget's window and offsets the popup
+    /// from there. The walk includes the toplevel's own geometry, which is
+    /// the whole difference between this and `presentation_root_and_offset`
+    /// -- that one measures a descendant's offset *within* its toplevel and
+    /// therefore stops before adding it.
+    pub fn root_position(&self, id: XResourceId) -> Result<(i32, i32), XAuthorityAccessError> {
+        if id.local.raw() == u64::from(crate::X_SETUP_DEFAULT_ROOT) {
+            return Ok((0, 0));
+        }
+        let mut current = id;
+        let mut x = 0i32;
+        let mut y = 0i32;
+        loop {
+            let record = self
+                .windows
+                .get(&current)
+                .ok_or(XAuthorityAccessError::UnknownResource)?;
+            x = x.saturating_add(record.geometry.x);
+            y = y.saturating_add(record.geometry.y);
+            if record.parent.local.raw() == u64::from(crate::X_SETUP_DEFAULT_ROOT) {
+                return Ok((x, y));
+            }
+            current = record.parent;
+        }
+    }
+
     pub fn presentation_root_and_offset(
         &self,
         id: XResourceId,

@@ -3,6 +3,11 @@ impl XAuthorityRuntime {
          self.resources.len()
      }
 
+     /// Where a window's origin sits in root coordinates.
+     pub fn window_root_position(&self, window: crate::XResourceId) -> Option<(i32, i32)> {
+         self.windows.root_position(window).ok()
+     }
+
      pub fn resource_id_in_use(&self, resource: crate::XResourceId) -> bool {
          matches!(
              u32::try_from(resource.local.raw()),

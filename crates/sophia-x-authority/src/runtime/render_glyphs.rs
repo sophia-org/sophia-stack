@@ -328,6 +328,8 @@ impl XAuthorityRuntime {
             source_record.drawable,
             source_record.format,
             source_record.repeat,
+            source_record.transform,
+            source_record.filter,
         );
         let clip = Self::render_translated_clip(&destination_record);
         let mut damage = Region::empty();

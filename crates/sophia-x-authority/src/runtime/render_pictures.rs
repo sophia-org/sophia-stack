@@ -14,6 +14,12 @@ pub struct XRenderPictureRecord {
     pub clip_x_origin: i16,
     pub clip_y_origin: i16,
     pub component_alpha: bool,
+    /// The picture's transform, in the 16.16 fixed point the wire carries.
+    ///
+    /// `None` is identity, which the setter normalises to so that an
+    /// untransformed picture keeps the integer sampling path.
+    pub transform: Option<[i32; 9]>,
+    pub filter: crate::XRenderPictureFilter,
 }
 
 /// Why a RENDER picture request was refused, kept fine-grained because the
@@ -116,6 +122,8 @@ impl XAuthorityRuntime {
             clip_x_origin: 0,
             clip_y_origin: 0,
             component_alpha: false,
+            transform: None,
+            filter: crate::XRenderPictureFilter::default(),
         };
         Self::render_apply_picture_values(&mut record, values)?;
         self.resources
@@ -286,12 +294,16 @@ impl XAuthorityRuntime {
             source_record.drawable,
             source_record.format,
             source_record.repeat,
+            source_record.transform,
+            source_record.filter,
         );
         let mask_plane = mask_record.as_ref().map(|record| {
             self.software_buffers.render_sample_plane(
                 record.drawable,
                 record.format,
                 record.repeat,
+                record.transform,
+                record.filter,
             )
         });
         let component_alpha = mask_record

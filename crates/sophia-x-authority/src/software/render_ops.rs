@@ -188,13 +188,73 @@ pub(crate) struct XRenderSamplePlane {
     width: usize,
     height: usize,
     repeat: bool,
+    /// How destination points map into this plane, when the picture carries a
+    /// transform or a filter that is not the default.
+    ///
+    /// `None` is the overwhelmingly common case and keeps the integer
+    /// sampling path, which is the inner loop of every composite.
+    mapping: Option<XRenderSampleMapping>,
 }
+
+/// A picture's transform and filter, converted once for sampling.
+///
+/// RENDER's matrix maps a destination-relative source coordinate to the
+/// source pixel to sample -- it is already the inverse map, so it is applied
+/// forward. The wire carries 16.16 fixed point; this is the float form,
+/// built once per composite rather than per pixel.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct XRenderSampleMapping {
+    matrix: [f64; 9],
+    filter: XRenderPictureFilter,
+}
+
+/// How a picture samples between its pixels.
+///
+/// The protocol names six filters, three of them aliases. Sophia offers
+/// nearest and bilinear and advertises the aliases onto them; convolution is
+/// deliberately not offered, because a client that finds it absent disables
+/// its own kernel work cleanly, and one that finds it advertised and ignored
+/// does not.
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum XRenderPictureFilter {
+    #[default]
+    Nearest,
+    Bilinear,
+}
+
+impl XRenderSampleMapping {
+    /// The mapping for a picture, or `None` when it samples one-to-one.
+    ///
+    /// An identity transform with the default filter is exactly the
+    /// untransformed case, so it collapses rather than paying for a matrix
+    /// multiply per pixel.
+    pub(crate) fn new(transform: Option<[i32; 9]>, filter: XRenderPictureFilter) -> Option<Self> {
+        if transform.is_none() && filter == XRenderPictureFilter::Nearest {
+            return None;
+        }
+        let matrix = transform.unwrap_or(X_RENDER_IDENTITY_TRANSFORM);
+        let mut float = [0.0f64; 9];
+        for (out, value) in float.iter_mut().zip(matrix) {
+            *out = f64::from(value) / 65536.0;
+        }
+        Some(Self {
+            matrix: float,
+            filter,
+        })
+    }
+}
+
+/// The 16.16 fixed-point identity, which the protocol treats as "no
+/// transform" and which this server normalises away at the point a client
+/// sets it.
+pub const X_RENDER_IDENTITY_TRANSFORM: [i32; 9] = [65536, 0, 0, 0, 65536, 0, 0, 0, 65536];
 
 impl XRenderSamplePlane {
     pub(crate) fn from_buffer(
         buffer: &XAuthorityCpuBufferSnapshot,
         format: XRenderPictFormatKind,
         repeat: bool,
+        mapping: Option<XRenderSampleMapping>,
     ) -> Self {
         let width = usize::try_from(buffer.size.width).unwrap_or(0);
         let height = usize::try_from(buffer.size.height).unwrap_or(0);
@@ -216,6 +276,7 @@ impl XRenderSamplePlane {
             width,
             height,
             repeat,
+            mapping,
         }
     }
 
@@ -223,6 +284,71 @@ impl XRenderSamplePlane {
     /// source wraps -- which is what makes the one-pixel repeating picture
     /// every toolkit uses as a solid color work -- and a non-repeating one
     /// reads as transparent black, per the protocol.
+    /// The sample a destination pixel draws from.
+    ///
+    /// Without a mapping this is the integer sample directly, which is the
+    /// inner loop of every ordinary composite and pays only a branch. With
+    /// one, the pixel's centre is carried through the picture's transform
+    /// and then filtered.
+    pub(crate) fn sample_point(&self, x: i32, y: i32) -> [u8; 4] {
+        let Some(mapping) = self.mapping else {
+            return self.sample(x, y);
+        };
+        // The centre of the pixel, not its corner: a transform that scales by
+        // two should read the middle of each source texel rather than its
+        // edge, and every reference implementation samples this way.
+        let px = f64::from(x) + 0.5;
+        let py = f64::from(y) + 0.5;
+        let m = mapping.matrix;
+        let w = m[6] * px + m[7] * py + m[8];
+        // A projective transform can send a point to infinity. There is no
+        // source pixel there, and the protocol's answer for "no source" is
+        // transparent black.
+        if w.abs() < 1e-9 || !w.is_finite() {
+            return [0; 4];
+        }
+        let u = (m[0] * px + m[1] * py + m[2]) / w;
+        let v = (m[3] * px + m[4] * py + m[5]) / w;
+        if !u.is_finite() || !v.is_finite() {
+            return [0; 4];
+        }
+        match mapping.filter {
+            XRenderPictureFilter::Nearest => self.sample(floor_to_i32(u), floor_to_i32(v)),
+            XRenderPictureFilter::Bilinear => self.sample_bilinear(u, v),
+        }
+    }
+
+    /// Four taps blended by their fractional distance.
+    ///
+    /// The half-pixel shift puts the taps either side of the sample point
+    /// rather than starting at it. Each tap goes through `sample`, so repeat
+    /// and the transparent border apply per tap -- an edge tap outside a
+    /// non-repeating picture contributes transparent black, which is what
+    /// makes a scaled picture fade at its edge instead of smearing.
+    fn sample_bilinear(&self, u: f64, v: f64) -> [u8; 4] {
+        let su = u - 0.5;
+        let sv = v - 0.5;
+        let x0 = floor_to_i32(su);
+        let y0 = floor_to_i32(sv);
+        let fx = su - f64::from(x0);
+        let fy = sv - f64::from(y0);
+        let taps = [
+            (self.sample(x0, y0), (1.0 - fx) * (1.0 - fy)),
+            (self.sample(x0 + 1, y0), fx * (1.0 - fy)),
+            (self.sample(x0, y0 + 1), (1.0 - fx) * fy),
+            (self.sample(x0 + 1, y0 + 1), fx * fy),
+        ];
+        let mut out = [0u8; 4];
+        for (channel, slot) in out.iter_mut().enumerate() {
+            let sum: f64 = taps
+                .iter()
+                .map(|(pixel, weight)| f64::from(pixel[channel]) * weight)
+                .sum();
+            *slot = sum.round().clamp(0.0, 255.0) as u8;
+        }
+        out
+    }
+
     fn sample(&self, x: i32, y: i32) -> [u8; 4] {
         if self.width == 0 || self.height == 0 {
             return [0; 4];
@@ -275,7 +401,7 @@ pub(super) fn render_composite_rect(
             }
             let dx = i32::try_from(x).unwrap_or(i32::MAX).saturating_sub(rect.x);
             let dy = i32::try_from(y).unwrap_or(i32::MAX).saturating_sub(rect.y);
-            let mut src = source.sample(
+            let mut src = source.sample_point(
                 source_origin.0.saturating_add(dx),
                 source_origin.1.saturating_add(dy),
             );
@@ -287,7 +413,7 @@ pub(super) fn render_composite_rect(
             let dst = format.read(existing);
             let blended = match mask {
                 Some(mask) => {
-                    let sample = mask.sample(
+                    let sample = mask.sample_point(
                         mask_origin.0.saturating_add(dx),
                         mask_origin.1.saturating_add(dy),
                     );
@@ -327,6 +453,7 @@ impl XRenderSamplePlane {
             width: 0,
             height: 0,
             repeat,
+            mapping: None,
         }
     }
 }
@@ -340,6 +467,7 @@ impl XRenderSamplePlane {
             width,
             height,
             repeat: false,
+            mapping: None,
         }
     }
 }
@@ -375,5 +503,21 @@ pub(super) fn mask_rect_to_shape(
                 slot.copy_from_slice(&[0, 0, 0, 0]);
             }
         }
+    }
+}
+
+/// `f64::floor` as an `i32`, saturating rather than wrapping.
+///
+/// A transform a client supplies can send a coordinate far outside any
+/// picture; the sample there is transparent black either way, but the cast
+/// must not wrap into a coordinate that is inside one.
+fn floor_to_i32(value: f64) -> i32 {
+    let floored = value.floor();
+    if floored <= f64::from(i32::MIN) {
+        i32::MIN
+    } else if floored >= f64::from(i32::MAX) {
+        i32::MAX
+    } else {
+        floored as i32
     }
 }

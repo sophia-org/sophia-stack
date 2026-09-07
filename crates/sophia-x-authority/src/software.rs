@@ -21,7 +21,11 @@ pub(crate) use raster_variants::{
 };
 pub use raster_variants::{XPutImageSemantics, XRasterFallbackCause};
 pub use render_ops::XRenderPictFormatKind;
-pub(crate) use render_ops::{XRenderSamplePlane, render_operator_is_implemented};
+pub use render_ops::XRenderPictureFilter;
+pub(crate) use render_ops::{
+    X_RENDER_IDENTITY_TRANSFORM, XRenderSampleMapping, XRenderSamplePlane,
+    render_operator_is_implemented,
+};
 use render_ops::{mask_rect_to_shape, render_composite_rect, render_fill_rect};
 pub use update::{
     X_AUTHORITY_CPU_PATCH_BATCH_MAX_RECTS, XAuthorityCpuBufferPatch, XAuthorityCpuBufferPatchBatch,
@@ -290,9 +294,12 @@ impl XSoftwareBufferStore {
         drawable: XResourceId,
         format: XRenderPictFormatKind,
         repeat: bool,
+        transform: Option<[i32; 9]>,
+        filter: XRenderPictureFilter,
     ) -> XRenderSamplePlane {
+        let mapping = XRenderSampleMapping::new(transform, filter);
         match self.buffers.get(&drawable) {
-            Some(buffer) => XRenderSamplePlane::from_buffer(buffer, format, repeat),
+            Some(buffer) => XRenderSamplePlane::from_buffer(buffer, format, repeat, mapping),
             None => XRenderSamplePlane::empty(repeat),
         }
     }

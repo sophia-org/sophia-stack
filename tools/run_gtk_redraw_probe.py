@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shlex
 import signal
 import subprocess
@@ -82,12 +83,24 @@ def main():
     captures = [line for line in records.splitlines() if line.startswith("gtk_redraw capture=")]
     expected = {"main", "dialog", "menu", "dialog-remap", "dialog-redraw"}
     captured = {line.split("capture=", 1)[1].split()[0] for line in captures}
+    completion = next((line for line in records.splitlines()
+                       if re.match(r"sophia_live_session schema=(16|17) status=bounded_complete ", line)), "")
+    fields = dict(item.split("=", 1) for item in completion.split() if "=" in item)
+    # This legacy field counts exact bytes only during initial proof frames;
+    # later frames use bounded composition evidence. Interpret it as a
+    # nonempty-scene witness, never as a byte count or image-quality score.
+    scene_evidence = int(fields.get("cpu_max_nonzero_pixel_bytes", "0"))
+    scene_frames = int(fields.get("cpu_nonzero_frames", "0"))
+    scene_passed = scene_evidence > 0 and scene_frames > 0
     passed = (status == 0 and captured == expected and len(captures) == 5
+              and scene_passed
               and all("content=pass saved=1" in line for line in captures)
               and "status=exited id=terminal source=startup exit_status=exit status: 0" in records
               and "sophia_live_session_health schema=1 status=clean protocol_errors=0" in records
               and "sophia_live_session_cleanup schema=1 status=clean" in records)
-    result = {"passed": passed, "session_exit": status, "captures": captures}
+    result = {"passed": passed, "session_exit": status, "captures": captures,
+              "composed_scene_evidence": scene_evidence,
+              "nonempty_scene_frames": scene_frames}
     (root / "result.json").write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps(result, indent=2))
     return 0 if passed else 1

@@ -318,3 +318,267 @@ fn a_popup_returns_on_remap_but_not_through_a_reused_identifier() {
         "a reused identifier is not the destroyed popup and has no standing of its own"
     );
 }
+
+fn admission_geometry() -> Rect {
+    Rect {
+        x: 0,
+        y: 0,
+        width: 240,
+        height: 112,
+    }
+}
+
+/// Drives a managed surface to the point where the frontend has been asked to
+/// admit it and has not yet answered.
+fn awaiting_admission(surface: SurfaceId, transaction: TransactionId) -> PersistentLiveLayout {
+    let mut layout = PersistentLiveLayout::default();
+    // The window exists and the authority reports it not yet mapped, which is
+    // what a policy-managed window looks like before placement.
+    observe(
+        &mut layout,
+        surface,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        false,
+    );
+    assert!(
+        layout
+            .admissions
+            .observe_intent(sophia_protocol::SurfacePresentationIntent {
+                surface,
+                kind: sophia_protocol::SurfacePresentationIntentKind::Request,
+                role: SurfacePresentationRole::PolicyManaged,
+                surface_kind: LayoutNodeKind::Toplevel,
+                placement_preference: SurfacePlacementPreference::Default,
+                presentation_owner: None,
+                stack_rank: 0,
+                geometry: admission_geometry(),
+                constraints: SurfaceConstraints {
+                    min_size: None,
+                    max_size: None,
+                },
+                generation: 1,
+            })
+    );
+    assert!(
+        layout
+            .admissions
+            .begin_control(surface, transaction, admission_geometry())
+    );
+    layout
+}
+
+/// An acknowledged admission makes the window visible immediately, with no
+/// further traffic of any kind.
+///
+/// The authority marks a policy-managed window viewable when it admits it, and
+/// that transition rides in no presentation of its own, because the engine
+/// asked for the map rather than a client. A live session showed the cost: two
+/// Kitty windows viewable on the X server, drawing, and an entirely empty
+/// scene. Nothing here observes another batch after the acknowledgement, which
+/// is the point -- a client that admits and then goes idle must still appear.
+#[test]
+fn an_acknowledged_admission_shows_the_window_without_any_later_traffic() {
+    let surface = SurfaceId::new(160, 1);
+    let transaction = TransactionId::from_raw(90);
+    let mut layout = awaiting_admission(surface, transaction);
+
+    assert_eq!(
+        layout.managed_scene_visible::<()>(surface, |_| Ok(true)),
+        Ok(false),
+        "before the frontend answers, the window is not in the scene"
+    );
+
+    assert!(layout.acknowledge_admission_control(transaction, surface));
+
+    assert_eq!(
+        layout.managed_scene_visible::<()>(surface, |_| Ok(true)),
+        Ok(true),
+        "the acknowledgement alone makes it eligible"
+    );
+}
+
+/// Only a correlated acknowledgement counts, and it counts once.
+#[test]
+fn an_uncorrelated_admission_acknowledgement_does_not_map_anything() {
+    let surface = SurfaceId::new(161, 1);
+    let transaction = TransactionId::from_raw(91);
+    let visible = |layout: &PersistentLiveLayout, surface| {
+        layout.managed_scene_visible::<()>(surface, |_| Ok(true)) == Ok(true)
+    };
+
+    // A different transaction is not this admission.
+    let mut layout = awaiting_admission(surface, transaction);
+    assert!(!layout.acknowledge_admission_control(TransactionId::from_raw(92), surface));
+    assert!(!visible(&layout, surface));
+    // ...and the real one still works afterwards.
+    assert!(layout.acknowledge_admission_control(transaction, surface));
+    assert!(visible(&layout, surface));
+
+    // A repeat is refused: the surface has left ControlPending.
+    assert!(!layout.acknowledge_admission_control(transaction, surface));
+
+    // A surface the authority never asked to admit cannot be mapped by an
+    // acknowledgement naming it.
+    let mut fresh = awaiting_admission(surface, transaction);
+    let stranger = SurfaceId::new(162, 1);
+    assert!(!fresh.acknowledge_admission_control(transaction, stranger));
+    assert!(!visible(&fresh, stranger));
+
+    // A reused identifier is a different surface, so an acknowledgement for the
+    // old generation does not map the new one.
+    let reused = SurfaceId::new(161, 2);
+    assert!(!fresh.acknowledge_admission_control(transaction, reused));
+    assert!(!visible(&fresh, reused));
+}
+
+/// An acknowledgement that arrives after the window is gone maps nothing.
+#[test]
+fn a_late_admission_acknowledgement_cannot_revive_a_removed_window() {
+    let surface = SurfaceId::new(163, 1);
+    let transaction = TransactionId::from_raw(93);
+    let mut layout = awaiting_admission(surface, transaction);
+
+    // The client destroys the window while the admission is in flight.
+    let mut removal = crate::live_session::wm_update_coordinator_batch(TransactionId::from_raw(94));
+    removal.removed_surfaces.push(surface);
+    layout.observe_authority_batch(&removal);
+
+    assert!(
+        !layout.acknowledge_admission_control(transaction, surface),
+        "a destroyed window has no admission left to acknowledge"
+    );
+    assert_eq!(
+        layout.managed_scene_visible::<()>(surface, |_| Ok(true)),
+        Ok(false)
+    );
+
+    // And an unmap published after a good acknowledgement still wins.
+    let mut unmapped = awaiting_admission(SurfaceId::new(164, 1), transaction);
+    let live = SurfaceId::new(164, 1);
+    assert!(unmapped.acknowledge_admission_control(transaction, live));
+    observe(
+        &mut unmapped,
+        live,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        false,
+    );
+    assert_eq!(
+        unmapped.managed_scene_visible::<()>(live, |_| Ok(true)),
+        Ok(false),
+        "an unmap after admission removes it again"
+    );
+}
+
+/// The admitted window's pixels actually reach a composed frame, and only
+/// after the acknowledgement.
+///
+/// Every other test here reasons about eligibility. This one carries it
+/// through to bytes, because eligibility is not what the user sees: the live
+/// regression had two viewable Kitty windows drawing into retained buffers and
+/// a scene that composed nothing, and an offline suite that asserted only
+/// eligibility passed throughout. The scene is composed from exactly the
+/// surfaces the visibility rule selects, which is what
+/// `authority_production.rs` does when it builds `presentation_layout`.
+#[test]
+fn an_admitted_window_composes_its_pixels_and_an_unmapped_one_does_not() {
+    let surface = SurfaceId::new(165, 1);
+    let transaction = TransactionId::from_raw(95);
+    let geometry = Rect {
+        x: 0,
+        y: 0,
+        width: 2,
+        height: 1,
+    };
+    // A distinctive marker so a composed frame cannot be confused with a
+    // cleared one, in either direction.
+    let marker = [0x21, 0x43, 0x65, 0xff, 0x21, 0x43, 0x65, 0xff];
+    let empty = [0u8; 8];
+
+    let mut scene = LiveProductionCpuScene::new(Size {
+        width: 2,
+        height: 1,
+    });
+    let committed = CommittedSurfaceState {
+        surface,
+        committed_generation: 1,
+        geometry,
+        content: sophia_protocol::SurfaceContentSet::singleton(
+            BufferSource::CpuBuffer { handle: 11 },
+            Size {
+                width: geometry.width,
+                height: geometry.height,
+            },
+        ),
+        damage: Region::single(geometry),
+    };
+    scene
+        .apply_updates([sophia_backend_live::LiveCpuBufferUpdate::Replace(
+            sophia_backend_live::LiveCpuBufferSource {
+                handle: 11,
+                size: Size {
+                    width: 2,
+                    height: 1,
+                },
+                stride: 8,
+                format: X_AUTHORITY_CPU_BUFFER_FORMAT_XRGB8888,
+                generation: 1,
+                bytes: std::sync::Arc::new(marker.to_vec()),
+            },
+        )])
+        .unwrap();
+    scene.reconcile_buffer_residency(&[11]);
+
+    let mut layout = awaiting_admission(surface, transaction);
+
+    // The scene is composed from exactly what the visibility rule admits,
+    // the way the production cycle builds its presentation layout.
+    let selected = |layout: &PersistentLiveLayout| -> Vec<CommittedSurfaceState> {
+        [committed.clone()]
+            .into_iter()
+            .filter(|state| {
+                layout
+                    .managed_scene_visible::<()>(state.surface, |_| Ok(true))
+                    .unwrap()
+            })
+            .collect()
+    };
+
+    // The client has retained pixels and the frontend has not answered yet.
+    // Nothing composes, and the marker is nowhere in the frame.
+    let before = selected(&layout);
+    assert!(before.is_empty());
+    assert_eq!(
+        scene.compose(&before, None, None).unwrap().frame.bytes,
+        empty.to_vec().into(),
+        "a window awaiting admission contributes no pixels"
+    );
+
+    // The frontend acknowledges. No further client traffic of any kind.
+    assert!(layout.acknowledge_admission_control(transaction, surface));
+
+    let after = selected(&layout);
+    assert_eq!(after.len(), 1);
+    assert_eq!(
+        scene.compose(&after, None, None).unwrap().frame.bytes,
+        marker.to_vec().into(),
+        "the acknowledged window's retained pixels reach the frame"
+    );
+
+    // Unmapping takes them out again.
+    observe(
+        &mut layout,
+        surface,
+        SurfacePresentationRole::PolicyManaged,
+        None,
+        false,
+    );
+    let unmapped = selected(&layout);
+    assert!(unmapped.is_empty());
+    assert_eq!(
+        scene.compose(&unmapped, None, None).unwrap().frame.bytes,
+        empty.to_vec().into(),
+        "an unmapped window stops contributing pixels"
+    );
+}

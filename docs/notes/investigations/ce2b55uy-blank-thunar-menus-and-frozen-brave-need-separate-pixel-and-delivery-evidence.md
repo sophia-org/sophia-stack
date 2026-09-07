@@ -223,6 +223,59 @@ and reuse a dialog. Text, backgrounds and edges must remain complete; dismissed
 surfaces must neither linger nor take clicks. t061 closes only after that
 installed observation, not after the headless probe.
 
+## 2026-09-07: Kitty starts but never enters the composed scene
+
+Installed `34128d80` regressed managed-window visibility. In session
+`00000001788789965467-4ea7b32f-136f-44be-9553-10a55dfc445c`, both Kitty processes
+remain alive and both X windows are `IsViewable`. Their admission and resize
+epochs committed. The windows are 1,258 by 1,390 at (17, 41) and (1,285, 41),
+yet the user sees neither. This is not a failed launcher command.
+
+The new mapping guard exposed a missing state transition: the authority maps
+the window during `AdmitSurface`, but its control path does not publish a new
+surface-presentation observation. The session's mapped set therefore retains
+the pre-admission false value. The guard correctly removes unmapped surfaces
+but also removes these successfully admitted windows.
+
+Our earlier GTK check read each window's frontend storage. Its final log also
+reported `cpu_max_nonzero_pixel_bytes=0` and `cpu_nonzero_frames=0`; those fields
+were not part of its pass criteria. The strengthened probe now requires
+nonempty headless composition. Installed `34128d80` fails this check
+deterministically: all five captures pass while composition evidence and
+nonempty frames are both zero. This is retained at
+`/tmp/sophia-gtk-redraw-yo37ak_u`; live identity
+and reduced events are at `/tmp/sophia-kitty-admission-34128d80`.
+
+The repair records mapping only after the existing authority acknowledgement
+matches a pending admission and its transaction. It needs no subsequent client
+traffic. Wrong, duplicate, withdrawn and destroyed admissions remain rejected;
+a blind-WM proposal alone remains insufficient.
+
+The first probe revision misread `cpu_max_nonzero_pixel_bytes` as an exact
+count throughout the run and imposed a 458,084-byte threshold. The renderer
+switches to bounded composition evidence after three initial proof frames,
+so the repaired candidate's value of 10 with 40 nonempty frames is not ten
+actual pixels or bytes. That threshold was removed before committing the probe.
+Its scene gate is a coarse witness; exact composed pixels require a separate
+test, and physical Thunar acceptance remains outstanding.
+
+The final candidate passes `cargo xtask check`, including ten presentation-owner
+tests and the host buffer-age proof. The added compositor regression compares
+exact bytes: a retained two-pixel marker is absent before acknowledgement,
+present immediately afterward without more client traffic, and absent after
+unmap. The final real GTK run passes all five content captures, exits zero,
+and records nonempty composition (`/tmp/sophia-gtk-redraw-mpaufwat`). The same
+probe rejects installed `34128d80` (`/tmp/sophia-gtk-redraw-wrkkmesa`). Its new
+completion reader is registered with the repository's schema audit.
+
+Source and private evidence are archived with verified checksums at
+`~/.local/state/sophia/development-evidence/t061-admission-5f5c9ead3764`.
+Source identity: `5f5c9ead37648258bc111be29f92d2abcb3c746efbfd72e82c64ff1e7d7bb3ce`
+against `34128d80`; candidate binary SHA-256:
+`6879d30225e9bbed11fabfe5da0fc9572f09c8d91c0a755dfa3d9d1a351da967`.
+The running desktop was not replaced. Commit and install this correction before
+the next Kitty/Thunar acceptance attempt; t061 remains open.
+
 ## Connections
 
 - [Brave watchdog investigation](h0vxis10-brave-gpu-watchdog-repeats-during-live-use.md)

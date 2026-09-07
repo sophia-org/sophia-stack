@@ -19,6 +19,13 @@ physical input. It does not alter the installed desktop or launch a shell.
 
 A pass requires a successful client exit, clean session health and cleanup,
 and background and text in both halves of each dialog and every menu row.
+The headless composed scene must also report nonempty frames. This rejects the
+admission regression where frontend `GetImage` returned complete windows but
+the scene remained empty. The legacy `cpu_max_nonzero_pixel_bytes` field uses
+exact counts only for initial proof frames, then bounded composition evidence;
+the probe treats it solely as a nonempty-scene witness. It cannot distinguish
+correct window content from surviving decoration. Exact compositor pixels are
+checked separately by the admission/visibility regression.
 The controlled white background and dark text make these checks independent
 of the user's theme; they are content checks, not exact font-image comparisons.
 The probe reads pixels only at five observation points. It installs no drawing
@@ -26,7 +33,8 @@ interposer. The socket regression `gtk_clip_copy_stream` separately compares
 canonical pixels and published buffer updates for batched, fragmented, and
 paced writes without intervening readbacks.
 
-These checks establish frontend drawing and remap behavior. They do not prove
+These checks establish frontend drawing, remap behavior, and nonempty headless
+composition. They do not prove
 physical composition, focus policy, or pointer grabs. The synthetic menu has
 no physical trigger event; GTK may report that warning. Installed-session
 acceptance still requires opening Thunar menus and submenus, dismissing them,

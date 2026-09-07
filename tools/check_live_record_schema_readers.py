@@ -34,6 +34,8 @@ PROOF_READERS = (
     'verify_sophia_standalone_vkcube.sh',
 )
 NORMAL_READERS = (
+    # Frontend pixel checks plus a nonempty-scene witness; no startup-proof claim.
+    'run_gtk_redraw_probe.py',
     'report_sophia_terminal_performance.sh',
     'verify_installed_hagia_session.sh',
     'verify_qemu_emergency_recovery_evidence.sh',

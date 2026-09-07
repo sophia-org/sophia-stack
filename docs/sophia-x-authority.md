@@ -361,6 +361,12 @@ eligibility, so an older frame cannot restore a dismissed target. This only
 removes targets; surviving windows retain their last-presented geometry until
 new pixels reach scanout.
 
+For policy-managed admission, a successful frontend `AdmitSurface`
+acknowledgement supplies the mapped fact. The session records it only after
+matching the pending admission, transaction and surface lifetime; it cannot
+wait for another client request to carry a presentation snapshot. A withdrawn
+or destroyed admission cannot be revived by a late acknowledgement.
+
 `_NET_WM_WINDOW_TYPE` is reduced at the same boundary because the external
 blind WM never receives application properties. The decoder honors the EWMH
 ordered ATOM list, skips unknown extension types, leaves `NORMAL` under policy,

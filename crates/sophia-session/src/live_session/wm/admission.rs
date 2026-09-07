@@ -590,7 +590,26 @@ impl PersistentLiveLayout {
         transaction: TransactionId,
         surface: SurfaceId,
     ) -> bool {
-        self.admissions.acknowledge_control(surface, transaction)
+        if !self.admissions.acknowledge_control(surface, transaction) {
+            return false;
+        }
+        // The authority marks a policy-managed window viewable at the moment it
+        // admits it, and that transition travels in no presentation of its own:
+        // the engine asked for the map, so there is no client request whose
+        // response could carry it. This acknowledgement is the authority's own
+        // confirmation that the map happened, and it is already correlated --
+        // `acknowledge_control` accepts it only from `ControlPending`, only for
+        // the transaction that was issued, and moves the surface on so a repeat
+        // is refused. A withdrawn or destroyed surface has no admission state
+        // left and is refused for the same reason, so a late acknowledgement
+        // cannot revive one.
+        //
+        // Recording the map here is what makes an admitted window eligible for
+        // the scene. Without it the authority reports the window viewable to
+        // its X client, which draws, while the session holds it unmapped and
+        // composites nothing.
+        self.mapped_surfaces.insert(surface);
+        true
     }
 
     fn write_pending_cpu_buffer_handles(&self, handles: &mut Vec<u64>) {

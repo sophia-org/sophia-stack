@@ -108,6 +108,7 @@
                 let indicator_publication = wm_session
                     .as_ref()
                     .and_then(LiveWmSession::indicator_publication);
+                visual_progress.observe_intake(&production_batch);
                 let (_tick, report, committed_surfaces, composed, compose_elapsed, cpu_progress) =
                     if !production_batch.has_dma_buf_present_submissions()
                         && !runtime.released_surface_content_requires_gpu()
@@ -170,6 +171,10 @@
                             cpu_progress,
                         )
                     };
+                visual_progress.observe_committed(&committed_surfaces);
+                if let Some(native) = native_scanout.as_ref() {
+                    visual_progress.observe_native(native);
+                }
                 cpu_visual_progress.observe_production(&cpu_progress, Instant::now())?;
                 if let Some(native_scanout) = native_scanout.as_ref() {
                     cpu_visual_progress.observe_native_scanout(native_scanout, Instant::now());
@@ -195,10 +200,12 @@
                         chrome.clearance,
                     );
                 }
+                // GPU preservation may defer a CPU turn the pacer admitted.
+                // Its retained damage still needs a later cadence repaint.
+                if cpu_cadence_eligible {
+                    primary_frame_pacer.observe_production(Instant::now(), composed);
+                }
                 if composed {
-                    if cpu_cadence_eligible {
-                        primary_frame_pacer.observe_production(Instant::now(), true);
-                    }
                     metrics.max_compose = metrics.max_compose.max(compose_elapsed);
                     metrics.cpu_compositions = metrics.cpu_compositions.saturating_add(1);
                 } else {

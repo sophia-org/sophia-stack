@@ -300,9 +300,13 @@ mod pointer_queries {
         }
 
         fn valuators(&mut self) -> [i64; 4] {
+            self.device_valuators(X_INPUT_MASTER_POINTER_ID)
+        }
+
+        fn device_valuators(&mut self, device_id: u16) -> [i64; 4] {
             let mut request = vec![X_INPUT_MAJOR_OPCODE, X_INPUT_QUERY_DEVICE_MINOR_OPCODE];
             push_u16(&mut request, self.order, 2);
-            push_u16(&mut request, self.order, 2);
+            push_u16(&mut request, self.order, device_id);
             push_u16(&mut request, self.order, 0);
             self.stream.write_all(&request).unwrap();
             let reply = self.reply();
@@ -316,11 +320,11 @@ mod pointer_queries {
                 if read_u16(self.order, &reply[offset..offset + 2]) == 2 {
                     let number = usize::from(read_u16(self.order, &reply[offset + 6..offset + 8]));
                     if number < 4 {
-                        let bytes = reply[offset + 28..offset + 36].try_into().unwrap();
-                        values[number] = match self.order {
-                            XByteOrder::LittleEndian => i64::from_le_bytes(bytes),
-                            XByteOrder::BigEndian => i64::from_be_bytes(bytes),
-                        } >> 32;
+                        values[number] = i64::from(read_u32(
+                            self.order,
+                            &reply[offset + 28..offset + 32],
+                        ) as i32);
+                        assert_eq!(read_u32(self.order, &reply[offset + 32..offset + 36]), 0);
                     }
                 }
                 offset += usize::from(read_u16(self.order, &reply[offset + 2..offset + 4])) * 4;
@@ -573,4 +577,5 @@ mod pointer_queries {
         assert_eq!(grabber.query(X_SETUP_DEFAULT_ROOT), (0, [0; 4], 0));
     }
     include!("pointer_grab_lifecycle.rs");
+    include!("xi_virtual_source_routing.rs");
 }

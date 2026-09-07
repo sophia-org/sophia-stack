@@ -1235,6 +1235,29 @@ impl LiveProductionVisualRuntime {
         Ok(run.report)
     }
 
+    /// Publishes an ordinary cadence repaint when native ownership permits it.
+    /// `None` preserves the caller's repaint obligation for a later cadence;
+    /// forced startup and topology repaints use `run_cpu_repaint` directly.
+    pub fn run_ordinary_cpu_repaint(
+        &mut self,
+        scene: &mut LiveProductionCpuScene,
+        raised_surface: Option<SurfaceId>,
+        cursor_presentation: LiveProductionCursorPresentation,
+        output_descriptors: &[sophia_engine::HeadlessOutput],
+        native_scanout: &mut LiveProductionNativeScanout,
+    ) -> Result<Option<LiveProductionCpuSubmission>, Box<dyn std::error::Error>> {
+        if self.native_publication_blocked() {
+            return Ok(None);
+        }
+        Ok(Some(self.run_cpu_repaint(
+            scene,
+            raised_surface,
+            cursor_presentation,
+            output_descriptors,
+            native_scanout,
+        )?))
+    }
+
     pub fn run_cpu_repaint(
         &mut self,
         scene: &mut LiveProductionCpuScene,

@@ -375,7 +375,7 @@ fn spawn_x11_input_event_writer(
                     },
                 },
             );
-            let write_core_record = match (event, input_authority.as_ref()) {
+            let mut write_core_record = match (event, input_authority.as_ref()) {
                 (XAuthorityInputEvent::Pointer(pointer), Some(authority)) => {
                     let selected_mask = match pointer.kind {
                         XAuthorityPointerEventKind::Motion => 1_u16 << 6,
@@ -395,6 +395,64 @@ fn spawn_x11_input_event_writer(
                 }
                 _ => true,
             };
+            if let (XAuthorityInputEvent::Pointer(pointer), Some(surface_window), Some(ancestry)) =
+                (event, pointer_surface_window, pointer_event_ancestry.as_ref())
+            {
+                let core_target = core_event_selections.lock().map_err(|_| {
+                    X11SetupSocketError::new("X11 core event selection lock poisoned")
+                })?.selected_pointer_target(
+                    surface_window,
+                    matches!(pointer.kind, XAuthorityPointerEventKind::Motion),
+                    pointer.event_x,
+                    pointer.event_y,
+                );
+                let core_depth = core_target.and_then(|target| ancestry.iter().position(|window| *window == target));
+                let xi_depth = [xi_delivery, xi_emulated_button_delivery].into_iter().flatten()
+                    .map(|delivery| delivery.ancestry_depth).min();
+                // XI master delivery wins over core delivery at the same window.
+                // A nearer core subscriber still stops propagation to an XI ancestor.
+                if let Some(xi_depth) = xi_depth {
+                    if core_depth.is_none_or(|core_depth| xi_depth <= core_depth) {
+                        write_core_record = false;
+                    } else {
+                        xi_event_type = None;
+                        xi_emulated_button_type = None;
+                    }
+                }
+            }
+            let mut xi_source_records = if let (
+                Some(authority),
+                Some(surface_window),
+                Some(ancestry),
+                XAuthorityInputEvent::Pointer(pointer),
+            ) = (
+                input_authority.as_ref(),
+                pointer_surface_window,
+                pointer_event_ancestry.as_deref(),
+                event,
+            ) {
+                let authority = authority
+                    .lock()
+                    .map_err(|_| X11SetupSocketError::new("X11 input authority lock poisoned"))?;
+                let selections = core_event_selections
+                    .lock()
+                    .map_err(|_| X11SetupSocketError::new("X11 core event selection lock poisoned"))?;
+                encode_xi_source_pointer_events(X11XiSourceEvent {
+                    byte_order,
+                    sequence: 0,
+                    namespace,
+                    client,
+                    authority: &authority,
+                    selections: &selections,
+                    surface_window,
+                    ancestry,
+                    pointer,
+                    crossing: (pointer_sent_to != Some(delivered_window))
+                        .then_some((pointer_sent_to, delivered_window)),
+                })
+            } else {
+                [None, None, None, None]
+            };
             let write_result = (|| -> Result<(), X11SetupSocketError> {
                 let mut stream =
                     lock_x11_non_control_output(&stream, &output_control_pending)?;
@@ -408,6 +466,18 @@ fn spawn_x11_input_event_writer(
                     }
                     _ => None,
                 };
+                for bytes in xi_source_records.iter_mut().flatten() {
+                    write_xi_u16(byte_order, &mut bytes[2..4], sequence);
+                    stream.write_all(bytes).map_err(|error| {
+                        if is_x11_client_disconnect(&error) {
+                            X11SetupSocketError::client_disconnect(format!(
+                                "X11 client disconnected while writing XI2 source event: {error}"
+                            ))
+                        } else {
+                            X11SetupSocketError::new(format!("failed to write XI2 source event: {error}"))
+                        }
+                    })?;
+                }
                 if let Some((previous, out_type, in_type)) = transition {
                     if let XAuthorityInputEvent::Pointer(pointer) = event {
                         let selections = core_event_selections.lock().map_err(|_| {

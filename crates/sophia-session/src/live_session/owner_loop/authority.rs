@@ -783,28 +783,43 @@
                         let raised_surface = layout
                             .top_client_positioned_surface()
                             .or_else(|| focus.focused_surface(seat));
-                        let repaint = runtime.run_cpu_repaint(
+                        match runtime.run_ordinary_cpu_repaint(
                             &mut scene,
                             raised_surface,
                             LiveProductionCursorPresentation::HardwarePlane,
                             &outputs,
                             native_scanout,
-                        )?;
-                        let mut repaint_progress =
-                            sophia_backend_live::LiveProductionCpuProgress::default();
-                        repaint_progress
-                            .bind_primary_logical_target(repaint.primary_logical_target);
-                        cpu_visual_progress
-                            .observe_production(&repaint_progress, repaint_now)?;
-                        primary_frame_pacer.observe_repaint(repaint_now);
-                        metrics.cadence_repaints = metrics.cadence_repaints.saturating_add(1);
-                        metrics.cpu_compositions = metrics.cpu_compositions.saturating_add(1);
-                        metrics.max_compose = metrics.max_compose.max(repaint.compose_elapsed);
-                        tracing::trace!(
-                            "sophia_live_primary_pacer schema=1 status=repainted checksum={} interval_usec={}",
-                            repaint.composition.checksum,
-                            primary_frame_interval.as_micros(),
-                        );
+                        )? {
+                            None => {
+                                // Keep the obligation without leaving cap_wait at
+                                // zero while native ownership blocks publication.
+                                primary_frame_pacer.observe_repaint_deferred(repaint_now);
+                                tracing::trace!(
+                                    "sophia_live_primary_pacer schema=1 status=deferred interval_usec={}",
+                                    primary_frame_interval.as_micros(),
+                                );
+                            }
+                            Some(repaint) => {
+                                let mut repaint_progress =
+                                    sophia_backend_live::LiveProductionCpuProgress::default();
+                                repaint_progress
+                                    .bind_primary_logical_target(repaint.primary_logical_target);
+                                cpu_visual_progress
+                                    .observe_production(&repaint_progress, repaint_now)?;
+                                primary_frame_pacer.observe_repaint(repaint_now);
+                                metrics.cadence_repaints =
+                                    metrics.cadence_repaints.saturating_add(1);
+                                metrics.cpu_compositions =
+                                    metrics.cpu_compositions.saturating_add(1);
+                                metrics.max_compose =
+                                    metrics.max_compose.max(repaint.compose_elapsed);
+                                tracing::trace!(
+                                    "sophia_live_primary_pacer schema=1 status=repainted checksum={} interval_usec={}",
+                                    repaint.composition.checksum,
+                                    primary_frame_interval.as_micros(),
+                                );
+                            }
+                        }
                     }
                     let service = runtime.service_native(native_scanout, &scene)?;
                     last_native_frame_service = Instant::now();

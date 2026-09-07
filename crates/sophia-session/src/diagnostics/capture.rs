@@ -494,6 +494,9 @@ pub fn reduced_record(line: &str) -> Option<String> {
 // Scope the vocabulary to its producer so arbitrary child text cannot become
 // an approved status or an identifier disguised as a numeric measurement.
 fn interaction_field(record: &str, key: &str, value: &str) -> bool {
+    if record == "sophia_live_visual_progress" && visual_progress_field(key, value) {
+        return true;
+    }
     let measurement = match record {
         "sophia_live_input_lease" => {
             matches!(key, "confirmed" | "rejected" | "released" | "stale")
@@ -569,7 +572,43 @@ fn interaction_field(record: &str, key: &str, value: &str) -> bool {
             "anchor_admission" | "anchor_unmapped" | "anchor_owner" | "no_anchor"
         ),
         ("sophia_live_compositor_chrome_set", "status") => value == "composed",
-        ("sophia_live_session_present_feedback", "kind") => value == "idle",
+        ("sophia_live_session_present_feedback", "kind") => matches!(value, "idle" | "complete"),
+        ("sophia_live_session_present", "status") => value == "retired",
+        _ => false,
+    }
+}
+
+fn visual_progress_field(key: &str, value: &str) -> bool {
+    let number = |text: &str| {
+        !text.is_empty() && text.bytes().all(|c| c.is_ascii_digit()) && text.parse::<u64>().is_ok()
+    };
+    match key {
+        "status" => matches!(
+            value,
+            "enabled" | "content" | "committed_snapshot" | "head_snapshot" | "feedback_ready"
+        ),
+        "stage" => value == "offered",
+        "source" => matches!(
+            value,
+            "none" | "x_pixmap" | "cpu" | "dma_buf" | "dma_present" | "software_present"
+        ),
+        "kind" => matches!(value, "complete" | "idle"),
+        "head" | "submissions" | "retirements" | "submissions_delta" | "retirements_delta" => {
+            number(value)
+        }
+        "surface_token" => value.len() == 16 && value.bytes().all(|c| c.is_ascii_hexdigit()),
+        "pending" | "rendering" | "submitted" | "presented" => {
+            if value == "none" {
+                return true;
+            }
+            let mut fields = value.split(':');
+            matches!(
+                fields.next(),
+                Some("cpu" | "mixed_present" | "retained_mixed" | "head_composition")
+            ) && fields.next().is_some_and(number)
+                && fields.next().is_some_and(|v| v == "none" || number(v))
+                && fields.next().is_none()
+        }
         _ => false,
     }
 }

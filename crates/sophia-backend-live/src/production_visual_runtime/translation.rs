@@ -44,7 +44,7 @@ impl LiveProductionVisualRuntime {
         let time = self.translation_time();
         // Presentation admission retains buffer ownership. Let its own candidate
         // supply the next frame before issuing an optional retained repaint.
-        if self.retained_projection_blocked() || self.present_scheduler.has_eligible() {
+        if self.native_publication_blocked() || self.present_scheduler.has_eligible() {
             return Ok(());
         }
         let due = self

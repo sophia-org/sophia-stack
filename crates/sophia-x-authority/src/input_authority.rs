@@ -328,6 +328,9 @@ impl XInputAuthorityState {
         event_type: u16,
     ) -> bool {
         [device, 0, 1].into_iter().any(|selected_device| {
+            if selected_device == 1 && !matches!(device, 2 | 3) {
+                return false;
+            }
             self.xi_selections
                 .get(&(namespace, owner, window, selected_device))
                 .is_some_and(|mask| {

@@ -159,17 +159,17 @@ fn retained_repaints_wait_for_the_exact_first_present_to_retire() {
         },
     )
     .unwrap();
-    assert!(!runtime.retained_projection_blocked());
+    assert!(!runtime.native_publication_blocked());
     runtime.present_scheduler.mark_rendering(present);
     assert!(
-        runtime.retained_projection_blocked(),
+        runtime.native_publication_blocked(),
         "first-frame render owns its retirement proof before KMS submission"
     );
     runtime
         .present_scheduler
         .mark_output_submitted(output)
         .unwrap();
-    assert!(runtime.retained_projection_blocked());
+    assert!(runtime.native_publication_blocked());
     runtime
         .present_scheduler
         .mark_output_retired(LiveProductionPageFlipRetirement {
@@ -179,11 +179,60 @@ fn retained_repaints_wait_for_the_exact_first_present_to_retire() {
         })
         .unwrap();
     assert!(
-        runtime.retained_projection_blocked(),
+        runtime.native_publication_blocked(),
         "retirement must be settled before repainting"
     );
     runtime.present_scheduler.take_submitted().unwrap();
-    assert!(!runtime.retained_projection_blocked());
+    assert!(!runtime.native_publication_blocked());
+}
+
+/// The other two clauses of the same guard, which the Present path above does
+/// not reach. Both are states in which the native path already owns the head a
+/// composed frame would be queued into.
+#[test]
+fn a_suspended_native_path_blocks_publication() {
+    let mut runtime = runtime();
+    assert!(!runtime.native_publication_blocked());
+
+    runtime.native_suspended = true;
+    assert!(
+        runtime.native_publication_blocked(),
+        "a suspended native path has no head to accept a composed frame"
+    );
+
+    runtime.native_suspended = false;
+    assert!(!runtime.native_publication_blocked());
+}
+
+#[test]
+fn a_bound_software_frame_blocks_publication() {
+    let mut runtime = runtime();
+    let output = OutputId::from_raw(1);
+    let frame = LiveProductionNativeFrameId::from_raw(4096);
+    assert!(!runtime.native_publication_blocked());
+
+    runtime.software_present_frames_bound.insert(
+        frame,
+        software_present::LiveProductionSoftwarePresentBinding {
+            frames: BTreeMap::from([(output, frame)]),
+            clock_output: output,
+            output_cohort: TransactionPresentationCohort::new(
+                TransactionId::from_raw(23650),
+                [output],
+            )
+            .unwrap(),
+            retirements: BTreeMap::new(),
+            submissions: Vec::new(),
+            phase: LiveProductionSoftwarePresentFramePhase::Pending,
+        },
+    );
+    assert!(
+        runtime.native_publication_blocked(),
+        "a bound software frame already owns the head it will present into"
+    );
+
+    runtime.software_present_frames_bound.clear();
+    assert!(!runtime.native_publication_blocked());
 }
 
 #[test]

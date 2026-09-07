@@ -2,7 +2,7 @@
 id: 37xvg0y7
 date: 2026-09-07
 kind: investigation
-status: awaiting-physical-acceptance
+status: investigating
 tags: [investigation]
 ---
 # Qt menus fail to open while pointer leases are rejected
@@ -247,3 +247,125 @@ input. t066 remains open for normal installed use: open and close Okular menus,
 select entries, and exercise Brave clicking and dragging through ordinary window
 changes. Confirm that applications retain responsive input and release it on
 exit. A green synthetic client does not attribute or close every Brave stall.
+
+
+## Installed feedback: menus work, pointer remains unreliable
+
+The new session `00000001788819836482-32a69abb-6c1f-4f92-babd-7ec11a92d629`
+reports release commit `c1e827e0a89085e081c8fcdddddc7a20d2d9e4a2` and binary
+SHA-256 `c090ac03e708d1ec91f03812a4bdaefa36409c9b5b26ce7b408b882d156d67e4`.
+Startup completed without a recorded fatal error; recording has no loss or
+storage errors. The user confirms that menus work, but reports spotty mouse
+behavior in Okular. Its General Options/Configure dialog remained drawn over
+Kitty and could not be clicked. The user clarifies that clicks work intermittently;
+keyboard use may have been incidental. Wheel scrolling also fails in Okular while
+working in Kitty/herdr. No keyboard-dependent recovery has been established.
+
+A read-only root-tree query found Configure window `0x60007b`, 620x411 at
++970+530. That listing does not establish map state. The subsequent per-window
+attribute request returned BadWindow: the dialog had disappeared before its
+map state and transient-owner property could be captured. Okular main
+`0x600009` and Kitty `0x40000e` were individually confirmed viewable.
+
+Recorded button batches continued through Engine routing without lease waits
+or refusals during the initial report. Later, at boot msec 302005427, a lease
+refusal named outside_scope; its release acknowledgement followed at 302005435.
+A pointer-focus handoff to the dialog completed at 302011405, followed by routed
+clicks. This sequence makes retained grab ownership a useful lead, but counts
+do not identify the held target or the frontend's active X grab. The refusal's
+predicate also includes owner, device and control validity; its name alone does
+not prove that the pointer crossed a namespace boundary.
+
+Retaining an explicit grab's original target is intentional. It is not itself
+a defect, and explicit grabs should not automatically end on button release.
+The next investigation must identify the surviving lease, its X grab owner and
+lifetime, and owner-events delivery before changing retention rules. The menus
+are improved; the whole pointer symptom is not accepted as repaired.
+
+The live snapshot and bounded observations are retained separately at
+`~/.local/state/sophia/development-evidence/t066-installed-c1e827e0-spotty-pointer`.
+No input was injected and no live state was changed during inspection.
+
+
+## Wheel decoding and virtual source investigation
+
+The installed Qt 6.11.1 decoder confirms that little-endian FP3232 valuators
+were encoded with their two words reversed. A requested +120 decoded as
+0.000000027939677; -120 decoded as positive 0.999999972. XIQueryDevice used the
+same incorrect encoding for bounds, current values and scroll increments.
+Tests had decoded a packed i64 and repeated the implementation error. The
+candidate shares one integral-then-fraction encoder between replies and events,
+with independent field decoding in tests for both byte orders, signs and
+fractions. Both new regressions fail against the original codec.
+
+A private Qt receiver establishes a separate discovery defect: the master-only
+inventory leaves Qt's scroll orientations empty. Correcting both reply and
+event numbers still produces no wheel events. Adding an attached virtual source
+through Qt's own device setup produces four correctly directed wheel events and
+moves a real editor scrollbar. Delivering source128 and master2 copies gives
+one Qt press/release pair and four wheel events, without duplication. These
+controls test Qt's receiver; they do not inject physical input or prove delivery
+through the Engine. The independent broker-to-socket-to-Qt probe is the candidate
+acceptance gate for that remaining frontend path.
+
+The candidate exposes a fixed XI2-only source128 attached to master2, with
+standard scroll labels and current namespace-filtered baselines. XI1 stays on
+the core pair. Source selection is distinct from AllMasterDevices; selected
+source packets precede master packets. Source grabs are explicitly refused
+before Engine reservation, preserving the existing master lease boundary.
+Encoding and route selection finish before socket writes, so no shared input
+state lock is held while a client consumes those packets.
+
+Protocol reference: [XI2 types and device hierarchy](https://xorg.freedesktop.org/archive/current/doc/inputproto/XI2proto.txt).
+
+## Browser report now points toward delayed visual updates
+
+The user refined the Brave symptom: the first click after opening or returning
+to the window appears to work; further clicks appear ineffective until another
+window switch. Entering a website and pressing Ctrl+Enter left the old display
+visible, but switching away and back revealed the loaded page. This supports a
+stale visual-update lead; it does not establish input loss or locate the stalled
+stage. Current X focus was Kitty when inspected because the user had returned
+there to report. Brave main0x1800003 was viewable. Its recent schema2 Present
+records represent native DMA-BUF retirements, not frontend submissions; they
+cannot be read as CPU redraw counts. Presentation scheduling and retained-image
+ownership need investigation independently of the confirmed wheel defects.
+
+
+The real frontend writer exposed a third defect: a single routed press emitted
+both a core ButtonPress and a master XI ButtonPress. Qt handled both. Master XI
+now wins at the same event window, while a nearer core subscriber still stops
+propagation to an XI ancestor. Source delivery remains independent. Wire tests
+cover axis, press and release in both byte orders, all-device/master/source
+selections, and the nearer-core case.
+
+The final private receiver run
+`/tmp/sophia-qt-wheel-delivery-7447-1788822761574296917` passes through the actual
+routing broker, X socket writer and Qt 6.11.1: four wheel deltas (-120, +120,
++120, -120), editor scrollbar 50→53→50→47→50, four source and four master Motion
+packets, one source/master press and release each, exactly one Qt press/release,
+zero core button packets, and seven flushed broker deliveries. The C++ receiver
+uses public Qt APIs; it does not call Qt's event handlers directly. Source
+packet counting disables Qt's high-frequency compression after QApplication
+construction. No production setting depends on Qt.
+
+The probe first delivers pointer motion and waits for the client to handle it.
+Without that entry handshake, Qt's Enter-triggered QueryDevice can absorb an
+already-observed wheel value into its initial baseline. That separate first-axis
+boundary remains outside the passing case. Engine hit testing, physical grab
+recovery and Brave rendering are also outside this frontend proof.
+
+Read-only review found two further scheduling candidates, neither attributed
+to Brave: future Present NotifyMSC currently advances only when another Present
+completes; ordinary CPU damage in a mixed GPU/CPU scene may not schedule retained
+composition after an idle cadence interval. A possible owner-loop feedback skip
+may instead be bounded by the native service deadline. No scheduling code was
+changed on those unproven incident hypotheses. Brave's gaps between retirements
+remain unclassified without corresponding submission or damage observations.
+
+The subsequent [visual-progress investigation](vwo9wmie-window-switches-reveal-delayed-visual-updates.md)
+reproduced an immediate NotifyMSC sequence race and the mixed-scene CPU repaint
+scheduling gap, and repaired feedback delivery before the owner loop's no-work
+exit. It records the implementation and test limits separately from physical
+acceptance; the earlier scheduling paragraph above describes the pre-repair
+audit, not the current candidate.

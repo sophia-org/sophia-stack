@@ -952,8 +952,8 @@ fn xi2_device_event_uses_xge_header_and_fp1616_local_coordinates() {
         &[1 << crate::X_POINTER_VERTICAL_SCROLL_VALUATOR, 0, 0, 0,]
     );
     assert_eq!(
-        i64::from_le_bytes(scroll[84..92].try_into().unwrap()),
-        i64::from(120) << 32
+        decode_xi_fp3232(XByteOrder::LittleEndian, &scroll[84..92]),
+        (120, 0)
     );
     let two_axis_scroll = encode_xi_device_event(
         XByteOrder::LittleEndian,
@@ -992,12 +992,12 @@ fn xi2_device_event_uses_xge_header_and_fp1616_local_coordinates() {
         ]
     );
     assert_eq!(
-        i64::from_le_bytes(two_axis_scroll[84..92].try_into().unwrap()),
-        i64::from(-30) << 32
+        decode_xi_fp3232(XByteOrder::LittleEndian, &two_axis_scroll[84..92]),
+        (-30, 0)
     );
     assert_eq!(
-        i64::from_le_bytes(two_axis_scroll[92..100].try_into().unwrap()),
-        i64::from(45) << 32
+        decode_xi_fp3232(XByteOrder::LittleEndian, &two_axis_scroll[92..100]),
+        (45, 0)
     );
     let emulated_button = encode_xi_device_event(
         XByteOrder::LittleEndian,

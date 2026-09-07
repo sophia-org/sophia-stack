@@ -6,6 +6,9 @@ use crate::live_session::{
 use sophia_protocol::TransactionId;
 use std::sync::Arc;
 
+#[path = "../../../tests/support/feedback_progress.rs"]
+mod feedback_progress;
+
 fn layer_snapshots_from_committed(
     committed_surfaces: &[CommittedSurfaceState],
 ) -> Vec<LayerSnapshot> {

@@ -1160,7 +1160,7 @@ fn xge_and_xi2_report_versioned_master_device_classes() {
         &mut properties,
     )
     .encoded_outputs(XByteOrder::LittleEndian);
-    assert_eq!(read_u16(XByteOrder::LittleEndian, &devices[0][8..10]), 2);
+    assert_eq!(read_u16(XByteOrder::LittleEndian, &devices[0][8..10]), 3);
     let pointer_class_count = read_u16(XByteOrder::LittleEndian, &devices[0][38..40]);
     assert_eq!(pointer_class_count, 7);
     let pointer_name_len = usize::from(read_u16(
@@ -1185,18 +1185,27 @@ fn xge_and_xi2_report_versioned_master_device_classes() {
                     XByteOrder::LittleEndian,
                     &devices[0][class_offset + 6..class_offset + 8],
                 ),
-                read_u64(
+                (i64::from(read_u32(
                     XByteOrder::LittleEndian,
-                    &devices[0][class_offset + 12..class_offset + 20],
-                ) as i64,
-                read_u64(
+                    &devices[0][class_offset + 12..class_offset + 16],
+                ) as i32) << 32) | i64::from(read_u32(
                     XByteOrder::LittleEndian,
-                    &devices[0][class_offset + 20..class_offset + 28],
-                ) as i64,
-                read_u64(
+                    &devices[0][class_offset + 16..class_offset + 20],
+                )),
+                (i64::from(read_u32(
                     XByteOrder::LittleEndian,
-                    &devices[0][class_offset + 28..class_offset + 36],
-                ) as i64,
+                    &devices[0][class_offset + 20..class_offset + 24],
+                ) as i32) << 32) | i64::from(read_u32(
+                    XByteOrder::LittleEndian,
+                    &devices[0][class_offset + 24..class_offset + 28],
+                )),
+                (i64::from(read_u32(
+                    XByteOrder::LittleEndian,
+                    &devices[0][class_offset + 28..class_offset + 32],
+                ) as i32) << 32) | i64::from(read_u32(
+                    XByteOrder::LittleEndian,
+                    &devices[0][class_offset + 32..class_offset + 36],
+                )),
             )),
             3 => scrolls.push((
                 read_u16(

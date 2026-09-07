@@ -1,4 +1,4 @@
-// XI1 `ListInputDevices`, and the rule that it and XI2 describe one device set.
+// XI1 `ListInputDevices` and the shared XI1/XI2 master-device inventory.
 
 /// Sophia advertises XInputExtension and answers the XI1 version handshake, so the
 /// enumeration a client issues next has to be answered too. A signed session failed
@@ -116,11 +116,10 @@ fn xi_list_input_devices_reports_both_virtual_masters() {
     );
 }
 
-/// The two protocol versions are projections of one table, and this is what keeps
-/// that structural rather than aspirational. XI1 and XI2 encode a device very
-/// differently, so nothing but a test can catch the two drifting apart.
+/// XI1's core pair must agree with XI2's master query. The attached pointer source
+/// has an XI2-only identifier and does not belong in this comparison.
 #[test]
-fn the_legacy_and_xi2_enumerations_describe_one_device_set() {
+fn the_legacy_and_xi2_master_enumerations_describe_one_device_set() {
     let namespace = NamespaceId::from_raw(54);
     let mut runtime = XAuthorityRuntime::new();
     let mut atoms = XAtomTable::new();
@@ -136,7 +135,7 @@ fn the_legacy_and_xi2_enumerations_describe_one_device_set() {
     .encoded_outputs(XByteOrder::LittleEndian);
     let modern = dispatch_x11_wire_request(
         dispatch_context(namespace, 2, XByteOrder::LittleEndian, X_INPUT_MAJOR_OPCODE),
-        XWireRequest::XiQueryDevice { device_id: 0 },
+        XWireRequest::XiQueryDevice { device_id: 1 },
         &mut runtime,
         &mut atoms,
         &mut properties,

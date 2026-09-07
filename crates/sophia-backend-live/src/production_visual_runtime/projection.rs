@@ -15,7 +15,7 @@ impl LiveProductionVisualRuntime {
         native: &mut LiveProductionNativeScanout,
     ) -> Result<bool, Box<dyn std::error::Error>> {
         self.retained_projection_pending = true;
-        if self.retained_projection_blocked() || !native.output_topology_allows_frame_service() {
+        if self.native_publication_blocked() || !native.output_topology_allows_frame_service() {
             return Ok(false);
         }
         let frames = self.retained_output_head_composition_frames(scene, native)?;
@@ -24,7 +24,9 @@ impl LiveProductionVisualRuntime {
         Ok(!queued.is_empty())
     }
 
-    pub(super) fn retained_projection_blocked(&self) -> bool {
+    /// Blocks ordinary and retained repaints while another frame owns retirement.
+    /// Replacing that frame, even with identical pixels, would strand its proof.
+    pub(super) fn native_publication_blocked(&self) -> bool {
         self.native_suspended
             || self.present_scheduler.has_in_flight()
             || !self.software_present_frames_bound.is_empty()

@@ -696,6 +696,16 @@
             // authority batch before it can receive focus.
             reconcile_pending_wm_focus!(runtime);
         }
+        // Retirement may leave the native request idle before its service
+        // deadline is armed. Deliver its feedback before an authority-only
+        // batch can skip the remainder of this owner turn.
+        if let Some(runtime) = runtime.as_mut() {
+            present_observer.drain_pending_feedback(runtime, &mut present_feedback)?;
+            visual_progress.observe_committed(runtime.committed_surfaces());
+        }
+        if let Some(native) = native_scanout.as_ref() {
+            visual_progress.observe_native(native);
+        }
         let mut input_routing_mode = physical_input_routing_mode(
             primary_child_exited,
             focus.focused_surface(seat),

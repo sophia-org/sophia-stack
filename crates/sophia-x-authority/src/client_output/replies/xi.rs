@@ -176,6 +176,7 @@ fn encode_x_input_reply(
                                 XXiDeviceClass::Valuator {
                                     source_id,
                                     number,
+                                    label,
                                     min,
                                     max,
                                     value,
@@ -184,10 +185,10 @@ fn encode_x_input_reply(
                                     push_u16(byte_order, &mut body, 11);
                                     push_u16(byte_order, &mut body, *source_id);
                                     push_u16(byte_order, &mut body, *number);
-                                    push_u32(byte_order, &mut body, 0);
-                                    push_i64(byte_order, &mut body, *min);
-                                    push_i64(byte_order, &mut body, *max);
-                                    push_i64(byte_order, &mut body, *value);
+                                    push_u32(byte_order, &mut body, *label);
+                                    push_xi_fp3232(byte_order, &mut body, *min);
+                                    push_xi_fp3232(byte_order, &mut body, *max);
+                                    push_xi_fp3232(byte_order, &mut body, *value);
                                     push_u32(byte_order, &mut body, 1);
                                     body.extend_from_slice(&[0; 4]);
                                 }
@@ -205,7 +206,7 @@ fn encode_x_input_reply(
                                     push_u16(byte_order, &mut body, *scroll_type);
                                     push_u16(byte_order, &mut body, 0);
                                     push_u32(byte_order, &mut body, *flags);
-                                    push_i64(byte_order, &mut body, *increment);
+                                    push_xi_fp3232(byte_order, &mut body, *increment);
                                 }
                             }
                         }

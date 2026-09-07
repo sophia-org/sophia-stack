@@ -1048,7 +1048,16 @@ fn a_notify_msc_at_or_behind_the_clock_answers_immediately() {
         .select_present_input(watcher, event_id, window, 7)
         .unwrap();
 
-    broker.registry.notify_present_msc(window, 9, 0).unwrap();
+    for delivery in broker
+        .registry
+        .prepare_present_msc_notify(window, 9, 0)
+        .unwrap()
+    {
+        broker
+            .registry
+            .route_protocol(delivery.recipient, delivery.event)
+            .unwrap();
+    }
     assert!(matches!(
         watch_channels.protocol.recv().unwrap(),
         XClientEvent::PresentCompleteNotify {
@@ -1081,7 +1090,13 @@ fn a_notify_msc_ahead_of_the_clock_waits_for_a_completion_to_ripen() {
         .unwrap();
 
     // Target 30 is ahead of a zero clock: nothing may arrive yet.
-    broker.registry.notify_present_msc(window, 4, 30).unwrap();
+    assert!(
+        broker
+            .registry
+            .prepare_present_msc_notify(window, 4, 30)
+            .unwrap()
+            .is_empty()
+    );
     assert!(owner_channels.protocol.try_recv().is_err());
 
     // A completion at msc 42 advances the clock past the target and ripens it.
@@ -1114,4 +1129,14 @@ include!("tests/routing.rs");
 include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/support/dispatch_ticket_failure.rs"
+));
+
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/support/xi_fixed_point.rs"
+));
+
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/support/xi_source_delivery.rs"
 ));

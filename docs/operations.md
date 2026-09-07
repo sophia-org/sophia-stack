@@ -155,6 +155,29 @@ application consumed an event. Coordinates, button and key codes, and applicatio
 content remain excluded. Present detail records still require their existing
 diagnostic setting; retaining their fields does not enable that setting.
 
+For a diagnostic launch, set `SOPHIA_LIVE_VISUAL_PROGRESS=1` in the environment
+of the session process before launch. The default is off. This enables reduced
+visual-progress records and Present feedback detail in the existing bounded
+recorder; it does not change rendering policy. The value `true` also enables it.
+
+`content stage=offered` identifies CPU updates or Present submissions offered
+to a production cycle, not their acceptance. `committed_snapshot` identifies an
+observed committed surface generation and its buffer source. Surface tokens are
+salted for that session and contain no raw XIDs, titles, pixels or checksums.
+`head_snapshot` reports observed pending, rendering, submitted and presented
+frame identities, plus cumulative submission and retirement counts. It is a
+snapshot, not an exhaustive frame journal. A baseline has no inferred history;
+`missed_count` counts intermediate counter transitions not individually seen
+between snapshots, not distinct lost frames.
+
+`feedback_ready` means retirement has authorized the feedback. A subsequent
+feedback record with `routed=true` means it was queued to the frontend
+connection, not that the client consumed it. Check the recorder's discarded
+and storage-error counts before drawing conclusions from absent events.
+Browser stderr is separate evidence: preserve it explicitly on a diagnostic
+browser launch. An application's output connected to `/dev/null` leaves no
+error log for the session recorder to recover.
+
 Ordinary logout reports lifecycle and cleanup success independently of X11
 error replies. Those replies remain compatibility evidence in
 `sophia_live_session_protocol_error_tally` schema 3: bounded major/minor/error

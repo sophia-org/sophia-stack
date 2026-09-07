@@ -1,24 +1,14 @@
-/// Sophia's virtual master pointer, the only pointer any XI path accepts.
-const X_VIRTUAL_MASTER_POINTER_ID: u16 = 2;
-/// Sophia's virtual master keyboard.
-const X_VIRTUAL_MASTER_KEYBOARD_ID: u16 = 3;
 /// The core keycode range, matching the setup contract in `keyboard.rs`.
 const X_VIRTUAL_MASTER_MIN_KEYCODE: u8 = 8;
 const X_VIRTUAL_MASTER_MAX_KEYCODE: u8 = u8::MAX;
 
-/// The virtual master devices Sophia presents to X clients.
-///
-/// The frontend has no device inventory. The seat enumerates real udev devices, but
-/// none of that crosses this boundary, and every XI path -- grabs, ungrabs, client
-/// pointer, and event routing -- is written against this fixed pair. Both the XI2
-/// `QueryDevice` reply and the XI1 `ListInputDevices` reply are projected from this
-/// one table rather than each carrying its own copy, because two device tables that
-/// must agree is a skew waiting to happen.
-const X_VIRTUAL_MASTER_DEVICES: [XVirtualMasterDevice; 2] = [
-    XVirtualMasterDevice {
-        device_id: X_VIRTUAL_MASTER_POINTER_ID,
+/// A fixed logical inventory, with no physical device identifiers. The attached
+/// source carries pointer classes and is XI2-only; XI1 keeps its core pair.
+const X_VIRTUAL_DEVICES: [XVirtualDevice; 3] = [
+    XVirtualDevice {
+        device_id: crate::X_INPUT_MASTER_POINTER_ID,
         name: "Sophia master pointer",
-        kind: XVirtualMasterKind::Pointer {
+        kind: XVirtualDeviceKind::Pointer {
             // Derived from the one owner rather than restated, so the master
             // pointer and `GetPointerMapping` cannot disagree about how many
             // buttons exist.
@@ -26,38 +16,56 @@ const X_VIRTUAL_MASTER_DEVICES: [XVirtualMasterDevice; 2] = [
             button_count: crate::pointer::X_POINTER_BUTTON_COUNT as u16,
         },
     },
-    XVirtualMasterDevice {
-        device_id: X_VIRTUAL_MASTER_KEYBOARD_ID,
+    XVirtualDevice {
+        device_id: crate::X_INPUT_MASTER_KEYBOARD_ID,
         name: "Sophia master keyboard",
-        kind: XVirtualMasterKind::Keyboard {
+        kind: XVirtualDeviceKind::Keyboard {
             // The keycode range the core setup advertises.
             min_keycode: X_VIRTUAL_MASTER_MIN_KEYCODE,
             max_keycode: X_VIRTUAL_MASTER_MAX_KEYCODE,
         },
     },
+    XVirtualDevice {
+        device_id: crate::X_INPUT_POINTER_SOURCE_ID,
+        name: "Sophia pointer source",
+        kind: XVirtualDeviceKind::Pointer {
+            button_count: crate::pointer::X_POINTER_BUTTON_COUNT as u16,
+        },
+    },
 ];
 
 #[derive(Clone, Copy)]
-struct XVirtualMasterDevice {
+struct XVirtualDevice {
     device_id: u16,
     name: &'static str,
-    kind: XVirtualMasterKind,
+    kind: XVirtualDeviceKind,
 }
 
 #[derive(Clone, Copy)]
-enum XVirtualMasterKind {
+enum XVirtualDeviceKind {
     Pointer { button_count: u16 },
     Keyboard { min_keycode: u8, max_keycode: u8 },
 }
 
-impl XVirtualMasterDevice {
+impl XVirtualDevice {
     /// The XI2 record, carrying the classes only XI2 can express.
-    fn xi2_device_info(self) -> XXiDeviceInfo {
-        let source_id = self.device_id;
+    fn xi2_device_info(self, labels: [u32; 4]) -> XXiDeviceInfo {
+        let source_id = match self.kind {
+            XVirtualDeviceKind::Pointer { .. } => crate::X_INPUT_POINTER_SOURCE_ID,
+            XVirtualDeviceKind::Keyboard { .. } => crate::X_INPUT_MASTER_KEYBOARD_ID,
+        };
         let (device_type, attachment, classes) = match self.kind {
-            XVirtualMasterKind::Pointer { button_count } => (
-                1,
-                X_VIRTUAL_MASTER_KEYBOARD_ID,
+            XVirtualDeviceKind::Pointer { button_count } => (
+                if self.device_id == crate::X_INPUT_POINTER_SOURCE_ID {
+                    3
+                } else {
+                    1
+                },
+                if self.device_id == crate::X_INPUT_POINTER_SOURCE_ID {
+                    crate::X_INPUT_MASTER_POINTER_ID
+                } else {
+                    crate::X_INPUT_MASTER_KEYBOARD_ID
+                },
                 vec![
                     XXiDeviceClass::Button {
                         source_id,
@@ -66,6 +74,7 @@ impl XVirtualMasterDevice {
                     XXiDeviceClass::Valuator {
                         source_id,
                         number: 0,
+                        label: labels[0],
                         min: 0,
                         max: i64::from(u16::MAX) << 32,
                         value: 0,
@@ -73,6 +82,7 @@ impl XVirtualMasterDevice {
                     XXiDeviceClass::Valuator {
                         source_id,
                         number: 1,
+                        label: labels[1],
                         min: 0,
                         max: i64::from(u16::MAX) << 32,
                         value: 0,
@@ -80,6 +90,7 @@ impl XVirtualMasterDevice {
                     XXiDeviceClass::Valuator {
                         source_id,
                         number: crate::X_POINTER_HORIZONTAL_SCROLL_VALUATOR,
+                        label: labels[2],
                         min: 0,
                         max: 0,
                         value: 0,
@@ -87,6 +98,7 @@ impl XVirtualMasterDevice {
                     XXiDeviceClass::Valuator {
                         source_id,
                         number: crate::X_POINTER_VERTICAL_SCROLL_VALUATOR,
+                        label: labels[3],
                         min: 0,
                         max: 0,
                         value: 0,
@@ -107,12 +119,12 @@ impl XVirtualMasterDevice {
                     },
                 ],
             ),
-            XVirtualMasterKind::Keyboard {
+            XVirtualDeviceKind::Keyboard {
                 min_keycode,
                 max_keycode,
             } => (
                 2,
-                X_VIRTUAL_MASTER_POINTER_ID,
+                crate::X_INPUT_MASTER_POINTER_ID,
                 vec![XXiDeviceClass::Key {
                     source_id,
                     keys: (u32::from(min_keycode)..=u32::from(max_keycode)).collect(),
@@ -140,11 +152,11 @@ impl XVirtualMasterDevice {
     /// failure one opcode along.
     fn xi1_device_info(self, device_type: u32) -> XXiLegacyDeviceInfo {
         let (device_use, classes) = match self.kind {
-            XVirtualMasterKind::Pointer { button_count } => (
+            XVirtualDeviceKind::Pointer { button_count } => (
                 crate::X_INPUT_LEGACY_USE_POINTER,
                 vec![XXiLegacyDeviceClass::Button { button_count }],
             ),
-            XVirtualMasterKind::Keyboard {
+            XVirtualDeviceKind::Keyboard {
                 min_keycode,
                 max_keycode,
             } => (
@@ -167,8 +179,8 @@ impl XVirtualMasterDevice {
     /// The atom name XI1 reports as this device's type.
     const fn legacy_type_name(self) -> &'static str {
         match self.kind {
-            XVirtualMasterKind::Pointer { .. } => "MOUSE",
-            XVirtualMasterKind::Keyboard { .. } => "KEYBOARD",
+            XVirtualDeviceKind::Pointer { .. } => "MOUSE",
+            XVirtualDeviceKind::Keyboard { .. } => "KEYBOARD",
         }
     }
 }
@@ -208,6 +220,14 @@ fn dispatch_x_input_request(
                     })],
                     metadata_candidates: Vec::new(),
                 },
+                XWireRequest::XiQueryPointer { device_id: crate::X_INPUT_POINTER_SOURCE_ID, .. } =>
+                    xi_device_error(context, crate::X_INPUT_POINTER_SOURCE_ID, XErrorCode::XiBadDevice,
+                        crate::X_INPUT_QUERY_POINTER_MINOR_OPCODE),
+                // Independent source grabs would detach a logical device from the
+                // Engine-owned route. This frontend explicitly denies that policy.
+                XWireRequest::XiGrabDevice { device_id: crate::X_INPUT_POINTER_SOURCE_ID, .. } =>
+                    xi_device_error(context, crate::X_INPUT_POINTER_SOURCE_ID, XErrorCode::BadAccess,
+                        crate::X_INPUT_GRAB_DEVICE_MINOR_OPCODE),
                 XWireRequest::XiQueryPointer { window, .. } => {
                     let output = match runtime.query_pointer(context.namespace, window) {
                         Ok(pointer) => XClientOutput::Reply(XClientReply::XiQueryPointer {
@@ -366,18 +386,26 @@ fn dispatch_x_input_request(
                     metadata_candidates: Vec::new(),
                 },
                 XWireRequest::XiQueryDevice { device_id } => {
-                    // Device 0 is AllDevices and 1 is AllMasterDevices; both name the
-                    // whole pair. Anything outside the pair reports no devices rather
-                    // than an error, which is what a client probing an absent device
-                    // expects.
+                    let mut labels = [X_ATOM_NONE; 4];
+                    for (label, name) in labels.iter_mut().zip([
+                        "Rel X", "Rel Y", "Rel Horiz Scroll", "Rel Vert Scroll",
+                    ]) {
+                        let Ok(Some(atom)) = atoms.intern(name, false) else {
+                            return Handled(xi_device_error(context, device_id,
+                                XErrorCode::BadAlloc, crate::X_INPUT_QUERY_DEVICE_MINOR_OPCODE));
+                        };
+                        *label = atom;
+                    }
                     let pointer = runtime.input_authority_mut().pointer_query_state(context.namespace);
-                    let devices = X_VIRTUAL_MASTER_DEVICES
+                    let devices = X_VIRTUAL_DEVICES
                         .iter()
                         .filter(|device| {
-                            matches!(device_id, 0 | 1) || device_id == device.device_id
+                            device_id == 0
+                                || (device_id == 1 && device.device_id != crate::X_INPUT_POINTER_SOURCE_ID)
+                                || device_id == device.device_id
                         })
                         .map(|device| {
-                            let mut info = device.xi2_device_info();
+                            let mut info = device.xi2_device_info(labels);
                             for class in &mut info.classes {
                                 if let XXiDeviceClass::Valuator { number, value, .. } = class {
                                     *value = match *number {
@@ -406,8 +434,9 @@ fn dispatch_x_input_request(
                 // follows it left an advertised extension half-implemented; a real
                 // session failed on the resulting BadRequest storm.
                 XWireRequest::XiListInputDevices => {
-                    let devices = X_VIRTUAL_MASTER_DEVICES
+                    let devices = X_VIRTUAL_DEVICES
                         .iter()
+                        .filter(|device| device.device_id < 128)
                         .map(|device| {
                             let device_type = atoms
                                 .intern(device.legacy_type_name(), false)
@@ -478,4 +507,23 @@ fn dispatch_x_input_request(
                 },
         _ => unreachable!("request family checked before dispatch"),
     })
+}
+
+fn xi_device_error(
+    context: XDispatchContext,
+    device: u16,
+    code: XErrorCode,
+    minor: u8,
+) -> XDispatchResult {
+    XDispatchResult {
+        response: None,
+        outputs: vec![XClientOutput::Error(crate::XClientError {
+            code,
+            sequence: context.sequence,
+            resource_id: u32::from(device),
+            minor_code: u16::from(minor),
+            major_code: context.major_opcode,
+        })],
+        metadata_candidates: Vec::new(),
+    }
 }

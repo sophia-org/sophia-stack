@@ -89,7 +89,11 @@ fn encode_xi_device_event(
         &mut out[44..48],
         (i32::from(event_y) << 16) as u32,
     );
-    write_xi_u16(byte_order, &mut out[52..54], device);
+    write_xi_u16(
+        byte_order,
+        &mut out[52..54],
+        if device == 2 { crate::X_INPUT_POINTER_SOURCE_ID } else { device },
+    );
     write_xi_u32(byte_order, &mut out[56..60], flags);
     write_xi_u32(byte_order, &mut out[72..76], u32::from(state & 0xff));
     let buttons = (1_u8..=5).fold(0_u32, |buttons, button| {
@@ -132,11 +136,11 @@ fn encode_xi_device_event(
             .into_iter()
             .flatten()
         {
-            let fixed = i64::from(position) << 32;
-            match byte_order {
-                XByteOrder::LittleEndian => out.extend_from_slice(&fixed.to_le_bytes()),
-                XByteOrder::BigEndian => out.extend_from_slice(&fixed.to_be_bytes()),
-            }
+            crate::client_output::push_xi_fp3232(
+                byte_order,
+                &mut out,
+                i64::from(position) << 32,
+            );
         }
     }
     let length = u32::try_from((out.len() - 32) / 4).unwrap_or(u32::MAX);
@@ -172,7 +176,11 @@ fn encode_xi_crossing_event(
     write_xi_u16(byte_order, &mut out[8..10], event_type);
     write_xi_u16(byte_order, &mut out[10..12], device);
     write_xi_u32(byte_order, &mut out[12..16], time);
-    write_xi_u16(byte_order, &mut out[16..18], device);
+    write_xi_u16(
+        byte_order,
+        &mut out[16..18],
+        if device == 2 { crate::X_INPUT_POINTER_SOURCE_ID } else { device },
+    );
     out[18] = 0;
     out[19] = 3;
     write_xi_u32(byte_order, &mut out[20..24], X_SETUP_DEFAULT_ROOT);

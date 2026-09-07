@@ -317,13 +317,8 @@
         match runtime.shutdown_presentations() {
             Ok(report) => {
                 fatal_cleanup.presentations_shutdown = true;
-                present_feedback.clear();
-                match runtime.drain_present_feedback_into(&mut present_feedback) {
-                    Ok(()) => {
-                        for outcome in present_feedback.drain(..) {
-                            present_observer.observe_feedback(outcome);
-                        }
-                    }
+                match present_observer.drain_pending_feedback(runtime, &mut present_feedback) {
+                    Ok(()) => {}
                     Err(error) => cleanup_failures
                         .push(format!("presentation feedback cleanup failed: {error}")),
                 }

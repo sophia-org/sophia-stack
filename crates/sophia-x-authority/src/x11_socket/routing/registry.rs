@@ -675,70 +675,6 @@ impl XServerFrontendRouteRegistry {
         Ok(true)
     }
 
-    /// Answers, or defers, one MSC notification request.
-    ///
-    /// Mesa blocks on the CompleteNotify this asks for, so silence here is a
-    /// client that never draws again. A target at or behind the clock answers
-    /// immediately; one ahead of it waits for completions to advance the clock.
-    /// Before any frame has completed the clock reads zero, which answers the
-    /// only case the known callers exercise -- a vsync probe with target zero.
-    fn notify_present_msc(
-        &self,
-        window: XResourceId,
-        serial: u32,
-        target_msc: u64,
-    ) -> Result<(), XServerFrontendRouteError> {
-        let clock = *self
-            .present_clock
-            .lock()
-            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
-        let (ust, msc) = clock.unwrap_or((0, 0));
-        if target_msc <= msc {
-            return self.route_present_msc_notify(window, serial, ust, msc);
-        }
-        self.pending_msc_notifies
-            .lock()
-            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
-            .push((window, serial, target_msc));
-        Ok(())
-    }
-
-    /// Delivers a CompleteNotify of kind NotifyMSC to the window's subscribers.
-    fn route_present_msc_notify(
-        &self,
-        window: XResourceId,
-        serial: u32,
-        ust: u64,
-        msc: u64,
-    ) -> Result<(), XServerFrontendRouteError> {
-        let subscriptions = self
-            .present_subscriptions
-            .lock()
-            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
-            .iter()
-            .filter_map(|((client, _), subscription)| {
-                (subscription.window == window && subscription.mask & (1 << 1) != 0)
-                    .then_some((*client, *subscription))
-            })
-            .collect::<Vec<_>>();
-        for (target, subscription) in subscriptions {
-            self.route_protocol(
-                target,
-                XClientEvent::PresentCompleteNotify {
-                    sequence: 0,
-                    event_id: subscription.event_id,
-                    window,
-                    serial,
-                    ust,
-                    msc,
-                    kind: 1,
-                    mode: 0,
-                },
-            )?;
-        }
-        Ok(())
-    }
-
     fn cancel_present(&self, transaction: TransactionId) -> Result<(), XServerFrontendRouteError> {
         self.pending_presentations
             .entries
@@ -907,3 +843,4 @@ impl XServerFrontendRouteRegistry {
 
 }
 include!("registry/delivery.rs");
+include!("registry/present_msc.rs");

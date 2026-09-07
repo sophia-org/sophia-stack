@@ -60,6 +60,8 @@ pub enum XErrorCode {
     BadName,
     BadLength,
     BadImplementation,
+    /// XInput's BadDevice, at the extension's first error code.
+    XiBadDevice,
     /// RENDER's own errors, at `X_RENDER_FIRST_ERROR` plus each one's offset.
     /// The protocol defines five, in this order.
     RenderPictFormat,
@@ -88,6 +90,7 @@ impl XErrorCode {
             Self::BadName => 15,
             Self::BadLength => 16,
             Self::BadImplementation => 17,
+            Self::XiBadDevice => crate::X_INPUT_FIRST_ERROR,
             Self::RenderPictFormat => X_RENDER_FIRST_ERROR + X_RENDER_PICT_FORMAT_ERROR_OFFSET,
             Self::RenderPicture => X_RENDER_FIRST_ERROR + X_RENDER_PICTURE_ERROR_OFFSET,
             Self::RenderPictOp => X_RENDER_FIRST_ERROR + X_RENDER_PICT_OP_ERROR_OFFSET,
@@ -899,6 +902,7 @@ pub enum XXiDeviceClass {
     Valuator {
         source_id: u16,
         number: u16,
+        label: u32,
         min: i64,
         max: i64,
         value: i64,

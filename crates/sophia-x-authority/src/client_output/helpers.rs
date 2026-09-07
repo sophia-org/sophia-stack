@@ -96,11 +96,10 @@ fn push_u16(byte_order: XByteOrder, out: &mut Vec<u8>, value: u16) {
     out.extend_from_slice(&bytes);
 }
 
-fn push_i64(byte_order: XByteOrder, out: &mut Vec<u8>, value: i64) {
-    match byte_order {
-        XByteOrder::LittleEndian => out.extend_from_slice(&value.to_le_bytes()),
-        XByteOrder::BigEndian => out.extend_from_slice(&value.to_be_bytes()),
-    }
+// XI2 FP3232 orders its two 32-bit fields independently of client byte order.
+pub(crate) fn push_xi_fp3232(byte_order: XByteOrder, out: &mut Vec<u8>, value: i64) {
+    push_u32(byte_order, out, (value >> 32) as u32);
+    push_u32(byte_order, out, value as u32);
 }
 
 fn put_u32(byte_order: XByteOrder, out: &mut [u8], value: u32) {

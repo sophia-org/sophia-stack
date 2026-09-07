@@ -43,6 +43,17 @@ fn x11_prepare_explicit_pointer_grab(
     request: &crate::XWireRequest,
     after_observation: Option<TransactionId>,
 ) -> Result<X11ExplicitPointerGrabPreparation, X11SetupSocketError> {
+    // The virtual source cannot be detached or grabbed independently. Let the
+    // dispatcher return BadAccess without reserving the Engine's master route.
+    if matches!(
+        request,
+        crate::XWireRequest::XiGrabDevice {
+            device_id: crate::X_INPUT_POINTER_SOURCE_ID,
+            ..
+        }
+    ) {
+        return Ok(X11ExplicitPointerGrabPreparation::Unmanaged);
+    }
     let Some(control) = routing.and_then(|routing| routing.explicit_pointer_grabs.as_ref()) else {
         return Ok(X11ExplicitPointerGrabPreparation::Unmanaged);
     };
@@ -582,6 +593,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                 released_fences: Vec::new(),
                 server_reply_fd_count: 0,
             });
+            let mut pending_msc_deliveries = Vec::new();
             let mut pending_metadata_candidate = None;
             let mut explicit_pointer_completion = None;
             let mut explicit_pointer_release_completion = None;
@@ -1338,8 +1350,8 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             // Mesa blocks on the answer, so this runs only after
                             // dispatch validated the window -- an invalid window
                             // gets its error instead, never a stray event.
-                            routing
-                                .notify_present_msc(window, serial, target_msc)
+                            pending_msc_deliveries = routing
+                                .prepare_present_msc_notify(window, serial, target_msc)
                                 .map_err(|error| {
                                     X11SetupSocketError::new(format!(
                                         "failed to answer Present NotifyMSC: {error}"
@@ -1778,6 +1790,17 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                 .as_mut()
                 .expect("completed dispatch observation")
                 .result;
+            // The requester must receive its immediate MSC answer before any
+            // later reply. Peers use their own connection's event sequence.
+            let mut peer_msc_deliveries = Vec::new();
+            for mut delivery in pending_msc_deliveries {
+                if delivery.recipient == client {
+                    set_x11_protocol_event_sequence(&mut delivery.event, sequence);
+                    output.outputs.push(crate::XClientOutput::Event(delivery.event));
+                } else {
+                    peer_msc_deliveries.push(delivery);
+                }
+            }
             if let Some(candidate) = pending_metadata_candidate {
                 protocol_routing
                     .as_ref()
@@ -1984,6 +2007,15 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                 // writer can snapshot the old value, wait behind this reply,
                 // and emit a backwards sequence after it.
                 event_sequence.store(sequence, Ordering::Release);
+            }
+            for delivery in peer_msc_deliveries {
+                protocol_routing
+                    .as_ref()
+                    .expect("MSC subscription has a route registry")
+                    .route_protocol(delivery.recipient, delivery.event)
+                    .map_err(|error| X11SetupSocketError::new(format!(
+                        "failed to deliver peer Present NotifyMSC: {error}"
+                    )))?;
             }
         }
         Ok(())

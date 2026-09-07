@@ -320,11 +320,11 @@
             input_presented_latency = Some(started.elapsed());
         }
         if let Some(runtime) = runtime.as_mut() {
-            present_feedback.clear();
-            runtime.drain_present_feedback_into(&mut present_feedback)?;
-            for outcome in present_feedback.drain(..) {
-                present_observer.observe_feedback(outcome);
-            }
+            present_observer.drain_pending_feedback(runtime, &mut present_feedback)?;
+            visual_progress.observe_committed(runtime.committed_surfaces());
+        }
+        if let Some(native) = native_scanout.as_ref() {
+            visual_progress.observe_native(native);
         }
         if (config.exit_after_input_proof || config.inject_text.is_some())
             && input_presented_latency.is_some()

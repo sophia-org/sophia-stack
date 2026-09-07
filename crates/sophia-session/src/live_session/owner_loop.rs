@@ -374,6 +374,7 @@ fn run_session_loop_inner(
     let mut launch_admission_started_at: Option<Instant> = None;
     let mut present_observer = XPresentSessionObserver::new(protocol_router);
     let mut present_feedback = Vec::new();
+    let mut visual_progress = visual_progress::VisualProgress::new();
     let initial_border_style = wm_session
         .as_ref()
         .and_then(|wm| wm.surface_chrome_style())

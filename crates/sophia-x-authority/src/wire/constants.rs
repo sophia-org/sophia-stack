@@ -129,6 +129,11 @@ pub const X_INPUT_EXTENSION_NAME: &str = "XInputExtension";
 pub const X_INPUT_MAJOR_OPCODE: u8 = 135;
 pub const X_INPUT_FIRST_EVENT: u8 = 90;
 pub const X_INPUT_FIRST_ERROR: u8 = 160;
+/// Fixed protocol devices; these never enumerate the seat's physical inventory.
+pub const X_INPUT_MASTER_POINTER_ID: u16 = 2;
+pub const X_INPUT_MASTER_KEYBOARD_ID: u16 = 3;
+/// XI2 permits IDs above 127 to remain invisible to XI1 clients.
+pub const X_INPUT_POINTER_SOURCE_ID: u16 = 128;
 pub const X_INPUT_GET_EXTENSION_VERSION_MINOR_OPCODE: u8 = 1;
 pub const X_INPUT_LIST_INPUT_DEVICES_MINOR_OPCODE: u8 = 2;
 pub const X_INPUT_DEVICE_BELL_MINOR_OPCODE: u8 = 32;

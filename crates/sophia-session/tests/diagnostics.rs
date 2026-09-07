@@ -447,3 +447,36 @@ fn marker_windows_follow_the_boot_clock_across_wall_clock_changes() {
     assert_eq!(inspection.events.len(), 1);
     assert!(inspection.events[0].contains("count=2"));
 }
+
+#[test]
+fn visual_progress_preserves_stages_and_frame_identity_without_payloads() {
+    for record in [
+        "sophia_live_visual_progress schema=1 status=enabled",
+        "sophia_live_visual_progress schema=1 status=content stage=offered transaction=41 surface_token=0123456789abcdef source=dma_present",
+        "sophia_live_visual_progress schema=1 status=committed_snapshot surface_token=0123456789abcdef generation=2 source=cpu",
+        "sophia_live_visual_progress schema=1 status=head_snapshot output=1 head=2 target_generation=1 enabled=true baseline=false pending=none rendering=cpu:3:none submitted=mixed_present:4:41 presented=retained_mixed:2:none submissions=4 retirements=2 submissions_delta=3 retirements_delta=2 missed_count=3",
+        "sophia_live_visual_progress schema=1 status=feedback_ready transaction=41 kind=idle",
+        "sophia_live_session_present schema=2 status=retired transaction=41 surface=3 unit_scale=true",
+    ] {
+        let raw = format!(
+            "{record} namespace=1 xid=3 title=secret pixels=secret checksum=123 text=secret"
+        );
+        assert_eq!(reduced_record(&raw).as_deref(), Some(record));
+    }
+}
+
+#[test]
+fn visual_progress_rejects_unbounded_identity_and_arbitrary_vocabulary() {
+    for record in [
+        "sophia_live_visual_progress pending=cpu:18446744073709551616:none",
+        "sophia_live_visual_progress submitted=mixed_present:4:41:secret",
+        "sophia_live_visual_progress pending=secret:4:41 surface_token=secret",
+        "sophia_live_visual_progress status=secret stage=secret source=secret kind=secret head=-1",
+        "sophia_other pending=cpu:4:none surface_token=0123456789abcdef head=4",
+    ] {
+        assert_eq!(
+            reduced_record(record).as_deref(),
+            record.split_whitespace().next()
+        );
+    }
+}

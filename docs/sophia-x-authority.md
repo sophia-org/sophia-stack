@@ -334,13 +334,31 @@ inside the frontend with a bounded deterministic RMLVO configuration (default
 `GetKeyboardMapping`, `GetModifierMapping`, `KeyPress`, and `KeyRelease` remain
 the client-visible compatibility baseline.
 
+XI2 exposes the master pointer/keyboard pair (2/3) and one fixed virtual pointer
+source (128) attached to pointer 2. This is a protocol device, not a disclosure
+of the seat's physical inventory. Its ID lies outside XI1's device range, so
+XI1 continues to enumerate only the core pair. AllDevices includes the source;
+AllMasterDevices does not. Selected source events precede the corresponding
+master event, whose source ID is 128. Both streams derive from the same
+Engine-admitted target and namespace state.
+
+The source cannot be detached or independently captured. A direct source grab
+returns BadAccess before reserving an Engine lease. XIQueryPointer on the
+attached source returns BadDevice; query the master for pointer position and
+XIQueryDevice for source valuators. Ungrabbing the source cannot release a
+master grab. Device hierarchy mutation and independent source control remain
+outside the admitted frontend subset.
+
 XI2 2.1 exposes relative pointer X/Y on valuators 0/1 and cumulative horizontal
-and vertical scroll positions on valuators 2/3. Query replies use current
+and vertical scroll positions on valuators 2/3. Standard axis labels let clients
+refresh their baselines when the pointer enters a window. FP3232 values encode
+the signed integral word followed by the unsigned fraction word, each in client
+byte order; they are not serialized as a native 64-bit integer. Query replies use current
 authority-local state rather than class-template zeros. Pointer queries and
 device events resolve the immediate descendant of the selected window, encode
 coordinates relative to that selected window, and carry current button and
-effective modifier masks. Smooth wheel Motion and its compatibility button
-pair use `XIPointerEmulated`; Engine axis packets remain free of X11 policy.
+effective modifier masks. Only the compatibility button pair carries `XIPointerEmulated`; the smooth
+Motion event is the source event. Engine axis packets remain free of X11 policy.
 
 Core `QueryPointer`, `XIQueryPointer`, and the position and scroll valuators in
 `XIQueryDevice` read shared, namespace-scoped input state. A new connection in
@@ -818,6 +836,12 @@ without storing a device path in Engine or the authority runtime. `PixmapFromBuf
 modifier-bearing `PixmapFromBuffers`, `FenceFromFD`, supported-modifier queries,
 Present `Pixmap`/`SelectInput`/`QueryCapabilities`, and the bounded XFIXES region
 lifecycle required by Mesa are implemented.
+
+An immediately satisfied Present `NotifyMSC` is serialized with the requesting
+connection's output and carries that request's sequence. A later reply cannot
+overtake it. Other subscribers receive asynchronous events stamped with their
+own connection sequences. This ordering guarantee does not establish complete
+future-target MSC scheduling or divisor/remainder support.
 
 The Mesa RADV `x-authority-vkcube-smoke` reaches one accepted standard Present
 transaction and one committed runtime surface with `first_error=none`; it

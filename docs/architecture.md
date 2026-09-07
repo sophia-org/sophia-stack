@@ -317,6 +317,18 @@ last committed geometry-plus-pixels state, and retire native resources exactly
 once. No failure path may infer presentation from client traffic or send
 feedback before backend retirement.
 
+The session drains retirement-authorized feedback after lifecycle service,
+before an authority run can take its no-work exit. Delivery does not depend on
+another client request or on first arming the native service timer.
+
+An eligible CPU composition that the backend defers remains a cadence repaint
+obligation. Ordinary repaint shares the retained-publication guard: suspension,
+an in-flight Present, or an unsettled software Present binding postpones it.
+Postponement preserves the obligation and advances its retry deadline; it
+neither spins nor supersedes another frame's retirement proof. Startup and
+topology replacement retain their separate forced repaint paths. DMA-BUF
+Present traffic alone must not create a synthetic CPU repaint obligation.
+
 Each queued Present owns exactly one matching `SurfaceTransaction`. Persistent
 scene state is the Engine's committed snapshot, not a table of historical
 transactions. Preparation rebases only the queued surface's causal generation;

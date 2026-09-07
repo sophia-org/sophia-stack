@@ -165,6 +165,13 @@ impl PrimaryFramePacer {
     }
 
     /// Reconciles the requested admission with what the renderer actually did.
+    ///
+    /// A refused composition is the case that matters. The renderer may
+    /// decline a turn this pacer admitted -- a scene holding GPU-owned output
+    /// preserves it and composes nothing -- and the damage that turn carried
+    /// has already been taken into the scene. Nothing else re-arms the
+    /// cadence, so leaving the refusal unobserved is what strands those pixels
+    /// until unrelated work happens to arm a repaint.
     pub fn observe_production(&mut self, now: std::time::Instant, composed: bool) {
         if composed {
             self.repaint_pending = false;
@@ -172,6 +179,8 @@ impl PrimaryFramePacer {
                 .next_deadline
                 .unwrap_or_else(|| now.checked_add(self.interval).unwrap_or(now));
             self.next_deadline = advance_deadline(deadline, now, self.interval);
+        } else {
+            self.repaint_pending = true;
         }
     }
 
@@ -181,6 +190,17 @@ impl PrimaryFramePacer {
 
     pub fn observe_repaint(&mut self, now: std::time::Instant) {
         self.repaint_pending = false;
+        let deadline = self.next_deadline.unwrap_or(now);
+        self.next_deadline = advance_deadline(deadline, now, self.interval);
+    }
+
+    /// Records a repaint the renderer was asked for and declined to service.
+    ///
+    /// The request survives, because the pixels still need publishing. The
+    /// deadline moves anyway: an overdue repaint the backend keeps refusing
+    /// would otherwise hold `repaint_due` true and `cap_wait` at zero, and the
+    /// owner would spin on a turn it cannot use. Retried on the next cadence.
+    pub fn observe_repaint_deferred(&mut self, now: std::time::Instant) {
         let deadline = self.next_deadline.unwrap_or(now);
         self.next_deadline = advance_deadline(deadline, now, self.interval);
     }

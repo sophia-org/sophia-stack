@@ -92,6 +92,7 @@ struct XPresentSessionObserver {
     router: XServerFrontendProtocolRouter,
     displayed_cadence: XPresentCadence,
     diagnostic_events: bool,
+    visual_progress_events: bool,
     aggregate_progress: bool,
     progress_last_emit: Option<Instant>,
     complete_copy: usize,
@@ -139,6 +140,8 @@ impl XPresentSessionObserver {
             displayed_cadence: XPresentCadence::new(),
             diagnostic_events: std::env::var_os("SOPHIA_LIVE_SESSION_DIAGNOSTIC").is_some()
                 && !aggregate_progress,
+            visual_progress_events: std::env::var("SOPHIA_LIVE_VISUAL_PROGRESS")
+                .is_ok_and(|value| matches!(value.as_str(), "1" | "true")),
             aggregate_progress,
             progress_last_emit: None,
             complete_copy: 0,
@@ -154,6 +157,31 @@ impl XPresentSessionObserver {
             disconnect_fences: 0,
             disconnect_failures: 0,
         }
+    }
+
+    fn drain_pending_feedback(
+        &mut self,
+        runtime: &mut LiveProductionVisualRuntime,
+        pending: &mut Vec<sophia_backend_live::LivePresentFeedbackOutcome>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        pending.clear();
+        runtime.drain_present_feedback_into(pending)?;
+        for outcome in pending.drain(..) {
+            if self.visual_progress_events {
+                for feedback in &outcome.feedback {
+                    let (transaction, kind) = match feedback {
+                        sophia_backend_live::LivePresentProtocolFeedback::Complete { transaction, .. } => (*transaction, "complete"),
+                        sophia_backend_live::LivePresentProtocolFeedback::Idle { transaction } => (*transaction, "idle"),
+                    };
+                    crate::session_println!(
+                        "sophia_live_visual_progress schema=1 status=feedback_ready transaction={} kind={kind}",
+                        transaction.raw(),
+                    );
+                }
+            }
+            self.observe_feedback(outcome);
+        }
+        Ok(())
     }
 
     fn observe_feedback(&mut self, outcome: sophia_backend_live::LivePresentFeedbackOutcome) {
@@ -206,7 +234,7 @@ impl XPresentSessionObserver {
                             {
                                 self.displayed_cadence.observe(ust);
                             }
-                            if self.diagnostic_events {
+                            if self.diagnostic_events || self.visual_progress_events {
                                 crate::session_eprintln!(
                                     "sophia_live_session_present_feedback schema=1 kind=complete transaction={} routed={routed} mode={mode:?} ust={ust} msc={msc}",
                                     transaction.raw(),
@@ -227,7 +255,7 @@ impl XPresentSessionObserver {
                     match self.router.route_present_idle(transaction) {
                         Ok(routed) => {
                             self.idle_routed = self.idle_routed.saturating_add(usize::from(routed));
-                            if self.diagnostic_events {
+                            if self.diagnostic_events || self.visual_progress_events {
                                 crate::session_eprintln!(
                                     "sophia_live_session_present_feedback schema=1 kind=idle transaction={} routed={routed}",
                                     transaction.raw(),

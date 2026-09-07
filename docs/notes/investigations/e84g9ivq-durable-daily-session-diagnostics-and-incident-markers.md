@@ -2,7 +2,7 @@
 id: e84g9ivq
 date: 2026-09-06
 kind: investigation
-status: implemented-awaiting-physical-acceptance
+status: closed
 tags: [investigation, diagnostics, cp14-3]
 ---
 # Durable daily-session diagnostics and incident markers
@@ -74,7 +74,7 @@ compilation, Bash syntax, and whitespace checks also passed. The final `cargo xt
 changes, including all thirteen new integration checks. Offline Cargo metadata,
 task-ID uniqueness, and local documentation links passed.
 
-Physical acceptance remains a replacement installed session: mark from another
+At implementation handoff, physical acceptance still required a replacement installed session: mark from another
 TTY, log out, log in again, inspect the earlier record, and keep it. The task
 rows retain these exits. No comparison matrix or live-session restart was run.
 Periodic synchronization can lose the newest tail during abrupt power loss;
@@ -101,4 +101,13 @@ marker and retrieval after another login still need operator acceptance.
 The subsequent switch to tty3 ended the session. The
 [VT incident investigation](tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
 records the preserved evidence, missing installed CLI command, and diagnostic
-fields lost by reduction. Physical acceptance remains open.
+fields lost by reduction. Physical acceptance was still open at that point.
+
+## Post-login acceptance
+
+The operator completed logout and a subsequent login on installed `4b4f2841`.
+The [acceptance record](../milestones/v4ycp9ba-daily-session-diagnostics-accepted-across-logout-and-login.md)
+records successful inspection and checksum verification of the earlier marker,
+identity, and preserved evidence. This satisfies t015/t016. The prior session's
+status-1 logout remains a separately tracked session-health issue; this result
+makes no clean-exit or broader daily-driver claim.

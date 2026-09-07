@@ -40,7 +40,7 @@ The implementation and deterministic evidence are recorded in the
 The [operator contract](../../operations.md#mark-and-investigate-a-problem)
 owns command syntax, limits, privacy, and the distinction from proof archives.
 
-Both tasks retain one physical exit: in a replacement installed session, mark
+Both tasks require the same physical exit: in a replacement installed session, mark
 an event from an independent TTY, log out, log in again, and inspect/preserve
 the earlier session by ID. The current session must remain usable while marking.
 This is a normal-use canary, not a resumption of the comparison matrix. A passed
@@ -50,5 +50,6 @@ The first installed attempt ended during VT preparation and exposed missing
 CLI installation and failure fields. The [incident investigation](../investigations/tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
 records the repaired diagnostics and the subsequent multi-output renderer
 handoff correction. The installed `4b4f2841` round trip and marker written while
-the seat was suspended passed. Inspecting that marked session after a normal
-logout and later login remains the acceptance step.
+the seat was suspended passed. The subsequent logout/login and retrieval of
+that exact marked record also passed, as documented in the
+[acceptance record](../milestones/v4ycp9ba-daily-session-diagnostics-accepted-across-logout-and-login.md).

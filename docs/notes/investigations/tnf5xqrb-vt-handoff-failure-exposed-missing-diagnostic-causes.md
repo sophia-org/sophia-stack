@@ -2,7 +2,7 @@
 id: tnf5xqrb
 date: 2026-09-06
 kind: investigation
-status: awaiting-physical-acceptance
+status: closed
 tags: [investigation, session, tooling]
 ---
 # VT handoff failure exposed missing diagnostic causes
@@ -119,7 +119,7 @@ A checksummed snapshot of this live evidence is preserved under
 `b9114a77-47d4-418b-b926-069d120b59f1`. This snapshot records a still-running
 session, not a final logout outcome. The VT regression and independent-TTY
 marking checks have now passed. Inspection of this marked run after a later
-normal logout/login remains the physical acceptance step for
+normal logout/login was then the remaining physical acceptance step for
 [t015 and t016](../plans/queue-05-3-make-failures-diagnosable.md).
 
 ## Connections
@@ -134,3 +134,12 @@ Earlier investigations explain why
 and why [retained images must survive renderer replacement](../sources/2026-08/legacy-active-0119-2026-08-06-vt-resume-transfers-renderer-owned-snapshots.md).
 Those historical fixes remain in the code; their old symptoms alone do not
 establish this incident's cause.
+
+## Post-login acceptance
+
+The operator completed logout and a subsequent login on installed `4b4f2841`.
+The [acceptance record](../milestones/v4ycp9ba-daily-session-diagnostics-accepted-across-logout-and-login.md)
+records successful inspection and checksum verification of the earlier marker,
+identity, and preserved evidence. This satisfies t015/t016. The prior session's
+status-1 logout remains a separately tracked session-health issue; this result
+makes no clean-exit or broader daily-driver claim.

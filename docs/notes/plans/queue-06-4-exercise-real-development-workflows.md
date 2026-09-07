@@ -36,7 +36,8 @@ Implementation and offline verification are already complete.
 Observe idle, VT resume, and normal logout during actual use. Turn any
 blocking failure into the next concrete repair task within this stage; retain
 its evidence, add a focused regression where feasible, and recheck the affected
-workflow after correction.
+workflow after correction. The [status-1 logout investigation](../investigations/64o6l37g-normal-logout-reports-failure-after-x-protocol-errors.md)
+retains the next session-health observation from the diagnostics acceptance.
 
 
 Exit: every listed workflow has retained observations, with no unresolved

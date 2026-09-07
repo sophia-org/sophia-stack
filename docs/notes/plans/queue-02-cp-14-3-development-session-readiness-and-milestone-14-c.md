@@ -153,3 +153,33 @@ a server that claims it. The probes are headless and admit no window, so they
 prove startup and the absence of refusals, not pixels. **Physical acceptance is
 not claimed here**: this task is `@development`, and seeing Thunar and Ghostty
 open from Super+Space rides the `@physical` session tasks t001-t005.
+
+**What the live session found after this task closed.** t006 was completed on
+headless evidence: both GTK clients finished startup with no protocol error.
+The operator then launched Thunar in a real session and it died anyway, three
+more times, each further in than the last:
+
+- `RENDER` minor 10, `Trapezoids`, at serial 425. GTK draws the shadow under a
+  window decoration with them. Implemented in `03a8aed2`.
+- `RENDER` minor 23, `CompositeGlyphs8`, at serial 10241. This one was not a
+  missing feature but a defect in the glyph path: a glyph falling outside the
+  destination could not be formed into an update, and that refused the whole
+  run. Text is placed by a pen walking a line, so a run routinely overruns
+  what it is drawn into. Fixed in `9ed3866c`, along with the same shape in the
+  trapezoid and composite paths and the source-alignment correction clipping
+  requires.
+- `RENDER` minor 34, `CreateLinearGradient`, at serial 9370. Cairo paints
+  widget backgrounds with gradients. Implemented in `3a604d1f`, which also
+  moved the advertised version to 0.10 and added the Pad and Reflect repeat
+  modes a gradient needs past its ends.
+
+**Two lessons, both paid for.** A headless probe cannot testify that a code
+path is unused: with no window manager nothing admits a window, so GTK never
+paints, so it never draws text or shadows or backgrounds. Every one of these
+was invisible headlessly and immediate in a real session.
+
+And three of today's refusals were requests *above* the advertised version,
+sent by clients that never read the advertisement -- `SetPictureFilter`,
+trapezoids, gradients. The version is a claim this server makes for its own
+honesty. It is not a gate a client respects, and scoping work as though it
+were is what produced each of these stops in turn.

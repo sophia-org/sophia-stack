@@ -77,6 +77,57 @@ Implement `SHAPE`. Quickshell asks for it in the same trace. Small: a
 handful of requests for non-rectangular window regions, and Sophia already
 carries region machinery for XFIXES.
 
+**Result.** Implemented at version 1.1 and advertised. The "small" framing
+above was wrong in one load-bearing way, and the correction shaped the work:
+Sophia's `Region` was a bare rectangle list with no set algebra, and XFIXES
+implemented five minors while answering version 6.0. Region algebra had to be
+built before SHAPE could combine anything.
+
+Landed in four commits, each gated and independently useful:
+
+- `87c09c12` region set algebra plus the XFIXES region minors (Copy, Union,
+  Intersect, Subtract, Invert, Translate, RegionExtents, FetchRegion).
+- `6264db79` the shape store and all nine requests, deliberately unadvertised.
+- `4e26bf78` bounding shapes clipping composition.
+- `3bf967b2` input shapes honoured in hit testing, and the advertisement.
+
+**Evidence.** `x-authority-quickshell-smoke` reaches opcode 145: 35 opcodes and
+331 requests, up from 34 and 329 before, with the
+`sophia_x11_authority_extension status=absent name="SHAPE"` line gone. Twelve
+dispatch tests cover the tri-state, all five operations, masks read from
+depth-1 pixmaps, change gating, and validation; two engine tests cover
+click-through. The algebra is compared against a brute-force cell model over
+every pair in a small grid, and both `subtract` and the vertical-coalescing
+invariant were mutation-checked (an inverted condition fails four tests, a
+disabled coalesce fails three). See the `SHAPE window regions` and
+`XFIXES region minors` rows in `docs/x11-compatibility-matrix.md`.
+
+**Why the advertisement waited.** A Qt panel's first use of SHAPE is an input
+shape for click-through. Advertising with shapes merely stored would have been
+the MIT-SHM over-promise again, so phases two and three shipped dark and the
+advertisement flipped only once clicks genuinely fell through.
+
+**Adapted from yserver** (`~/src/yserver`, MIT, Copyright (c) 2026 Jos Dehaes):
+the half-open banded region design and its brute-force test approach, the
+bitmap-to-region reader, the unset/empty/concrete tri-state, and change-gated
+notifies. Their `ShapeInvert` aliases to Set, which is wrong; Sophia implements
+source-minus-destination and tests it. They also validate no arguments, and
+Sophia does.
+
+**Remaining limits.** A descendant window's shapes are stored, answered and
+notified but do not clip the parent presentation or affect intra-toplevel
+routing. `ShapeClip` is stored and consumed by nothing, because Sophia composes
+whole client buffers and draws no window borders. A shaped window falls back to
+scaling its 1x raster on a non-1x display. Grabs capture regardless of shape,
+which is what X defines. No physical acceptance: the evidence above is the
+offline probe and deterministic tests.
+
+**Debt found on the way.** XFIXES answers version 6.0 while implementing a
+subset. The region minors now answer and the rest refuse by name with a
+two-tier code rather than failing to parse, but the version claim still
+overshoots its implementation and should be settled -- implemented on demand,
+or clamped -- as its own decision.
+
 
 Previously completed evidence: [Implement XC-MISC, before something needs it.](../sources/2026-09/todo-cutover-completed.md#legacy-done-018).
 
@@ -89,6 +140,76 @@ reaching through one of them is asking to step around that authority. They
 belong in the matrix as deliberate exclusions or as admitted surface, not as
 gaps that stayed open because the list looked incomplete.
 
+**Reference.** The `~/src/yserver` survey done alongside t029 supplies what each
+would cost and what it buys, from a server that implements all four and runs
+whole desktops. That is evidence rather than speculation, and it is why these
+decisions can be made now instead of deferred again.
+
+**Composite -- excluded, with a named admission price.** Sophia is the
+compositor and Hagia is the only window manager; redirection is authority
+Sophia does not delegate. yserver resolved the same tension by handing
+compositing over: when a client claims the overlay window their scene emits
+only root, overlay and cursor, which is Xorg's contract. If a measured client
+ever needs this, that is the shape to adopt, and their capability flag
+(record redirects and answer `NameWindowPixmap` before allocating real
+backings) is the staged path. Panels and thumbnailers want `NameWindowPixmap`
+specifically. Until the refusal log names one, absent by decision.
+
+**DAMAGE -- excluded for now.** Its consumers are external compositors and
+screen scrapers, which the exclusion above already declines. One lesson to
+keep if it is ever admitted: yserver runs three separate region machineries
+with written justification, because client-facing damage reports and internal
+repaint damage answer different questions. Their presentation damage subtracts
+by exact-match rather than geometrically, on purpose. Do not alias the two.
+
+**XTEST -- excluded, and the reason is not cost.** It is four requests, and
+yserver injects at the same entry point real libinput events use, which is
+also what Sophia would do. What stops it is that theirs is entirely ungated,
+and their own design notes record that as a known gap: any client can drive
+the pointer and keyboard. Sophia's input is session-owned authority, so
+synthetic input needs an explicit admission story before it exists at all.
+Revisit when conformance tooling (xts5 drives the mouse through XTEST) makes
+it worth designing that story.
+
+**DPMS -- excluded; power is session authority.** yserver's is real, driving
+DRM atomic commits that disable connectors, guarded by a scanout check after a
+VT-switch left outputs half-disabled mid-modeset, and coupled to
+MIT-SCREEN-SAVER in Xorg's order. If Sophia admits DPMS it must route through
+session power ownership rather than authority-side connector writes. Until a
+client asks, absent.
+
+**XFree86-Bigfont -- leave absent, log-driven.** Surfaced by the xterm probe
+during t029. yserver has nothing, not even a refusal note, and xterm works
+there; Xlib falls back cleanly. No action unless a client fails rather than
+falls back.
+
+**A pattern worth borrowing if VidMode writes ever appear.** yserver keeps
+XF86VidMode deliberately read-only, advertising read permission and failing
+writes with the extension's own `ClientNotLocal` error -- a branch clients
+already handle -- rather than `BadRequest`, because RandR owns display
+configuration. That is a better shape than refusing outright for any legacy
+extension whose read surface is useful and whose writes cross an authority
+boundary.
+
+
+## t059
+
+Settle the `XFIXES` version claim. The server answers 6.0 while implementing a
+subset of the minors that version defines. Found during t029, which added the
+region minors (Copy, Union, Intersect, Subtract, Invert, Translate,
+RegionExtents, FetchRegion) and converted the remaining unimplemented minors
+from a parse failure to a refusal that names them with a two-tier code. What is
+left is the version claim itself: cursor naming and images, pointer barriers,
+save-set changes, and the client-disconnect modes are advertised by the version
+and not implemented.
+
+Either implement what a measured client asks for, or clamp the answered version
+to what is behind it. The precedent is RENDER, whose advertised version moved
+only as the requests behind it started answering; the counter-example is
+MIT-SHM, which advertised 1.2 with two opcodes missing and sent Qt into its
+error handler. Lowering an already-negotiated version is a behaviour change to
+shipped clients, which is why it is its own decision rather than a fix folded
+into t029.
 
 Every row above came from measurement rather than a survey of what a server
 usually has. `QueryExtension` now records what it refuses, so the next live

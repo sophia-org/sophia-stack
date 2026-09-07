@@ -96,6 +96,7 @@ fn passive_helper_surface_routes_do_not_enter_the_engine_route_table() {
     let mut trace = observation(Vec::new());
     let mut response = XAuthorityResponsePacket::accepted(TransactionId::from_raw(1));
     response.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(1),
         authority: AuthorityKind::SophiaX,
         surface: presented,
@@ -284,6 +285,7 @@ fn present_request_preserves_complete_frame_evidence_for_cpu_storage() {
     trace.request_stage = X11ObservedRequestStage::PresentPixmap;
     let mut response = XAuthorityResponsePacket::accepted(transaction_id);
     response.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: transaction_id,
         authority: AuthorityKind::SophiaX,
         surface,

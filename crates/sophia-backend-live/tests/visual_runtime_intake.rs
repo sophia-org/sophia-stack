@@ -35,6 +35,7 @@ fn output() -> HeadlessOutput {
 
 fn initial_transaction(previous_committed_generation: u64) -> SurfaceTransaction {
     SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(1),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(1, 1),

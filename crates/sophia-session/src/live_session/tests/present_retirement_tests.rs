@@ -12,6 +12,7 @@ fn hold_resize(
     layout.pending = Some(PendingLiveWmLayout {
         transaction,
         layers: vec![LayerSnapshot {
+            input_region: None,
             translation: None,
             output: None,
             surface,
@@ -102,6 +103,7 @@ fn explicit_software_present_completes_resize_only_after_native_retirement() {
     let transaction = TransactionId::from_raw(852);
     let mut presented = crate::live_session::wm_update_coordinator_batch(transaction);
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -161,6 +163,7 @@ fn cpu_present_admission_remains_fenced_until_exact_native_retirement() {
         height: size.height,
     };
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,

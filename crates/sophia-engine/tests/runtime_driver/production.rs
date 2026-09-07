@@ -118,6 +118,7 @@ fn production_surface_batch(transaction: u64) -> AuthorityTransactionIntake {
     AuthorityTransactionIntake::new(
         TransactionId::from_raw(transaction),
         vec![SurfaceTransaction {
+            input_region: None,
             transaction: TransactionId::from_raw(transaction),
             authority: AuthorityKind::SophiaX,
             surface,
@@ -187,6 +188,7 @@ fn present_candidate_preserves_unrelated_committed_surface_identity() {
     let bar_generation = bar.committed_generation;
     let kitty_surface = SurfaceId::new(2, 1);
     let kitty_transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(403),
         authority: AuthorityKind::SophiaX,
         surface: kitty_surface,

@@ -141,6 +141,7 @@ fn direct_map_batch(
             generation: 1,
         });
     batch.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,

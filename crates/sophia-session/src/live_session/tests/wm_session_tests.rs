@@ -171,6 +171,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 fn test_layer(surface: SurfaceId, geometry: Rect) -> LayerSnapshot {
     LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -266,6 +267,7 @@ fn planning_layers_for(
             layout.layers.get(&surface).cloned().or_else(|| {
                 let facts = layout.layout_facts(surface)?;
                 Some(LayerSnapshot {
+                    input_region: None,
                     translation: None,
                     output: None,
                     surface: facts.surface,
@@ -1226,6 +1228,7 @@ fn presented_resize_ignores_exact_backing_snapshot_until_present_retires() {
     let backing_transaction = TransactionId::from_raw(832);
     let mut backing = crate::live_session::wm_update_coordinator_batch(backing_transaction);
     backing.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: backing_transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -1269,6 +1272,7 @@ fn presented_resize_ignores_exact_backing_snapshot_until_present_retires() {
     let present_transaction = TransactionId::from_raw(833);
     let mut present = crate::live_session::wm_update_coordinator_batch(present_transaction);
     present.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: present_transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -1353,6 +1357,7 @@ fn backing_resize_still_commits_for_cpu_only_surface() {
     let transaction = TransactionId::from_raw(841);
     let mut backing = crate::live_session::wm_update_coordinator_batch(transaction);
     backing.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,

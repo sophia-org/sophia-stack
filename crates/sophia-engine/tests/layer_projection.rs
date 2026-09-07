@@ -7,6 +7,7 @@ use sophia_protocol::{
 #[test]
 fn authority_transaction_template_preserves_namespace_and_order() {
     let transactions = [3_u32, 7].map(|index| SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(1),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(index, 1),

@@ -1,6 +1,7 @@
 use sophia_protocol::*;
 
 include!("protocol/data_model.rs");
+include!("protocol/region_algebra.rs");
 include!("protocol/framing.rs");
 include!("protocol/topology_and_wm.rs");
 include!("protocol/output_configuration.rs");

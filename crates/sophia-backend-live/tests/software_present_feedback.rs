@@ -253,6 +253,7 @@ fn recent_cpu_update_residency_bridges_patch_gaps_and_remains_bounded() {
             vec![LiveProductionAuthorityGroup {
                 transaction,
                 transactions: vec![SurfaceTransaction {
+                    input_region: None,
                     transaction,
                     authority: AuthorityKind::SophiaX,
                     surface,
@@ -404,6 +405,7 @@ fn software_present_during_seat_lifetime(suspended: bool) {
         height: 1,
     };
     let surface_transaction = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -456,6 +458,7 @@ fn software_present_during_seat_lifetime(suspended: bool) {
         released_fences: Vec::new(),
     };
     let layout = [LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -574,6 +577,7 @@ fn gpu_owner_batch_registers_its_separate_software_present_group() {
         height: size.height,
     };
     let cpu_candidate = SurfaceTransaction {
+        input_region: None,
         transaction: cpu_transaction,
         authority: AuthorityKind::SophiaX,
         surface: cpu_surface,
@@ -597,6 +601,7 @@ fn gpu_owner_batch_registers_its_separate_software_present_group() {
     let dma_surface = SurfaceId::new(91, 1);
     let dma_handle = BufferHandle::from_raw(92);
     let dma_candidate = SurfaceTransaction {
+        input_region: None,
         transaction: dma_transaction,
         authority: AuthorityKind::SophiaX,
         surface: dma_surface,
@@ -712,6 +717,7 @@ fn deferred_successor_present_retains_resources_until_stream_admission() {
         height: size.height,
     };
     let layout = [LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -738,6 +744,7 @@ fn deferred_successor_present_retains_resources_until_stream_admission() {
     let present_batch =
         |transaction: TransactionId, handle: BufferHandle, acquire_fence: Option<FenceHandle>| {
             let candidate = SurfaceTransaction {
+                input_region: None,
                 transaction,
                 authority: AuthorityKind::SophiaX,
                 surface,

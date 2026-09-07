@@ -81,6 +81,7 @@ fn inset_present_retires_the_standing_outer_target_and_releases_recovery() {
     };
     let transaction_id = TransactionId::from_raw(720);
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: transaction_id,
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,

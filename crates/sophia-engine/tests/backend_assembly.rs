@@ -46,6 +46,7 @@ fn headless_backend_assembly_drains_input_commits_authority_and_renders_cpu_fram
     let mut template = test_layer(3, 0, 0, Region::empty());
     template.surface = SurfaceId::new(3, 1);
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(90),
         authority: AuthorityKind::SophiaX,
         surface: template.surface,

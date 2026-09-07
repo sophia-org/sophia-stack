@@ -400,6 +400,10 @@ fn presented_input_layer_snapshots(
         .enumerate()
         .map(|(index, state)| LayerSnapshot {
             translation: None,
+            // This projection describes what reaches scanout, not what answers
+            // the pointer; input routing reads the engine's own layers, which
+            // carry the region.
+            input_region: None,
             surface: state.surface,
             authority_local_id: None,
             // Rebuilt from what the Engine committed, which records pixels
@@ -430,6 +434,10 @@ fn layer_snapshot(
 ) -> LayerSnapshot {
     LayerSnapshot {
         translation: None,
+        // This projection describes what reaches scanout, not what answers
+        // the pointer; input routing reads the engine's own layers, which
+        // carry the region.
+        input_region: None,
         surface: state.surface,
         authority_local_id: None,
         // As above: a read-back of committed pixels names no owner.
@@ -629,6 +637,7 @@ mod tests {
         assert_eq!(runtime.input_projections()[0].output, primary.id);
         assert_eq!(runtime.input_projections()[1].output, secondary.id);
         let layer_for = |surface, handle| LayerSnapshot {
+            input_region: None,
             translation: None,
             output: None,
             surface,
@@ -823,6 +832,7 @@ mod tests {
         let output = HeadlessOutput::deterministic();
         let mut runtime = LiveProductionVisualRuntime::new(&[output], None).unwrap();
         let transaction = SurfaceTransaction {
+            input_region: None,
             transaction: TransactionId::from_raw(1),
             authority: AuthorityKind::SophiaX,
             surface: surface(31, 1),

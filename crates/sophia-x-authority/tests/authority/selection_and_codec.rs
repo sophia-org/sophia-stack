@@ -562,6 +562,7 @@ fn x_authority_response_codec_keeps_a_raster_apart_from_what_it_filled() {
         height: 1080,
     };
     response.transactions.push(sophia_protocol::SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(140),
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface: sophia_protocol::SurfaceId::new(140, 1),

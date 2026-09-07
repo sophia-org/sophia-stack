@@ -1181,3 +1181,76 @@ fn presentation_or_admission_invalidation_cancels_exact_route_leases() {
     );
     assert_eq!(state.lease(SeatId::from_raw(1)), None);
 }
+
+/// A shaped input region punches through to whatever is beneath it.
+///
+/// This is what a Qt panel asks for when it sets an input shape: the parts of
+/// its window that are not the panel should not swallow clicks. Skipping the
+/// layer rather than consuming the event is what makes that true, and it is
+/// the behaviour that had to exist before SHAPE could honestly be advertised.
+#[test]
+fn a_shaped_input_region_lets_a_click_fall_through_to_the_layer_beneath() {
+    let mut lower = test_layer(0, 0, 0, Region::empty());
+    lower.authority_local_id = Some(AuthorityLocalId::new(0x20, 1));
+    let mut upper = test_layer(1, 0, 1, Region::empty());
+    upper.authority_local_id = Some(AuthorityLocalId::new(0x30, 1));
+    // The upper layer answers only in its left half.
+    upper.input_region = Some(Region {
+        rects: vec![Rect {
+            x: 0,
+            y: 0,
+            width: 20,
+            height: 100,
+        }],
+    });
+
+    // Inside the region: the upper layer takes it.
+    let route =
+        hit_test_scene_for_input(&motion_event(80, 5.0, 5.0), &[lower.clone(), upper.clone()]);
+    assert_eq!(route.target_surface, Some(SurfaceId::new(1, 1)));
+
+    // Outside it: the click reaches the layer beneath rather than being
+    // swallowed by the shaped one.
+    let route = hit_test_scene_for_input(
+        &motion_event(81, 50.0, 5.0),
+        &[lower.clone(), upper.clone()],
+    );
+    assert_eq!(
+        route.target_surface,
+        Some(SurfaceId::new(0, 1)),
+        "a click outside the input shape belongs to what is underneath"
+    );
+    assert_eq!(route.outcome, InputRouteOutcome::Routed);
+}
+
+/// An empty input region is wholly click-through, and an absent one is
+/// wholly interactive.
+///
+/// These are different answers, and the difference is exactly the tri-state
+/// the shape store keeps: a client that sets an empty shape has asked for
+/// every click to pass, which is not the same as never having asked.
+#[test]
+fn an_empty_input_region_is_click_through_and_an_absent_one_is_not() {
+    let mut lower = test_layer(0, 0, 0, Region::empty());
+    lower.authority_local_id = Some(AuthorityLocalId::new(0x20, 1));
+
+    let mut empty = test_layer(1, 0, 1, Region::empty());
+    empty.authority_local_id = Some(AuthorityLocalId::new(0x30, 1));
+    empty.input_region = Some(Region::empty());
+    let route = hit_test_scene_for_input(&motion_event(82, 5.0, 5.0), &[lower.clone(), empty]);
+    assert_eq!(
+        route.target_surface,
+        Some(SurfaceId::new(0, 1)),
+        "an explicitly empty input shape passes every click"
+    );
+
+    let mut unset = test_layer(1, 0, 1, Region::empty());
+    unset.authority_local_id = Some(AuthorityLocalId::new(0x30, 1));
+    assert_eq!(unset.input_region, None);
+    let route = hit_test_scene_for_input(&motion_event(83, 5.0, 5.0), &[lower, unset]);
+    assert_eq!(
+        route.target_surface,
+        Some(SurfaceId::new(1, 1)),
+        "a window that never shaped its input answers everywhere"
+    );
+}

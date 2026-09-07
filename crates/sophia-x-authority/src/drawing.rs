@@ -178,6 +178,9 @@ pub fn surface_transaction_from_drawing_update(
     Ok(SurfaceTransaction {
         transaction: update.transaction,
         authority: AuthorityKind::SophiaX,
+        // Filled in by the runtime, which is what holds the window's input
+        // shape; this builder sees only the window table.
+        input_region: None,
         surface: window.surface,
         namespace: Some(window.namespace),
         target_geometry: window.geometry,

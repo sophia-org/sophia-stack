@@ -141,6 +141,7 @@ fn admitted_pixels_cross_the_visual_boundary_once_at_planned_geometry() {
         max_size: None,
     };
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(12),
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,
@@ -296,6 +297,7 @@ fn released_admission_precedes_newer_same_surface_current_batch() {
     };
     let transaction =
         |transaction, previous_committed_generation, target_buffer| SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface,
@@ -418,6 +420,7 @@ fn recovered_awaiting_pixels_admission_releases_its_present_at_commit() {
     let pixel_transaction = TransactionId::from_raw(20);
     let buffer = sophia_protocol::BufferHandle::from_raw(21);
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction: pixel_transaction,
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,
@@ -750,6 +753,7 @@ fn selected_present_settles_older_present_group_without_committing_it() {
         );
         let mut present = crate::live_session::wm_update_coordinator_batch(transaction);
         present.transactions.push(SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface,
@@ -887,6 +891,7 @@ fn backing_admission_releases_cpu_replacement_before_selected_patch() {
     let base_transaction = TransactionId::from_raw(380);
     let selected_transaction = TransactionId::from_raw(381);
     let transaction = |transaction, previous_committed_generation| SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,

@@ -38,6 +38,7 @@ fn same_surface_present_flood_keeps_one_newest_deferred_candidate() {
         height: size.height,
     };
     let layout = [LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -67,6 +68,7 @@ fn same_surface_present_flood_keeps_one_newest_deferred_candidate() {
             LiveProductionAuthorityGroup {
                 transaction,
                 transactions: vec![SurfaceTransaction {
+                    input_region: None,
                     transaction,
                     authority: AuthorityKind::SophiaX,
                     surface,

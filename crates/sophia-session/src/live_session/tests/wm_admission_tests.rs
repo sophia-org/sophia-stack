@@ -16,6 +16,7 @@ fn renderer_residency_tracks_only_cpu_buffers_owned_by_admission_groups() {
     let group = crate::live_session::LiveAdmissionAuthorityGroup {
         transaction,
         transactions: vec![SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface,
@@ -73,6 +74,7 @@ fn released_admission_pixels_wait_for_policy_assignment() {
     let group = crate::live_session::LiveAdmissionAuthorityGroup {
         transaction,
         transactions: vec![SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface,
@@ -210,6 +212,7 @@ fn pre_admission_group_queue_fails_closed_at_its_fixed_capacity() {
         let transaction = TransactionId::from_raw(u64::try_from(index + 21).unwrap());
         let mut present = crate::live_session::wm_update_coordinator_batch(transaction);
         present.transactions.push(SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface,
@@ -311,6 +314,7 @@ fn a_first_frame_admits_its_surface_rather_than_settling_a_standing_target() {
         height: target.height,
     };
     let frame = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,

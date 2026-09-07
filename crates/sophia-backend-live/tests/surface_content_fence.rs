@@ -18,6 +18,7 @@ fn group(transaction: u64, surface: SurfaceId) -> LiveProductionAuthorityGroup {
     LiveProductionAuthorityGroup {
         transaction,
         transactions: vec![SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: AuthorityKind::SophiaX,
             surface,
@@ -304,6 +305,7 @@ fn later_same_surface_authority_cannot_stale_the_retiring_resize_present() {
         }]);
     let resize_transaction = TransactionId::from_raw(805);
     let prepared_resize = production.prepare_present_transaction(&SurfaceTransaction {
+        input_region: None,
         transaction: resize_transaction,
         authority: AuthorityKind::SophiaX,
         surface: firefox,

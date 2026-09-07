@@ -393,6 +393,18 @@ fn encode_surface_transaction(
     encode_readiness(transaction.readiness, out);
     push_u32(out, transaction.timeout_msec);
     push_u64(out, transaction.previous_committed_generation);
+    // The input region rides the authority's own transport, which carries no
+    // negotiated revision: both ends ship together. The policy protocol to
+    // the window manager is a different wire and is deliberately untouched --
+    // a blind WM has no use for an input shape, and bumping its revision
+    // would refuse every client built against the current one.
+    match &transaction.input_region {
+        Some(region) => {
+            push_u16(out, 1);
+            encode_region(region, out)?;
+        }
+        None => push_u16(out, 0),
+    }
     Ok(())
 }
 
@@ -419,6 +431,16 @@ fn decode_surface_transaction(
         readiness: decode_readiness(cursor.u16()?)?,
         timeout_msec: cursor.u32()?,
         previous_committed_generation: cursor.u64()?,
+        input_region: match cursor.u16()? {
+            0 => None,
+            1 => Some(decode_region(cursor)?),
+            other => {
+                return Err(IpcCodecError::InvalidEnum {
+                    field: "surface_input_region",
+                    value: u32::from(other),
+                });
+            }
+        },
     })
 }
 

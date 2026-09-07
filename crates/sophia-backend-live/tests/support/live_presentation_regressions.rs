@@ -27,6 +27,7 @@ fn runtime() -> LiveProductionVisualRuntime {
 
 fn layer(surface: SurfaceId) -> LayerSnapshot {
     LayerSnapshot {
+        input_region: None,
         surface,
         authority_local_id: None,
         output: None,
@@ -122,6 +123,7 @@ fn retained_repaints_wait_for_the_exact_first_present_to_retire() {
         height: geometry.height,
     };
     let candidate = SurfaceTransaction {
+        input_region: None,
         transaction,
         surface,
         authority: AuthorityKind::SophiaX,

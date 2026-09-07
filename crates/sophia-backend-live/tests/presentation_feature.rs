@@ -666,6 +666,7 @@ fn stale_prepared_page_flip_settles_as_skip_and_retires_resources_exactly_once()
     let mut production = ProductionSessionCoordinator::new(HeadlessEngine::default())
         .with_committed_surfaces(vec![committed.clone()]);
     let prepared = production.prepare_present_transaction(&SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,

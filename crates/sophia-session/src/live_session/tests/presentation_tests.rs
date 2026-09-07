@@ -13,6 +13,7 @@ fn layer_snapshots_from_committed(
         .iter()
         .enumerate()
         .map(|(stack_rank, surface)| LayerSnapshot {
+            input_region: None,
             translation: None,
             output: None,
             surface: surface.surface,
@@ -250,6 +251,7 @@ fn authority_batch_commits_once_and_fans_out_one_snapshot() {
     let surface = sophia_protocol::SurfaceId::new(17, 1);
     let mut runtime = LiveProductionVisualRuntime::new(&outputs, None).unwrap();
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: sophia_protocol::TransactionId::from_raw(90),
         authority: AuthorityKind::SophiaX,
         surface,
@@ -329,6 +331,7 @@ fn same_iteration_software_admission_release_replaces_original_observation() {
         height: 500,
     };
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -423,6 +426,7 @@ fn duplicate_software_present_fails_before_renderer_registration() {
         height: 1,
     };
     let pixels = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,

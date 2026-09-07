@@ -8,6 +8,13 @@ pub struct SurfaceTransaction {
     pub namespace: Option<NamespaceId>,
     /// Logical placement of the authority-owned surface.
     pub target_geometry: Rect,
+    /// Where the surface answers the pointer, in surface-local coordinates.
+    ///
+    /// `None` means the whole geometry is interactive, which is every
+    /// surface that has not asked otherwise. A panel that shapes its input
+    /// sets this so clicks outside the shape reach whatever is beneath it,
+    /// which is the entire reason X clients set an input shape.
+    pub input_region: Option<Region>,
     /// The bounded raster content asserted for this surface generation.
     ///
     /// The set's logical extent is the extent its pixels actually span, which

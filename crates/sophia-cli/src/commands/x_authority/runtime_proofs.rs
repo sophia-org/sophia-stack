@@ -209,6 +209,7 @@ pub(crate) fn layer_templates_from_surface_transactions(
         .iter()
         .enumerate()
         .map(|(index, transaction)| LayerSnapshot {
+            input_region: transaction.input_region.clone(),
             translation: None,
             // A proof fixture stands in for a transaction, not a placement.
             output: None,

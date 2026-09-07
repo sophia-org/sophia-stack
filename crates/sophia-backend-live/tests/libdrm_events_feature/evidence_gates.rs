@@ -65,6 +65,7 @@ fn live_session_composition_smoke_commits_authority_batch_and_submits_rendered_s
 
 fn live_session_composition_transaction(transaction: TransactionId) -> SurfaceTransaction {
     SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(9, 1),

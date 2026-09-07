@@ -17,6 +17,7 @@ pub fn layer_templates_from_surface_transactions(
         .map(|(index, transaction)| LayerSnapshot {
             translation: None,
             surface: transaction.surface,
+            input_region: transaction.input_region.clone(),
             authority_local_id: None,
             // A template describes a transaction, not a placement, so it names
             // no output. The placement path fills this in.

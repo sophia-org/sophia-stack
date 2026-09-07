@@ -12,6 +12,7 @@ fn pre_admission_pixels_are_quarantined_from_layout_and_runtime() {
         max_size: None,
     };
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(11),
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,

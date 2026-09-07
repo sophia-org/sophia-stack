@@ -52,6 +52,9 @@ impl SurfaceSnapshot {
             surface: self.surface,
             namespace: self.namespace,
             target_geometry: self.geometry,
+            // A surface snapshot carries no input region; only a layer,
+            // which is where a window's shape reaches the scene.
+            input_region: None,
             // An X window's raster is its window-sized pixmap, so one size
             // serves both here. `LayerSnapshot` carries a measured raster
             // instead, because a layer outlives the configure that resized it.
@@ -117,6 +120,13 @@ pub struct LayerSnapshot {
     /// by no output. That is observable only if something could be presented
     /// before its first placement; the admission path places first.
     pub output: Option<OutputId>,
+    /// Where the surface answers the pointer, in surface-local coordinates.
+    ///
+    /// `None` means the whole geometry is interactive, which is every
+    /// surface that has not asked otherwise. A panel that shapes its input
+    /// sets this so clicks outside the shape reach whatever is beneath it,
+    /// which is the entire reason X clients set an input shape.
+    pub input_region: Option<Region>,
 }
 
 impl LayerSnapshot {
@@ -134,6 +144,7 @@ impl LayerSnapshot {
             surface: self.surface,
             namespace: self.namespace,
             target_geometry: self.geometry,
+            input_region: self.input_region.clone(),
             content: SurfaceContentSet::singleton(self.source, self.source_size),
             // The layer's placement is what this raster was asked to fill.
             presentation_extent: Size {

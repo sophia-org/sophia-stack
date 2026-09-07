@@ -788,6 +788,13 @@ impl XAuthorityRuntime {
                 return XAuthorityResponsePacket::rejected(transaction_id, error.into());
             }
         };
+        // A window that shaped its input answers the pointer only inside
+        // that shape; one that has not is interactive everywhere.
+        transaction.input_region =
+            match self.effective_shape(window, crate::X_SHAPE_KIND_INPUT) {
+                (true, rects) => Some(Region { rects }),
+                (false, _) => None,
+            };
         if let Err(error) = self.windows.advance_generation(window, previous_generation) {
             return XAuthorityResponsePacket::rejected(transaction_id, error.into());
         }
@@ -909,11 +916,18 @@ impl XAuthorityRuntime {
                 observed_content_generation: record.generation,
             });
         }
+        // A window that shaped its input answers the pointer only inside
+        // that shape; one that has not is interactive everywhere.
+        let input_region = match self.effective_shape(record.id, crate::X_SHAPE_KIND_INPUT) {
+            (true, rects) => Some(Region { rects }),
+            (false, _) => None,
+        };
         let surface_transaction = sophia_protocol::SurfaceTransaction {
             transaction,
             authority: sophia_protocol::AuthorityKind::SophiaX,
             surface: record.surface,
             namespace: Some(record.namespace),
+            input_region,
             target_geometry: record.geometry,
             content,
             // Engine asked for this raster at this extent and the store

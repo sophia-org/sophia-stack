@@ -3768,13 +3768,13 @@ fn shape_refuses_invalid_windows_kinds_and_operations() {
     }
 }
 
-/// SHAPE answers its requests and is still not advertised.
+/// SHAPE answers its requests and is advertised, with its event base.
 ///
-/// A client that probes gets correct answers; one that asks whether the
-/// extension exists is told no, because an input shape that does not yet
-/// make clicks fall through would be a silent lie to the panel that sets it.
+/// The advertisement waited for input shapes to genuinely make clicks fall
+/// through, because that is what the client asking for this extension does
+/// with it.
 #[test]
-fn shape_answers_without_being_advertised_yet() {
+fn shape_is_advertised_once_its_shapes_take_effect() {
     let mut fixture = ShapeFixture::new();
     let version = fixture.send(&shape_minor_request(
         ShapeFixture::ORDER,
@@ -3798,7 +3798,9 @@ fn shape_answers_without_being_advertised_yet() {
         X_SHAPE_EXTENSION_NAME,
     ));
     let encoded = query.encoded_outputs(ShapeFixture::ORDER);
-    assert_eq!(encoded[0][8], 0, "SHAPE must not be advertised yet");
+    assert_eq!(encoded[0][8], 1, "present");
+    assert_eq!(encoded[0][9], X_SHAPE_MAJOR_OPCODE);
+    assert_eq!(encoded[0][10], X_SHAPE_FIRST_EVENT, "event base");
 }
 
 /// A bounding shape clips what the window presents, through the alpha the
@@ -3907,11 +3909,20 @@ fn crossing_between_shaped_and_unshaped_moves_the_published_format() {
     );
     assert!(shaped.response.is_some());
     let updates = fixture.runtime.take_cpu_buffer_updates();
-    assert!(
-        updates
-            .iter()
-            .any(|update| update.format() == X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888),
-        "a shaped window publishes in the alpha format: {updates:?}"
+    let shaped_update = updates
+        .iter()
+        .find(|update| update.format() == X_AUTHORITY_CPU_BUFFER_FORMAT_ARGB8888)
+        .expect("a shaped window publishes in the alpha format");
+    // The whole buffer has to cross the transition, not a patch of it. Every
+    // pixel already in the buffer was written under the opaque format, and
+    // one left uncovered would be read as though it carried alpha.
+    assert_eq!(
+        shaped_update.size(),
+        Size {
+            width: 10,
+            height: 10
+        },
+        "the transition covers the whole buffer"
     );
 
     // And back: unshaping returns the buffer to the opaque format.

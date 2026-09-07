@@ -456,7 +456,7 @@ impl XAuthorityRuntime {
                 previous_committed_generation,
                 timeout_msec,
             } => {
-                let transaction = surface_transaction_from_drawing_update(
+                let mut transaction = surface_transaction_from_drawing_update(
                     &self.windows,
                     XDrawingUpdate::present_pixmap(
                         request.transaction,
@@ -468,6 +468,11 @@ impl XAuthorityRuntime {
                         *timeout_msec,
                     ),
                 )?;
+                transaction.input_region =
+                    match self.effective_shape(*window, crate::X_SHAPE_KIND_INPUT) {
+                        (true, rects) => Some(Region { rects }),
+                        (false, _) => None,
+                    };
                 self.windows
                     .advance_generation(*window, *previous_committed_generation)?;
                 response.transactions.push(transaction);

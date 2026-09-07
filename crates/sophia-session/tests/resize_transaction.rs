@@ -310,6 +310,7 @@ fn size(width: i32, height: i32) -> Size {
 
 fn layer(surface: SurfaceId, generation: u64) -> LayerSnapshot {
     LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -400,6 +401,7 @@ fn disconnect_cleans_committed_and_rollback_state() {
 fn resize_projection_preserves_generation_chain_and_cpu_updates() {
     let surface = SurfaceId::new(5, 1);
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(118),
         authority: AuthorityKind::SophiaX,
         surface,
@@ -474,6 +476,7 @@ fn resize_projection_preserves_generation_chain_and_cpu_updates() {
     let layers = BTreeMap::from([(
         surface,
         LayerSnapshot {
+            input_region: None,
             translation: None,
             output: None,
             surface,

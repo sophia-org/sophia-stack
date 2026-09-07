@@ -117,6 +117,7 @@ fn staged_present_batch(
         groups: vec![LiveProductionAuthorityGroup {
             transaction,
             transactions: vec![SurfaceTransaction {
+                input_region: None,
                 transaction,
                 authority: AuthorityKind::SophiaX,
                 surface: GUIDE,

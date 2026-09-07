@@ -25,6 +25,7 @@ fn inset_present_content_proves_the_outer_layout_extent_without_scaling() {
         height: 1412,
     };
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(77),
         authority: AuthorityKind::SophiaX,
         surface,
@@ -65,6 +66,7 @@ fn mismatched_present_content_cannot_prove_the_outer_layout_extent() {
         height: 1040,
     };
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(771),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(771, 1),
@@ -116,6 +118,7 @@ fn a_stale_present_does_not_prove_the_extent_it_was_presented_into() {
         height: 1080,
     };
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(773),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(773, 1),
@@ -161,6 +164,7 @@ fn raster_size_reports_the_buffer_rather_than_the_configured_extent() {
         height: 1412,
     };
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(772),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(772, 1),
@@ -197,6 +201,7 @@ fn raster_size_reports_the_buffer_rather_than_the_configured_extent() {
 #[test]
 fn unresolved_x_pixmap_is_not_presented_buffer_evidence() {
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(79),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(79, 1),
@@ -231,6 +236,7 @@ fn unresolved_x_pixmap_is_not_presented_buffer_evidence() {
 #[test]
 fn presented_cpu_snapshot_is_complete_present_evidence() {
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(78),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(78, 1),
@@ -278,6 +284,7 @@ fn backing_snapshot_cannot_impersonate_same_transaction_present() {
     let dma_buffer = BufferHandle::from_raw(800);
     let cpu_handle = 801;
     let dma = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -386,6 +393,7 @@ fn present_candidate_is_not_replaced_by_later_blank_backing_extent() {
     );
     let mut present = crate::live_session::wm_update_coordinator_batch(present_id);
     present.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: present_id,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -433,6 +441,7 @@ fn present_candidate_is_not_replaced_by_later_blank_backing_extent() {
     );
     let mut backing = crate::live_session::wm_update_coordinator_batch(TransactionId::from_raw(82));
     backing.transactions.push(SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(82),
         authority: AuthorityKind::SophiaX,
         surface,
@@ -518,6 +527,7 @@ fn a_stronger_pre_admission_candidate_rebases_recovery_and_queues_relayout() {
     };
     let dma_buffer = BufferHandle::from_raw(16);
     let frame = SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -627,6 +637,7 @@ fn a_first_candidate_deferred_from_an_in_flight_layout_queues_recovery() {
     let target = rect(1278, 1424);
     let dma_buffer = BufferHandle::from_raw(17);
     let frame = SurfaceTransaction {
+        input_region: None,
         transaction: frame_transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -703,6 +714,7 @@ fn a_first_candidate_deferred_from_an_in_flight_layout_queues_recovery() {
     layout.pending = Some(PendingLiveWmLayout {
         transaction: layout_transaction,
         layers: vec![LayerSnapshot {
+            input_region: None,
             translation: None,
             output: None,
             surface,

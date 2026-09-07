@@ -98,6 +98,7 @@ fn live_runtime_driver_adapter_commits_authority_batches_before_rendering() {
     let output = engine.output();
     let surface = SurfaceId::new(9, 1);
     let transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(86),
         authority: AuthorityKind::SophiaX,
         surface,

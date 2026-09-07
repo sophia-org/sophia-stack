@@ -166,6 +166,7 @@ fn public_live_proposal(
                     .layout_facts(placement.surface)
                     .ok_or("public WM projection names a missing planning surface")?;
                 LayerSnapshot {
+                    input_region: None,
                     translation: None,
             surface: facts.surface,
                     authority_local_id: None,

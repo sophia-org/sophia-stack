@@ -54,6 +54,7 @@ fn scheduler_batch(
         groups: vec![LiveProductionAuthorityGroup {
             transaction,
             transactions: vec![SurfaceTransaction {
+                input_region: None,
                 transaction,
                 authority: AuthorityKind::SophiaX,
                 surface,
@@ -152,6 +153,7 @@ fn in_flight_present_for_outputs(
             Region::empty(),
         )]);
     let prepared = production.prepare_present_transaction(&SurfaceTransaction {
+        input_region: None,
         transaction,
         authority: AuthorityKind::SophiaX,
         surface,
@@ -489,6 +491,7 @@ fn queued_present_owns_only_its_exact_surface_transaction() {
         LiveProductionAuthorityGroup {
             transaction: TransactionId::from_raw(198),
             transactions: vec![SurfaceTransaction {
+                input_region: None,
                 transaction: TransactionId::from_raw(198),
                 authority: AuthorityKind::SophiaX,
                 surface: SurfaceId::new(405, 1),
@@ -592,6 +595,7 @@ fn newly_queued_present_uses_the_committed_presentation_layout() {
         height: 1426,
     };
     let layout = [sophia_protocol::LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -764,6 +768,7 @@ fn present_released_after_commit_runs_when_its_surface_is_visible() {
         LiveProductionPresentDisposition::StageLayout { epoch },
     );
     let layout = [sophia_protocol::LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -1166,6 +1171,7 @@ fn later_epoch_present_does_not_supersede_another_surface() {
         height: 48,
     };
     let layout = [sophia_protocol::LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface: second_surface,

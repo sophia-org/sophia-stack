@@ -42,6 +42,7 @@ fn geometry() -> Rect {
 
 fn layer(surface: SurfaceId) -> LayerSnapshot {
     LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -73,6 +74,7 @@ fn group(
     LiveProductionAuthorityGroup {
         transaction,
         transactions: vec![SurfaceTransaction {
+            input_region: None,
             transaction,
             authority: AuthorityKind::SophiaX,
             surface,

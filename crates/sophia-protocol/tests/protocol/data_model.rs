@@ -224,6 +224,7 @@ fn stale_surface_id_fails_closed() {
 #[test]
 fn committed_state_keeps_the_raster_size_not_the_placement() {
     let layer = LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface: SurfaceId::new(6, 1),
@@ -280,6 +281,7 @@ fn committed_state_keeps_the_raster_size_not_the_placement() {
 fn layer_snapshot_is_cloneable_frame_data() {
     let surface = SurfaceId::new(0, 1);
     let snapshot = LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,
@@ -361,6 +363,7 @@ fn authority_surface_carries_protocol_ownership_without_metadata() {
 #[test]
 fn surface_transaction_carries_atomic_geometry_buffer_and_readiness() {
     let layer = LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface: SurfaceId::new(4, 1),
@@ -423,6 +426,7 @@ fn surface_transaction_carries_atomic_geometry_buffer_and_readiness() {
 #[test]
 fn committed_surface_state_is_cloneable_visual_state() {
     let layer = LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface: SurfaceId::new(5, 1),
@@ -739,6 +743,7 @@ fn dma_buf_pairing_covers_every_variant_of_a_content_set() {
         height: 480,
     };
     let mut transaction = SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(7),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(1, 1),

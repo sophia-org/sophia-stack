@@ -212,6 +212,7 @@ fn a_transaction_heavy_batch_ends_the_run_early() {
 
 fn merge_surface_transaction(index: u64) -> SurfaceTransaction {
     SurfaceTransaction {
+        input_region: None,
         transaction: TransactionId::from_raw(9_000 + index),
         authority: AuthorityKind::SophiaX,
         surface: SurfaceId::new(50 + u32::try_from(index).unwrap_or(0), 1),

@@ -642,6 +642,17 @@ fn extension_query_result(name: &str) -> XExtensionQueryResult {
             first_event: 0,
             first_error: crate::X_RENDER_FIRST_ERROR,
         },
+        // Advertised now that an input shape genuinely makes clicks fall
+        // through. Storing one without honouring it would have been a
+        // silent lie to the client that asked for this -- a panel whose
+        // transparent parts still swallow clicks looks like a broken shell,
+        // not a missing extension.
+        crate::X_SHAPE_EXTENSION_NAME => XExtensionQueryResult {
+            present: true,
+            major_opcode: crate::X_SHAPE_MAJOR_OPCODE,
+            first_event: crate::X_SHAPE_FIRST_EVENT,
+            first_error: 0,
+        },
         crate::X_XF86_VIDMODE_EXTENSION_NAME => XExtensionQueryResult {
             present: true,
             major_opcode: crate::X_XF86_VIDMODE_MAJOR_OPCODE,

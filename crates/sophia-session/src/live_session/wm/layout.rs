@@ -454,6 +454,7 @@ impl PersistentLiveLayout {
                         geometry = center_geometry_without_scaling(geometry, output);
                     }
                     let layer = LayerSnapshot {
+                        input_region: None,
                         translation: None,
             surface: transaction.surface,
                         authority_local_id: None,

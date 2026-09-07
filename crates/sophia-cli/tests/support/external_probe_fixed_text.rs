@@ -37,6 +37,7 @@ fn fixed_text_snapshot(handle: u64, rows: &[&[u8]]) -> XAuthorityCpuBufferSnapsh
 
 fn transaction(surface: sophia_protocol::SurfaceId, handle: u64) -> SurfaceTransaction {
     SurfaceTransaction {
+        input_region: None,
         transaction: sophia_protocol::TransactionId::from_raw(handle),
         authority: sophia_protocol::AuthorityKind::SophiaX,
         surface,

@@ -91,6 +91,7 @@ fn switcher_admits_only_presented_policy_managed_surfaces() {
     let popup = SurfaceId::new(42, 2);
     let hidden = SurfaceId::new(43, 2);
     let layer = |surface| LayerSnapshot {
+        input_region: None,
         translation: None,
         output: None,
         surface,

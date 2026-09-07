@@ -74,6 +74,21 @@ fn hit_test_layers(event: &InputEventPacket, layers: &[LayerSnapshot]) -> InputR
         if !rect_contains_point(layer.geometry, untransformed_position) {
             continue;
         }
+        // A shaped input region punches through: a click outside it is not
+        // this layer's, and falls to whatever is beneath. That is the whole
+        // reason a panel sets one, and skipping the layer rather than
+        // consuming the event is what makes it true.
+        if let Some(region) = &layer.input_region {
+            let local_x = untransformed_position.x - f64::from(layer.geometry.x);
+            let local_y = untransformed_position.y - f64::from(layer.geometry.y);
+            if !sophia_protocol::geometry::region_algebra::contains_point(
+                &region.rects,
+                local_x.floor() as i32,
+                local_y.floor() as i32,
+            ) {
+                continue;
+            }
+        }
 
         let route = InputRoute {
             input_serial: event.serial,

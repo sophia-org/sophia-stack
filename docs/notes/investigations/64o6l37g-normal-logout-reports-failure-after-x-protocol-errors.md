@@ -2,7 +2,7 @@
 id: 64o6l37g
 date: 2026-09-06
 kind: investigation
-status: awaiting-physical
+status: closed
 tags: [investigation, session, x11]
 ---
 # Normal logout reports failure after X protocol errors
@@ -117,10 +117,12 @@ lifecycle coverage also verifies that an explicitly requested startup proof
 still fails and emits a failure record. The application-proof count gate is
 retained by inspection; the new wire regression exercises ordinary sessions.
 
-These deterministic checks do not establish physical acceptance. The installed
-session still runs `4b4f2841`. Reinstall the candidate and observe one ordinary
-logout; t019 remains open. The subsequent [runtime crash](fltuldiq-runtime-session-crash-retains-no-specific-cause.md)
-is a separate unresolved failure and is not claimed fixed by this policy change.
+These deterministic checks do not establish physical acceptance. At that point,
+the installed session still ran `4b4f2841`; candidate installation and ordinary
+logout were pending. The physical result below completes that check; t019
+remains open. The subsequent
+[runtime crash](fltuldiq-runtime-session-crash-retains-no-specific-cause.md) is a
+separate unresolved failure and is not claimed fixed by this policy change.
 
 Validation on 2026-09-06: all 12 diagnostic integration tests and both headless
 CLI regressions pass. `cargo xtask check` passes, including workspace tests,
@@ -130,3 +132,44 @@ at `/tmp/sophia-logout-diagnostics.log`, `/tmp/sophia-logout-cli.log`, and
 updated for the concurrently committed session-bus wrapper; its production
 script was not changed. Modified Markdown links and open task-ID uniqueness
 were checked, followed by `zk index` and `git diff --check`.
+
+## Installed candidate observation
+
+The operator returned to live session
+`00000001788747777404-e07f8415-debe-4d7a-8cad-a0a8f18b715d`. Its manifest
+confirms release `8921174cc75a02bc6a18e87b4f5ecee293356510` and executable
+SHA-256 `2c6b947797be70985f0fb2d557acbaa0bd6da173537b6c07e4ae06b9b3b98fc5`.
+Inspection showed active recording, zero discarded records, zero storage
+errors, and continued scanout. No session-failure or runtime/client-fatal record
+appeared in the inspected events. The live inspection was saved to
+`/tmp/sophia-8921174c-live-inspection.log`; this is an observation cutoff, not a
+completed-session archive. At this cutoff, ordinary logout remained the next
+physical check.
+
+## Physical acceptance
+
+The operator logged out and returned on the same installed `8921174c` release.
+The completed session above ended with `status=exited`, `exit_status=0`, and
+`emergency=false`. Quiescence completed in 76 ms; native suspension reported
+`outcome=drained`. TTY recovery restored termios and keyd. Recorder health ended
+at sequence 6767 with zero discarded records and zero storage errors. No
+session-failure, runtime-fatal, or client-fatal record appears in this archive.
+
+Schema 3 retained ten protocol refusals across six classifications, with zero
+discarded observations: `138/3/3` occurred five times, and `144/5/166`,
+`144/7/166`, `144/10/166`, `144/30/166`, and `144/34/1` occurred once each.
+These are compatibility observations, not proof that an application worked.
+They demonstrate the repaired separation: a nonzero tally survived without
+turning successful ordinary logout into a failed session.
+
+The completed evidence is preserved at
+`/home/niltempus/.local/state/sophia/session-investigations/00000001788747777404-e07f8415-debe-4d7a-8cad-a0a8f18b715d-f2b42c91-f335-44e8-b202-10fd6a94cee0`.
+All files listed in `SHA256SUMS` verified. Readable inspections were observed at
+`/tmp/sophia-8921174c-logout-inspection.log` and
+`/tmp/sophia-8921174c-after-login-inspection.log`.
+
+The new session, `00000001788748050781-210f9ce5-a3bc-4596-ad5b-b4e9b6367a22`,
+reports the same release and executable digest, active recording, and no
+recorder loss or storage errors at inspection. This closes the logout-policy
+investigation. It does not resolve the earlier runtime crash; t019 retains that
+separate investigation while ordinary use continues.

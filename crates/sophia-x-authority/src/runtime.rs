@@ -33,6 +33,7 @@ include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
 include!("runtime/render_glyphs.rs");
 include!("runtime/render_traps.rs");
+include!("runtime/xfixes_regions.rs");
 include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");

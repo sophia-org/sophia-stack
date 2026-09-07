@@ -48,5 +48,5 @@ deterministic test does not close this physical exit or earlier milestone gates.
 
 The first installed attempt ended during VT preparation and exposed missing
 CLI installation and failure fields. The [incident investigation](../investigations/tnf5xqrb-vt-handoff-failure-exposed-missing-diagnostic-causes.md)
-records the repairs and the evidence needed to diagnose the VT failure before
-repeating physical acceptance.
+records the repaired diagnostics and the subsequent multi-output renderer
+handoff correction. Repeat physical acceptance with that correction installed.

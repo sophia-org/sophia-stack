@@ -68,7 +68,7 @@
                         suspended_renderer_images = match (runtime.as_ref(), native_scanout.as_mut())
                         {
                             (Some(runtime), Some(native)) => {
-                                Some(capture_renderer_image_handoff(runtime, native, output.id)?)
+                                Some(capture_renderer_image_handoff(runtime, native)?)
                             }
                             _ => None,
                         };

@@ -64,7 +64,6 @@
                     renderer_handoff = Some(capture_renderer_image_handoff(
                         runtime,
                         native,
-                        output.id,
                     )?);
                     tracing::info!(
                         "sophia_live_output_topology schema=1 status=quiesced transition={} outcome={} abandoned_scanouts={}",

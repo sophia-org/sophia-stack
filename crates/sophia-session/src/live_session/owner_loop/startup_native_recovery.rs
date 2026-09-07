@@ -13,7 +13,6 @@ let renderer_handoff = capture_renderer_image_handoff(
         .as_ref()
         .ok_or("startup native recovery lost the visual runtime")?,
     current,
-    output.id,
 )?;
 close_native_owner!("startup_recovery");
 if !native_recovery_allowed!() { continue; }

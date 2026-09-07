@@ -2,7 +2,7 @@
 id: tnf5xqrb
 date: 2026-09-06
 kind: investigation
-status: investigating
+status: awaiting-physical-acceptance
 tags: [investigation, session, tooling]
 ---
 # VT handoff failure exposed missing diagnostic causes
@@ -49,10 +49,34 @@ reduced code. Codes come from typed renderer variants or exact internal
 invariant messages; unknown errors become `unclassified`. Raw application
 paths, text, and arbitrary error messages remain excluded.
 
-No renderer ownership or VT recovery behavior has been changed. Missing
-promoted images, worker/export failure, and failures before image export remain
-candidates, not established causes. In particular, this is not evidence that
-extending a timeout would fix the incident.
+The diagnostics repair was committed as `1f8b6a43`. The installed rerun on
+`5c929b84610c0cf1edc8d6b7f7c951dd1e7371cd` supplied the missing cause:
+`handoff_missing_image`, during `export_images`, with three retained images.
+The marked run was `00000001788745011061-e84982e5-6623-4be9-9713-05e465ab5be2`;
+marker `fd9dbff9-e6fb-431a-b954-98df4fd6b310` was written after the session
+ended. Its independent preserved copy has suffix
+`f914012b-6b45-40d3-860c-4b5fe470e1f9`. Events 1629–1633 show preparation,
+input revocation, and the failed export before any switch request. The recorder
+retained 1,647 events with zero dropped records or storage errors.
+
+The export took the first logical output's heads but required each of their
+stores to contain the entire session's retained image set. That requirement
+fails when an image has only been rendered on another output. Restore had the
+same first-output assumption. The session has two outputs; the captured error
+and a deterministic sparse-store fixture identify this coverage defect.
+The log does not identify the individual missing image or its owning head.
+
+Handoff now spans every enabled head and collects each head's available
+promoted images. Their union must cover all retained identities. The backend
+retains output, card, and connector membership with each collection, resolves
+all replacement heads before import, and rejects missing or repeated owners.
+Restore preserves sparse coverage and imports each image once per store,
+including the opt-in shared-worker case. Genuine missing images and exporter
+failures still abort the handoff, releasing partial snapshot leases.
+
+VT release, startup recovery, and topology replacement use the same corrected
+capture path. Handoff code now lives in its own backend module. No timeout,
+WM policy, application authority, or disclosure boundary changes were needed.
 
 ## Validation and remaining work
 
@@ -64,9 +88,24 @@ The full `cargo xtask check` passed; its transcript is
 note links, task-ID uniqueness, and `git diff --check` also passed. Concurrent
 X11 extension edits belong to the other agent and are outside this repair.
 
-The next installed run must identify the precise failure boundary and cause if
-the VT problem recurs. Only then can a renderer correction be tied to this
-incident. The independent-TTY marker and later-login acceptance criteria for
+The corrected native session builds. Six handoff integration tests pass:
+exact identity admission and resume ordering, sparse two-output collection,
+mirrored/private and shared-store restore, invalid or genuinely missing images,
+and cleanup with preservation of a typed exporter failure. Evidence:
+`/tmp/sophia-vt-handoff-build.log` and `/tmp/sophia-vt-handoff-tests.log`.
+`cargo xtask check` passed the handoff tests but stopped in the concurrent X11
+extension work: `render_refusals_split_between_not_offered_and_not_that_version`
+sends a four-byte RENDER request that the new parser requires to be at least
+24 bytes. The failure is at `extensions_dispatch.rs:1844`; its new request
+length belongs to the other agent's uncommitted extension changes. The full
+run is therefore not a pass. Transcript:
+`/tmp/sophia-vt-handoff-xtask-check.log`. The canonical
+`cargo xtask check layout`, formatting, Cargo metadata, note links, stable task
+IDs, and `git diff --check` pass.
+
+Physical acceptance still requires switching to tty3, writing a marker,
+returning to tty7 with both outputs intact, and inspecting the earlier record
+after a later login. The independent-TTY marker and later-login acceptance criteria for
 [t015 and t016](../plans/queue-05-3-make-failures-diagnosable.md) remain open;
 this failed attempt does not satisfy them.
 

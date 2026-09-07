@@ -184,54 +184,6 @@ impl LiveProductionQueuedMirrorGeneration {
     }
 }
 
-#[derive(Debug)]
-pub struct LiveProductionRendererImageHandoff {
-    output: OutputId,
-    expected: Vec<sophia_renderer_live::LiveRendererImageId>,
-    heads: Vec<LiveProductionRendererImageHeadHandoff>,
-}
-
-#[derive(Debug)]
-struct LiveProductionRendererImageHeadHandoff {
-    connector_id: u32,
-    snapshots: Vec<sophia_renderer_live::LiveRendererImageSnapshot>,
-}
-
-impl LiveProductionRendererImageHandoff {
-    pub const fn len(&self) -> usize {
-        self.expected.len()
-    }
-
-    pub const fn is_empty(&self) -> bool {
-        self.expected.is_empty()
-    }
-
-    pub fn image_ids(&self) -> &[sophia_renderer_live::LiveRendererImageId] {
-        &self.expected
-    }
-}
-
-fn validate_renderer_image_handoff_ids(
-    expected: &[sophia_renderer_live::LiveRendererImageId],
-    actual: &[sophia_renderer_live::LiveRendererImageId],
-) -> Result<(), &'static str> {
-    match crate::reduce_live_renderer_image_handoff_admission(expected, Some(actual)) {
-        crate::LiveRendererImageHandoffAdmission::Ready => Ok(()),
-        crate::LiveRendererImageHandoffAdmission::InvalidIdentity => {
-            Err("renderer-image handoff contains an invalid image identity")
-        }
-        crate::LiveRendererImageHandoffAdmission::DuplicateIdentity => {
-            Err("renderer-image handoff contains a duplicate image identity")
-        }
-        crate::LiveRendererImageHandoffAdmission::CoverageMismatch => {
-            Err("renderer-image handoff does not cover the retained scene")
-        }
-        crate::LiveRendererImageHandoffAdmission::Missing => {
-            Err("renderer-image handoff is unexpectedly missing")
-        }
-    }
-}
-
 fn project_owned_mixed_frame(
     frame: &crate::LiveOwnedMixedCompositionFrame,
     source: sophia_protocol::Size,
@@ -1172,77 +1124,6 @@ impl LiveProductionNativeScanout {
                 .saturating_add(usize::from(exporter.rollback_renderer_image(image_id)?));
         }
         Ok(rolled_back)
-    }
-
-    pub fn export_renderer_image_handoff(
-        &mut self,
-        output: OutputId,
-        expected: &[sophia_renderer_live::LiveRendererImageId],
-    ) -> Result<LiveProductionRendererImageHandoff, Box<dyn std::error::Error>> {
-        validate_renderer_image_handoff_ids(expected, expected)?;
-        let indices = self.head_indices(output);
-        if indices.is_empty() {
-            return Err("renderer-image handoff targets an unknown output".into());
-        }
-        let mut heads = Vec::with_capacity(indices.len());
-        for head_index in indices {
-            let mut snapshots = Vec::with_capacity(expected.len());
-            for image_id in expected {
-                let snapshot = self.exporters[head_index]
-                    .export_promoted_renderer_image(*image_id)?
-                    .ok_or("retained scene refers to an unavailable promoted renderer image")?;
-                snapshots.push(snapshot);
-            }
-            let actual = snapshots
-                .iter()
-                .map(sophia_renderer_live::LiveRendererImageSnapshot::image_id)
-                .collect::<Vec<_>>();
-            validate_renderer_image_handoff_ids(expected, &actual)?;
-            heads.push(LiveProductionRendererImageHeadHandoff {
-                connector_id: self.heads[head_index].selection.connector_id(),
-                snapshots,
-            });
-        }
-        Ok(LiveProductionRendererImageHandoff {
-            output,
-            expected: expected.to_vec(),
-            heads,
-        })
-    }
-
-    pub fn restore_renderer_image_handoff(
-        &mut self,
-        handoff: LiveProductionRendererImageHandoff,
-    ) -> Result<usize, Box<dyn std::error::Error>> {
-        let expected_count = handoff.expected.len();
-        let expected_heads = self.head_indices(handoff.output);
-        if expected_heads.len() != handoff.heads.len() {
-            return Err("renderer-image handoff head coverage changed during replacement".into());
-        }
-        for head_handoff in handoff.heads {
-            let head_index = expected_heads
-                .iter()
-                .copied()
-                .find(|head_index| {
-                    self.heads[*head_index].selection.connector_id() == head_handoff.connector_id
-                })
-                .ok_or("renderer-image handoff names an unavailable connector")?;
-            if !self.exporters[head_index].renderer_image_owner_initialized() {
-                return Err("replacement renderer image owner is not initialized".into());
-            }
-            let actual = head_handoff
-                .snapshots
-                .iter()
-                .map(sophia_renderer_live::LiveRendererImageSnapshot::image_id)
-                .collect::<Vec<_>>();
-            validate_renderer_image_handoff_ids(&handoff.expected, &actual)?;
-            for snapshot in head_handoff.snapshots {
-                if !self.exporters[head_index].restore_promoted_renderer_image(snapshot)? {
-                    return Err("replacement renderer rejected a retained image snapshot".into());
-                }
-            }
-        }
-        Ok(expected_count)
     }
 
     /// Every head's exporter has an initialized renderer-image owner.

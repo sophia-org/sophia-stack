@@ -9,6 +9,7 @@ mod persistent_native_scanout {
     mod cursor;
     mod frame_damage;
     mod output_capabilities;
+    mod renderer_handoff;
     mod renderer_images;
     mod state;
     mod topology;
@@ -18,9 +19,9 @@ mod persistent_native_scanout {
         trace_native_head_retirement, trace_presented_mirror_head_damage,
         trace_presented_output_damage,
     };
+    pub use renderer_handoff::LiveProductionRendererImageHandoff;
     pub use renderer_images::{
-        LiveProductionHeadCompositionFrame, LiveProductionRendererImageHandoff,
-        live_topology_frame_renderer_image_requirements,
+        LiveProductionHeadCompositionFrame, live_topology_frame_renderer_image_requirements,
         validate_live_head_composition_frame_batch,
     };
     pub use state::*;

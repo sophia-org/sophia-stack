@@ -114,10 +114,9 @@ fn synchronize_runtime_surface_chrome_style(
 fn capture_renderer_image_handoff(
     runtime: &LiveProductionVisualRuntime,
     native_scanout: &mut LiveProductionNativeScanout,
-    output: sophia_protocol::OutputId,
 ) -> Result<sophia_backend_live::LiveProductionRendererImageHandoff, Box<dyn std::error::Error>> {
     let retained = runtime.retained_renderer_image_ids();
-    native_scanout.export_renderer_image_handoff(output, &retained).inspect_err(|error| {
+    native_scanout.export_renderer_image_handoff(&retained).inspect_err(|error| {
         crate::session_eprintln!(
             "sophia_live_renderer_handoff schema=1 status=failed phase=export_images failure_code={} retained_count={}",
             crate::diagnostics::failure_code(error.as_ref()), retained.len(),

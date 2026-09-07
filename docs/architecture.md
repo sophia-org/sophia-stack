@@ -760,6 +760,16 @@ renderer failure or completion counts. Exact page-flip release makes one slot
 available, and only a compatible free slot may render the retained latest
 frame. VT quiescence, partial mirror failure, and normal teardown all drain the
 same lease tokens; none infer availability from reference counts.
+
+Before replacing renderer owners for a VT handoff, the backend exports the
+retained image set across all enabled heads. A head's store contains only the
+images it has rendered; the union of those stores must cover the retained
+scene. Replacement validates head membership before importing snapshots into
+the corresponding stores. Heads sharing a renderer store import each image
+once. A snapshot missing from every owner remains a failed handoff. These
+snapshots and physical head identities remain inside the backend; WM policy
+does not participate in the transfer.
+
 An accepted page flip has a 500 ms hard watchdog. Crossing it terminates the
 graphical session and restores the display manager instead of retaining an
 unbounded black or frozen seat.

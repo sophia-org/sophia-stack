@@ -31,7 +31,7 @@ fn graphical_takeover_disables_console_rendering_and_input_echo_after_guard_armi
     let graphics = offset("python3 \"$TTY_MODE_HELPER\" graphics");
     let keyboard_off = offset("python3 \"$TTY_MODE_HELPER\" keyboard-off");
     let raw = offset("stty raw -echo");
-    let session = offset("setsid \"${session_command[@]}\"");
+    let session = offset("setsid \"${session_launch[@]}\"");
 
     assert!(guard_ready < graphics);
     assert!(graphics < keyboard_off);
@@ -96,7 +96,7 @@ fn visual_proofs_opt_in_to_repeated_final_region_readback() {
 #[test]
 fn launcher_trace_mode_precedence_is_preserved_when_verbose_and_proof_overlap() {
     let begin = offset("if [[ \"${SOPHIA_SESSION_VERBOSE_TRACE:-false}\" == true ]]");
-    let end = offset("session_command=(");
+    let end = offset("session_bus_launcher=()");
     let block = &SESSION_LAUNCHER[begin..end];
     for (verbose, proof, explicit, expected) in [
         ("true", "false", None, Some("1")),

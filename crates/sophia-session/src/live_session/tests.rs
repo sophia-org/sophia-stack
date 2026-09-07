@@ -46,10 +46,10 @@ use super::{
     production_cycle_native_owner_policy, public_policy_launch_spec,
     public_policy_restart_decision, public_policy_restart_settlement_pending,
     public_session_operations, record_runtime_commits, rects_intersect, resolve_public_shortcuts,
-    route_input_events, session_failure_with_refused_requests, session_protocol_errors_are_fatal,
-    settle_session_fatal_error, stable_gpu_frame_proves_post_input_pixels,
-    startup_submission_requirement, successful_primary_exit_ends_session,
-    synchronize_runtime_surface_chrome_style, take_settled_input_delivery_wait,
+    route_input_events, session_failure_with_refused_requests, settle_session_fatal_error,
+    stable_gpu_frame_proves_post_input_pixels, startup_submission_requirement,
+    successful_primary_exit_ends_session, synchronize_runtime_surface_chrome_style,
+    take_settled_input_delivery_wait,
 };
 use crate::live_session::{
     PRESENT_CADENCE_CAPACITY, RoutedInputIngressSaturation, policy_cause_subject_is_live,
@@ -696,14 +696,6 @@ fn global_runtime_deadline_does_not_strand_an_active_input_proof() {
     assert!(!global_runtime_deadline_ends_session(true));
 }
 
-#[test]
-fn normal_sessions_fail_on_any_protocol_error() {
-    assert!(session_protocol_errors_are_fatal(true, false, 1));
-    assert!(session_protocol_errors_are_fatal(false, true, 1));
-    assert!(!session_protocol_errors_are_fatal(false, false, 1));
-    assert!(!session_protocol_errors_are_fatal(true, true, 0));
-}
-
 /// A failed run prints one string, so that string has to carry every opcode.
 ///
 /// Keeping only the first error meant a session reporting two dozen failures named
@@ -788,7 +780,7 @@ fn a_clean_protocol_error_tally_still_reports_a_line() {
     assert_eq!(lines.len(), 1, "a clean tally reports exactly once");
     assert_eq!(
         lines[0],
-        "sophia_live_session_protocol_error_tally schema=2 status=clean major=0 minor=0 code=0 count=0 distinct=0 discarded=0"
+        "sophia_live_session_protocol_error_tally schema=3 status=clean major=0 minor=0 code=0 count=0 distinct=0 discarded=0 total=0"
     );
 }
 

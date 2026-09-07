@@ -2,6 +2,7 @@
 mod capture;
 mod commands;
 mod failure;
+mod session_failure;
 mod storage;
 mod supervise;
 pub use supervise::supervise;
@@ -9,6 +10,7 @@ pub use supervise::supervise;
 pub use capture::{Capture, capture_line, capture_process_identity, recording, reduced_record};
 pub use commands::{Inspection, Marker, Retention, SessionRecord, Store};
 pub use failure::failure_code;
+pub use session_failure::{SessionFailurePhase, session_failure_record};
 
 use std::io;
 use std::time::{SystemTime, UNIX_EPOCH};

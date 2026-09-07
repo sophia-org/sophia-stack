@@ -1,7 +1,7 @@
 /// Distinct (major, minor, code) triples retained before the tally resets.
 ///
-/// The reset re-emits rather than dropping, so a client churning through opcodes
-/// stays visible instead of silently capping.
+/// Reset losses are counted separately so the retained rows and discarded
+/// observations reconcile with the session total.
 const SESSION_PROTOCOL_ERROR_TALLY_MAX_ENTRIES: usize = 64;
 
 /// Every X protocol error a session saw, grouped by the request that produced it.
@@ -26,7 +26,7 @@ impl SessionProtocolErrorTally {
             // observations the reset dropped so the total still reconciles.
             self.discarded = self
                 .discarded
-                .saturating_add(self.counts.values().copied().sum());
+                .saturating_add(self.counts.values().copied().fold(0, u64::saturating_add));
             self.counts.clear();
         }
         let count = self.counts.entry(key).or_insert(0);
@@ -61,16 +61,16 @@ impl SessionProtocolErrorTally {
         let distinct = self.counts.len();
         if self.counts.is_empty() {
             return vec![format!(
-                "sophia_live_session_protocol_error_tally schema=2 status=clean major=0 minor=0 code=0 count=0 distinct=0 discarded={}",
-                self.discarded
+                "sophia_live_session_protocol_error_tally schema=3 status=clean major=0 minor=0 code=0 count=0 distinct=0 discarded={} total={}",
+                self.discarded, self.total()
             )];
         }
         self.counts
             .iter()
             .map(|((major, minor, code), count)| {
                 format!(
-                    "sophia_live_session_protocol_error_tally schema=2 status=degraded major={major} minor={minor} code={code} count={count} distinct={distinct} discarded={}",
-                    self.discarded
+                    "sophia_live_session_protocol_error_tally schema=3 status=compatibility_refusals major={major} minor={minor} code={code} count={count} distinct={distinct} discarded={} total={}",
+                    self.discarded, self.total()
                 )
             })
             .collect()
@@ -113,14 +113,6 @@ fn session_failure_with_refused_requests(
         tally.total(),
         tally.summary()
     )
-}
-
-fn session_protocol_errors_are_fatal(
-    normal_session: bool,
-    application_proof: bool,
-    protocol_error_count: usize,
-) -> bool {
-    protocol_error_count != 0 && (normal_session || application_proof)
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

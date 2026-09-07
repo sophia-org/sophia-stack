@@ -256,6 +256,85 @@ fn payload_values_are_not_copied_from_session_records() {
 }
 
 #[test]
+fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
+    for status in ["clean", "compatibility_refusals", "degraded"] {
+        let safe = format!(
+            "sophia_live_session_protocol_error_tally schema=3 status={status} major=144 minor=30 code=1 count=5 distinct=1 discarded=64 total=69"
+        );
+        assert_eq!(
+            reduced_record(&format!(
+                "{safe} xid=123 resource_id=456 namespace_id=789 title=private error=secret payload=hidden"
+            ))
+            .unwrap(),
+            safe
+        );
+    }
+    assert_eq!(
+        reduced_record("sophia_other_event major=144 minor=30 code=1 distinct=1 discarded=64 total=69 status=compatibility_refusals").unwrap(),
+        "sophia_other_event"
+    );
+}
+
+#[test]
+fn protocol_tally_classification_rejects_out_of_range_and_nonnumeric_fields() {
+    let prefix = "sophia_live_session_protocol_error_tally";
+    let maximums = format!(
+        "{prefix} major=255 minor=65535 code=255 distinct=64 discarded={} total={}",
+        u64::MAX,
+        u64::MAX,
+    );
+    assert_eq!(reduced_record(&maximums).unwrap(), maximums);
+    for field in [
+        "major=256",
+        "minor=65536",
+        "code=256",
+        "distinct=65",
+        "discarded=18446744073709551616",
+        "total=18446744073709551616",
+        "major=-1",
+        "minor=+1",
+        "code=0xff",
+        "distinct=1.0",
+        "discarded=true",
+        "total=none",
+        "major=",
+        "minor=private",
+    ] {
+        assert_eq!(
+            reduced_record(&format!("{prefix} {field}")).unwrap(),
+            prefix,
+            "rejected field: {field}"
+        );
+    }
+}
+
+#[test]
+fn session_failure_records_preserve_safe_phase_and_cause_without_error_payloads() {
+    use sophia_session::diagnostics::{SessionFailurePhase, session_failure_record};
+
+    let error: Box<dyn std::error::Error> =
+        "persistent session controls did not drain cleanly".into();
+    let record = session_failure_record(SessionFailurePhase::ControlDrain, error.as_ref());
+    assert_eq!(
+        record,
+        "sophia_session_failure schema=1 status=failed phase=control_drain failure_code=session_control_drain"
+    );
+    assert_eq!(reduced_record(&record).unwrap(), record);
+
+    let private = std::io::Error::other("/private/application/document");
+    let record = session_failure_record(SessionFailurePhase::Authority, &private);
+    assert_eq!(
+        record,
+        "sophia_session_failure schema=1 status=failed phase=authority failure_code=unclassified"
+    );
+    assert_eq!(reduced_record(&record).unwrap(), record);
+    assert_eq!(
+        reduced_record("sophia_session_failure phase=private_document failure_code=private_document error=private_document").unwrap(),
+        "sophia_session_failure"
+    );
+}
+
+#[test]
 fn vt_failure_records_retain_the_boundary_and_safe_cause() {
     use sophia_renderer_live::LiveRendererScanoutBufferExportDetail as Detail;
     use sophia_session::diagnostics::failure_code;

@@ -1,4 +1,6 @@
 {
+    let original_failure_phase = *failure_phase;
+    *failure_phase = crate::diagnostics::SessionFailurePhase::Cleanup;
     let SessionLoopMetrics {
         batches,
         transactions,
@@ -169,13 +171,24 @@
         if execution.frontend_candidate_published && topology_rollback_established {
             let generation = output_topology_owner
                 .publication_generation
-                .checked_add(2)
-                .ok_or("output publication generation exhausted during completion")?;
-            match output_topology_from_authority_at_generation(
-                &execution.effect.published_snapshot,
-                generation,
-            ) {
-                Ok(snapshot) => {
+                .checked_add(2);
+            // Even exhausted publication state must reach native cleanup and
+            // preserve any runtime failure that brought the session here.
+            let rollback_snapshot = generation
+                .ok_or_else(|| {
+                    Box::<dyn std::error::Error>::from(
+                        "output publication generation exhausted during completion",
+                    )
+                })
+                .and_then(|generation| {
+                    output_topology_from_authority_at_generation(
+                        &execution.effect.published_snapshot,
+                        generation,
+                    )
+                    .map(|snapshot| (generation, snapshot))
+                });
+            match rollback_snapshot {
+                Ok((generation, snapshot)) => {
                     let (ack_sender, ack_receiver) = sync_channel(1);
                     match frontend_service_sender.send(
                         XServerFrontendServiceCommand::UpdateOutputTopology {
@@ -346,11 +359,13 @@
             fatal_cleanup.presentations_shutdown,
             cleanup_failures.len(),
         );
+        *failure_phase = original_failure_phase;
         return Err(settle_session_fatal_error(original, fatal_cleanup, &cleanup_failures).into());
     }
     if let Some(error) = cleanup_failures.into_iter().next() {
         return Err(error.into());
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::InputTiming;
     if input_presented_latency.is_none()
         && input_pixel_change
         && let Some(started) = input_proof_started_at
@@ -416,9 +431,11 @@
         std::io::stdout().flush()?;
     }
 
+    *failure_phase = crate::diagnostics::SessionFailurePhase::FrameValidation;
     let report = scene
         .last_report()
         .ok_or("persistent live session received no composable X pixels")?;
+    *failure_phase = crate::diagnostics::SessionFailurePhase::InputProof;
     if config.input_proof_requested()
         && input_delivery.events_expected != input_delivery.events_flushed
     {
@@ -498,6 +515,7 @@
         )
         .into());
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::ApplicationProof;
     if config.application_proof_requested() {
         let status =
             primary_exit_status.ok_or("application proof ended before the client exited")?;
@@ -514,23 +532,14 @@
             )
             .into());
         }
-        if session_protocol_errors_are_fatal(false, true, protocol_error_count) {
+        if protocol_error_count != 0 {
             return Err(format!(
                 "application emitted {protocol_error_count} X protocol errors; first={first_protocol_error:?}"
             )
             .into());
         }
     }
-    if session_protocol_errors_are_fatal(
-        config.normal_session,
-        config.application_proof_requested(),
-        protocol_error_count,
-    ) {
-        return Err(format!(
-            "normal session emitted {protocol_error_count} X protocol errors; first={first_protocol_error:?}"
-        )
-        .into());
-    }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::LayoutValidation;
     let recovery_extent_count = layout.recovery_extent_count();
     let standing_target_count = layout.standing_target_count();
     if recovery_extent_count != 0
@@ -543,6 +552,7 @@
         )
         .into());
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::ApplicationProof;
     if config.firefox_full_proof_requested() {
         if config.firefox_m10_proof && !firefox_m8_proof.complete() {
             return Err(format!(
@@ -667,6 +677,7 @@
             "sophia_firefox_lifecycle schema=1 status=complete page_ready=true kitty_checkpoints=6 content=redacted"
         );
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::LayoutValidation;
     if config.surface_resize_requested() && !resize_proof_complete {
         return Err(
             "persistent live session did not commit configured surface resize pixels".into(),
@@ -1121,6 +1132,7 @@
     // input proof, and are false when no proof was configured as well as when a
     // configured one failed. `sophia_live_session_input_proof` at startup says
     // which session this is.
+    *failure_phase = crate::diagnostics::SessionFailurePhase::Startup;
     let startup_proof_elapsed = if startup_proof_requested {
         (startup_ready_msec.ok_or_else(|| {
             // Readiness waits for the focused surface's present to settle, so
@@ -1269,6 +1281,7 @@
             .as_ref()
             .map_or(0, |runtime| runtime.diagnostics().controlled_rejections),
     );
+    *failure_phase = crate::diagnostics::SessionFailurePhase::PresentationValidation;
     if let Some(runtime) = runtime.as_ref()
         && (present_observation.disconnect_failures != 0
             || runtime.diagnostics().live_sources != 0
@@ -1426,6 +1439,7 @@
             },
         );
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::ControlDrain;
     let control_metrics = session_controls.metrics();
     crate::session_println!(
         "sophia_live_session_control schema=2 status=complete enqueued={} dispatched={} delivered={} stale_retired={} rejected={} timed_out={} unexpected={} pending={} peak_depth={} max_queue_dwell_msec={} max_ack_msec={}",
@@ -1470,6 +1484,7 @@
             },
         );
     }
+    *failure_phase = crate::diagnostics::SessionFailurePhase::KeyDrain;
     let key_metrics = client_keys.metrics();
     let repeat_metrics = key_repeat.metrics();
     crate::session_println!(

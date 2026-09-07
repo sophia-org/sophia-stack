@@ -109,6 +109,22 @@ const RENDERER_CODES: &[(Detail, &str)] = &[
 ];
 const INVARIANT_CODES: &[(&str, &str)] = &[
     (
+        "persistent live session received no composable X pixels",
+        "session_no_composable_pixels",
+    ),
+    (
+        "persistent Present resources did not retire exactly once",
+        "session_present_retirement",
+    ),
+    (
+        "persistent session controls did not drain cleanly",
+        "session_control_drain",
+    ),
+    (
+        "persistent client key state did not drain cleanly",
+        "session_key_drain",
+    ),
+    (
         "renderer-image handoff targets an unknown output",
         "handoff_unknown_output",
     ),

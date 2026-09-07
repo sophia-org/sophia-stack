@@ -945,6 +945,7 @@ let mut native_frame_service_deadline_armed = false;
 let mut native_frame_idle_service_cycles = 0_u8;
 let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
     'session: loop {
+        *failure_phase = crate::diagnostics::SessionFailurePhase::OwnerLoop;
         if let Some(refresh_millihz) = native_scanout
             .as_ref()
             .and_then(|native| native.heads.first())
@@ -1164,13 +1165,20 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let native_shutdown_started = session_quiescence.is_some()
             || runtime_deadline_key_drain.is_draining();
         if !native_shutdown_started {
+            *failure_phase = crate::diagnostics::SessionFailurePhase::Topology;
             include!("topology_phase.rs");
         }
+        *failure_phase = crate::diagnostics::SessionFailurePhase::Lifecycle;
         include!("lifecycle.rs");
+        *failure_phase = crate::diagnostics::SessionFailurePhase::WindowManagement;
         include!("wm_phase.rs");
+        *failure_phase = crate::diagnostics::SessionFailurePhase::Authority;
         include!("authority.rs");
+        *failure_phase = crate::diagnostics::SessionFailurePhase::InputProof;
         include!("input_proof.rs");
+        *failure_phase = crate::diagnostics::SessionFailurePhase::Control;
         service_session_controls!();
+        *failure_phase = crate::diagnostics::SessionFailurePhase::Quiescence;
         // Reduce primary retirement once after every independently scheduled
         // service phase. Branch-local latency sampling stays at the event
         // source, while CPU settlement observes one coherent owner-loop state.

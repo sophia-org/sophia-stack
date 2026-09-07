@@ -70,6 +70,10 @@ fn normal_sessions_do_not_need_an_application_frame_to_run_or_finish() {
                 "{stdout}\n{stderr}"
             );
             assert!(!stdout.contains("status=not_requested"));
+            assert!(
+                stderr.contains("sophia_session_failure schema=1 status=failed phase="),
+                "{stdout}\n{stderr}"
+            );
             continue;
         }
         assert!(output.status.success(), "{startup}: {stdout}\n{stderr}");

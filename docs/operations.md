@@ -146,6 +146,21 @@ VT lifecycle fields and approved failure codes survive reduction. An
 that the raw error was retained. Application content and arbitrary error text
 remain excluded.
 
+Ordinary logout reports lifecycle and cleanup success independently of X11
+error replies. Those replies remain compatibility evidence in
+`sophia_live_session_protocol_error_tally` schema 3: bounded major/minor/error
+codes, retained counts, discarded observations, and a cumulative total. A
+nonzero tally has status `compatibility_refusals`; it does not establish a
+session failure or certify that the application worked. Explicit application
+proofs still require zero unexpected protocol errors.
+
+`sophia_session_failure` records the owning phase and an approved cause before
+the session adds request-tally context to its error. Runtime failures retain
+their original phase across cleanup. Check preceding runtime-fatal records
+for typed causes that cleanup's contextual error may no longer carry. Missing
+or `unclassified` causes require further investigation; successful TTY recovery
+alone does not establish a successful session.
+
 Resource observations continue every five seconds throughout an ordinary
 recorded session. Storage keeps four event segments of at most 15 MiB each,
 with separate bounded identity and marker journals. Automatic history retains

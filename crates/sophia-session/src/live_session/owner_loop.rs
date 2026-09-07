@@ -218,21 +218,26 @@ fn run_session_loop(
     startup: SessionLoopStartup<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut protocol_error_tally = SessionProtocolErrorTally::default();
+    let mut failure_phase = crate::diagnostics::SessionFailurePhase::Startup;
     let result = run_session_loop_inner(
         config,
         channels,
         resources,
         startup,
         &mut protocol_error_tally,
+        &mut failure_phase,
     );
     protocol_error_tally.report();
     match result {
         Ok(()) => Ok(()),
-        Err(error) => Err(session_failure_with_refused_requests(
-            &error.to_string(),
-            &protocol_error_tally,
-        )
-        .into()),
+        Err(error) => {
+            crate::session_eprintln!("{}", crate::diagnostics::session_failure_record(
+                failure_phase, error.as_ref(),
+            ));
+            Err(session_failure_with_refused_requests(
+                &error.to_string(), &protocol_error_tally,
+            ).into())
+        }
     }
 }
 
@@ -242,6 +247,7 @@ fn run_session_loop_inner(
     resources: SessionLoopResources<'_>,
     startup: SessionLoopStartup<'_>,
     protocol_error_tally: &mut SessionProtocolErrorTally,
+    failure_phase: &mut crate::diagnostics::SessionFailurePhase,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let SessionLoopChannels {
         authority: authority_receiver,

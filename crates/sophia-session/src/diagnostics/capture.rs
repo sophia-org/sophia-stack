@@ -316,6 +316,26 @@ pub fn reduced_record(line: &str) -> Option<String> {
         {
             continue;
         }
+        if let Some(limit) = match key {
+            "major" | "code" => Some(u64::from(u8::MAX)),
+            "minor" => Some(u64::from(u16::MAX)),
+            "distinct" => Some(64),
+            "discarded" | "total" => Some(u64::MAX),
+            _ => None,
+        } {
+            // These are protocol classifications, not application identifiers.
+            // Keep their ranges and record scope explicit rather than allowing
+            // arbitrary numeric fields through the general measurement filter.
+            if name == "sophia_live_session_protocol_error_tally"
+                && !value.is_empty()
+                && value.bytes().all(|c| c.is_ascii_digit())
+                && value.parse::<u64>().is_ok_and(|number| number <= limit)
+            {
+                result.push(' ');
+                result.push_str(field);
+            }
+            continue;
+        }
         let measurement = [
             "_msec",
             "_usec",
@@ -433,7 +453,13 @@ pub fn reduced_record(line: &str) -> Option<String> {
                 | "forced_detach_drain_error"
                 | "forced_detach_revoked"
         );
+        let protocol_status = name == "sophia_live_session_protocol_error_tally"
+            && key == "status"
+            && matches!(value, "clean" | "compatibility_refusals");
         let failure = key == "failure_code" && super::failure::approved_failure_code(value);
+        let failure_phase = name == "sophia_session_failure"
+            && key == "phase"
+            && super::session_failure::approved_phase(value);
         let panic_site = name == "sophia_session_panic"
             && key == "source_file"
             && value.len() <= 128
@@ -443,7 +469,15 @@ pub fn reduced_record(line: &str) -> Option<String> {
         let panic_line = name == "sophia_session_panic"
             && key == "source_line"
             && value.bytes().all(|c| c.is_ascii_digit());
-        if numeric || digest || fixed || failure || panic_site || panic_line {
+        if numeric
+            || digest
+            || fixed
+            || protocol_status
+            || failure
+            || failure_phase
+            || panic_site
+            || panic_line
+        {
             result.push(' ');
             result.push_str(field);
         }

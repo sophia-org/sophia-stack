@@ -355,6 +355,19 @@ impl XAuthorityRuntime {
             width: i32::from(width),
             height: i32::from(height),
         };
+        // A composite may name a destination region larger than the
+        // drawable, which is ordinary for a client blitting near an edge.
+        // What lands outside is not drawn and is not an error.
+        let Some(visible) = intersect_with_extent(rect, size) else {
+            return Ok(XAuthorityResponsePacket::accepted(transaction));
+        };
+        // Clipping moves where the destination walk starts, so the source
+        // and mask reads move with it or the edge samples the wrong pixels.
+        let clipped_by = (
+            visible.x.saturating_sub(rect.x),
+            visible.y.saturating_sub(rect.y),
+        );
+        let rect = visible;
         let clip = Self::render_translated_clip(&destination_record);
         let Some(result) = self.software_buffers.render_composite(
             destination_record.drawable,
@@ -363,8 +376,14 @@ impl XAuthorityRuntime {
             &source_plane,
             mask_plane.as_ref(),
             component_alpha,
-            (i32::from(source_origin.0), i32::from(source_origin.1)),
-            (i32::from(mask_origin.0), i32::from(mask_origin.1)),
+            (
+                i32::from(source_origin.0).saturating_add(clipped_by.0),
+                i32::from(source_origin.1).saturating_add(clipped_by.1),
+            ),
+            (
+                i32::from(mask_origin.0).saturating_add(clipped_by.0),
+                i32::from(mask_origin.1).saturating_add(clipped_by.1),
+            ),
             rect,
             &clip,
             destination_record.format,

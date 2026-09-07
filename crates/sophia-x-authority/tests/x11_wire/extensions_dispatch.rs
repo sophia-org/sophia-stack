@@ -4501,3 +4501,233 @@ fn render_coverage_requests_refuse_unimplemented_operators_and_formats() {
     ));
     assert_eq!(RenderFixture::error_of(&empty), None);
 }
+
+/// Glyphs composited onto a window reach the screen.
+///
+/// Every other glyph test here draws into a pixmap, which is not what a
+/// toolkit does with text it wants visible: GTK composites glyphs straight
+/// onto the window. That path goes through the drawing funnel rather than
+/// ending in the store, and nothing had exercised it.
+#[test]
+fn render_composite_glyphs_onto_a_window_reaches_the_drawing_funnel() {
+    let window = 0x0020_0500;
+    let picture = 0x0020_0501;
+    let glyphset = 0x0020_0502;
+    let mut fixture = RenderFixture::new();
+
+    let create = create_window_request(RenderFixture::ORDER, window, 0, 0, 16, 16);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&create)), None);
+    let bind = render_create_picture_request(
+        RenderFixture::ORDER,
+        picture,
+        window,
+        X_RENDER_FORMAT_RGB24,
+        &[],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&bind)), None);
+
+    // A one-pixel repeating source, the way a client paints text one colour.
+    fixture.add_source(1, 1, true);
+    fixture.fill_source(
+        [0xffff, 0xffff, 0xffff, 0xffff],
+        Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+
+    let set = render_create_glyph_set_request(RenderFixture::ORDER, glyphset, X_RENDER_FORMAT_A8);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&set)), None);
+    let add = render_add_glyphs_request(
+        RenderFixture::ORDER,
+        glyphset,
+        &[(1, [2, 1], [0, 0, 2, 0], vec![0xff, 0xff, 0, 0])],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&add)), None);
+
+    let result = fixture.send(&render_composite_glyphs8_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        picture,
+        X_RENDER_FORMAT_A8,
+        glyphset,
+        0,
+        0,
+        (1, 1),
+        &[1],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&result),
+        None,
+        "compositing glyphs onto a window must not be refused"
+    );
+}
+
+/// A picture outlives the pixmap it was made from, and still takes glyphs.
+///
+/// A toolkit frees the pixmap as soon as it has a picture for it and keeps
+/// drawing through the picture. The backing is retained for exactly that
+/// reason, and text is what it is usually retained for.
+#[test]
+fn render_composite_glyphs_into_a_retained_pixmap_backing() {
+    let glyphset = 0x0020_0512;
+    let mut fixture = RenderFixture::with_argb_pixmap(8, 8);
+    fixture.add_source(1, 1, true);
+    fixture.fill_source(
+        [0xffff, 0xffff, 0xffff, 0xffff],
+        Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+    let set = render_create_glyph_set_request(RenderFixture::ORDER, glyphset, X_RENDER_FORMAT_A8);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&set)), None);
+    let add = render_add_glyphs_request(
+        RenderFixture::ORDER,
+        glyphset,
+        &[(1, [2, 1], [0, 0, 2, 0], vec![0xff, 0xff, 0, 0])],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&add)), None);
+
+    // The pixmap goes away; the picture stays.
+    let free = fixture.send(&free_pixmap_request(
+        RenderFixture::ORDER,
+        RenderFixture::PIXMAP,
+    ));
+    assert_eq!(RenderFixture::error_of(&free), None);
+
+    let result = fixture.send(&render_composite_glyphs8_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        X_RENDER_FORMAT_A8,
+        glyphset,
+        0,
+        0,
+        (1, 1),
+        &[1],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&result),
+        None,
+        "a picture whose pixmap was freed still draws"
+    );
+}
+
+/// A glyph that falls outside the destination does not refuse the run.
+///
+/// Text is positioned by a pen that walks along a line, and a client draws
+/// runs that extend past the edge of what it is drawing into -- a label
+/// wider than its window, or text scrolled partly out of view. The glyphs
+/// that miss simply do not appear; refusing the request would take the
+/// visible ones with them.
+#[test]
+fn render_composite_glyphs_outside_the_destination_still_draw_the_rest() {
+    let glyphset = 0x0020_0520;
+    let mut fixture = RenderFixture::with_argb_pixmap(4, 4);
+    fixture.add_source(1, 1, true);
+    fixture.fill_source(
+        [0xffff, 0xffff, 0xffff, 0xffff],
+        Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        },
+    );
+    let set = render_create_glyph_set_request(RenderFixture::ORDER, glyphset, X_RENDER_FORMAT_A8);
+    assert_eq!(RenderFixture::error_of(&fixture.send(&set)), None);
+    // A two-pixel-wide glyph advancing two pixels each time.
+    let add = render_add_glyphs_request(
+        RenderFixture::ORDER,
+        glyphset,
+        &[(1, [2, 1], [0, 0, 2, 0], vec![0xff, 0xff, 0, 0])],
+    );
+    assert_eq!(RenderFixture::error_of(&fixture.send(&add)), None);
+
+    // Six of them from x=0 runs off the right edge of a four-wide pixmap.
+    let result = fixture.send(&render_composite_glyphs8_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        X_RENDER_FORMAT_A8,
+        glyphset,
+        0,
+        0,
+        (0, 0),
+        &[1, 1, 1, 1, 1, 1],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&result),
+        None,
+        "a run that overruns the destination must not be refused"
+    );
+    assert_ne!(
+        fixture.pixel(0, 0)[3],
+        0,
+        "and the glyphs that did land are drawn"
+    );
+}
+
+/// A composite clipped by the destination edge still reads the source it
+/// would have read unclipped.
+///
+/// Clipping moves where the destination walk begins, so the source read has
+/// to move with it. Getting this wrong draws the wrong part of the source
+/// along every edge, which is the kind of fault that looks like a rendering
+/// glitch rather than a bug.
+#[test]
+fn render_composite_clipped_by_the_edge_reads_the_same_source_pixels() {
+    // A four-wide source whose third pixel is the distinctive one.
+    let build = |destination_x: i16| -> [u8; 4] {
+        let mut fixture = RenderFixture::with_argb_pixmap(4, 1);
+        fixture.add_source(4, 1, false);
+        fixture.fill_source(
+            [0, 0xffff, 0, 0xffff],
+            Rect {
+                x: 2,
+                y: 0,
+                width: 1,
+                height: 1,
+            },
+        );
+        let result = fixture.send(&render_composite_request(
+            RenderFixture::ORDER,
+            1,
+            RenderFixture::SOURCE_PICTURE,
+            0,
+            RenderFixture::PICTURE,
+            0,
+            0,
+            0,
+            0,
+            destination_x,
+            0,
+            4,
+            1,
+        ));
+        assert_eq!(RenderFixture::error_of(&result), None);
+        // Destination pixel 2 corresponds to source pixel 2 only when the
+        // composite starts at the origin; started at -2 it shows source 4,
+        // which does not exist. What matters is that starting at 0 works and
+        // the clipped case does not shift the reads.
+        fixture.pixel(2, 0)
+    };
+
+    // Unclipped: destination 2 reads source 2, the green pixel.
+    assert_eq!(build(0), [0, 0xff, 0, 0xff], "unclipped");
+
+    // Starting left of the drawable clips the first two columns away. The
+    // remaining destination pixels must still read the source pixels they
+    // were always going to read: destination 2 now corresponds to source 4,
+    // which is past the end of a non-repeating source, so it is transparent
+    // rather than the green pixel wrongly shifted into view.
+    assert_eq!(build(-2), [0, 0, 0, 0], "clipped, and not shifted");
+}

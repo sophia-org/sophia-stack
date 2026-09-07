@@ -35,11 +35,22 @@ impl XAuthorityRuntime {
         else {
             return Err(XRenderPictureError::Drawable);
         };
+        // The primitives are placed by the client and can extend past the
+        // destination; what misses is not drawn, and is not an error either.
+        let Some(visible) = intersect_with_extent(bounds, size) else {
+            return Ok(XAuthorityResponsePacket::accepted(transaction));
+        };
         let mask = coverage.rasterize(bounds);
         let mask_plane = crate::XRenderSamplePlane::from_coverage(
             &mask,
             bounds.width.max(0) as usize,
             bounds.height.max(0) as usize,
+        );
+        // The coverage was rasterised over the whole primitive extent, so a
+        // clipped composite reads into it at the offset it was clipped by.
+        let mask_origin = (
+            visible.x.saturating_sub(bounds.x),
+            visible.y.saturating_sub(bounds.y),
         );
         let source_plane = self.software_buffers.render_sample_plane(
             source_record.drawable,
@@ -57,11 +68,11 @@ impl XAuthorityRuntime {
         // this is wrong.
         let anchor = coverage.anchor();
         let origin = (
-            bounds
+            visible
                 .x
                 .saturating_add(i32::from(source_origin.0))
                 .saturating_sub(anchor.0),
-            bounds
+            visible
                 .y
                 .saturating_add(i32::from(source_origin.1))
                 .saturating_sub(anchor.1),
@@ -75,8 +86,8 @@ impl XAuthorityRuntime {
             Some(&mask_plane),
             false,
             origin,
-            (0, 0),
-            bounds,
+            mask_origin,
+            visible,
             &clip,
             destination_record.format,
         ) else {
@@ -96,7 +107,7 @@ impl XAuthorityRuntime {
             namespace,
             destination_record.drawable,
             result.handle(),
-            Region::single(bounds),
+            Region::single(visible),
             generation,
             250,
         )))

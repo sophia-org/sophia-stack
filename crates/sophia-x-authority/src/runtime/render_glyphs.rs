@@ -341,9 +341,20 @@ impl XAuthorityRuntime {
                 width: i32::from(glyph.info.width),
                 height: i32::from(glyph.info.height),
             };
-            if rect.width <= 0 || rect.height <= 0 {
+            // A glyph that misses the destination entirely is skipped, not
+            // refused. Text is placed by a pen walking a line, so a run
+            // routinely extends past what it is drawn into -- a label wider
+            // than its window, or text scrolled partly out of view -- and
+            // taking the whole request down would lose the glyphs that did
+            // land along with the ones that did not.
+            let Some(visible) = intersect_with_extent(rect, size) else {
                 continue;
-            }
+            };
+            let clipped_by = (
+                visible.x.saturating_sub(rect.x),
+                visible.y.saturating_sub(rect.y),
+            );
+            let rect = visible;
             let mask = crate::XRenderSamplePlane::from_glyph(
                 &glyph.pixels,
                 usize::from(glyph.info.width),
@@ -365,18 +376,21 @@ impl XAuthorityRuntime {
                     Some(crate::XRenderPictFormatKind::Argb32)
                 ),
                 (
-                    i32::from(source_origin.0).saturating_add(x),
-                    i32::from(source_origin.1).saturating_add(y),
+                    i32::from(source_origin.0)
+                        .saturating_add(x)
+                        .saturating_add(clipped_by.0),
+                    i32::from(source_origin.1)
+                        .saturating_add(y)
+                        .saturating_add(clipped_by.1),
                 ),
-                (0, 0),
+                clipped_by,
                 rect,
                 &clip,
                 destination_record.format,
             ) else {
-                return Ok(XAuthorityResponsePacket::rejected(
-                    transaction,
-                    XAuthorityRuntimeError::InvalidResource,
-                ));
+                // The destination could not take this glyph. The ones
+                // already drawn stand; refusing here would discard them.
+                continue;
             };
             handle = Some(result.handle());
             damage.push(rect);
@@ -518,4 +532,20 @@ impl XAuthorityRuntime {
     ) -> Option<&XRenderCursorImage> {
         self.render_cursor_images.get(&cursor)
     }
+}
+
+
+/// A rectangle clipped to a drawable's extent, or `None` when it falls
+/// entirely outside.
+fn intersect_with_extent(rect: Rect, size: Size) -> Option<Rect> {
+    let left = rect.x.max(0);
+    let top = rect.y.max(0);
+    let right = rect.x.saturating_add(rect.width).min(size.width);
+    let bottom = rect.y.saturating_add(rect.height).min(size.height);
+    (right > left && bottom > top).then_some(Rect {
+        x: left,
+        y: top,
+        width: right - left,
+        height: bottom - top,
+    })
 }

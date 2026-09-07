@@ -65,6 +65,10 @@ while proof sessions remain strict. The original Brave `RouteRejected` reason
 is unresolved; new diagnostics must guide any follow-up. See the
 [diagnosis](../sources/2026-09/legacy-active-0633-2026-09-06--ghostty-mask-uploads-and-browser-input-failure-containment.md).
 
+[Ghostty startup was physically accepted](../milestones/2mb23diq-ghostty-launcher-startup-accepted-in-ordinary-use.md)
+through Super+Space on installed `8921174c`. The Brave typing check remains
+required; this observation does not complete all of t002 or t003.
+
 
 Previously completed evidence: [Accept Kitty startup and Super+Enter on a replacement release.](../sources/2026-09/todo-cutover-completed.md#legacy-done-002).
 

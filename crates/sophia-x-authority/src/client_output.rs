@@ -1,6 +1,7 @@
 use crate::{
-    X_ATOM_NONE, X_RENDER_FIRST_ERROR, X_RENDER_FORMAT_A1, X_RENDER_FORMAT_A8,
-    X_RENDER_FORMAT_ARGB32, X_RENDER_FORMAT_RGB24, X_RENDER_GLYPH_ERROR_OFFSET,
+    X_ATOM_NONE, X_RENDER_FILTER_BEST, X_RENDER_FILTER_BILINEAR, X_RENDER_FILTER_FAST,
+    X_RENDER_FILTER_GOOD, X_RENDER_FILTER_NEAREST, X_RENDER_FIRST_ERROR, X_RENDER_FORMAT_A1,
+    X_RENDER_FORMAT_A8, X_RENDER_FORMAT_ARGB32, X_RENDER_FORMAT_RGB24, X_RENDER_GLYPH_ERROR_OFFSET,
     X_RENDER_GLYPH_SET_ERROR_OFFSET, X_RENDER_PICT_FORMAT_ERROR_OFFSET,
     X_RENDER_PICT_OP_ERROR_OFFSET, X_RENDER_PICT_TYPE_DIRECT, X_RENDER_PICTURE_ERROR_OFFSET,
     X_SETUP_ARGB_VISUAL, X_SETUP_DEFAULT_VISUAL, XAuthorityRuntimeError, XByteOrder, XColorRgb16,
@@ -452,6 +453,13 @@ pub enum XClientReply {
         sequence: u16,
         major_version: u32,
         minor_version: u32,
+    },
+    /// The filters this server offers and the aliases onto them.
+    ///
+    /// Carries only the sequence: which filters exist is a property of the
+    /// server, so the encoder owns the table.
+    RenderQueryFilters {
+        sequence: u16,
     },
     /// The four picture formats and the visual each belongs to.
     ///

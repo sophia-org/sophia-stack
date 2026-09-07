@@ -30,12 +30,13 @@ fn render_minor_version_gate(minor_opcode: u8) -> Option<u32> {
 fn dispatch_render_request(
     context: XDispatchContext,
     request: XWireRequest,
-    _runtime: &mut XAuthorityRuntime,
+    runtime: &mut XAuthorityRuntime,
 ) -> XDispatchFamilyResult {
     if !matches!(
         &request,
         XWireRequest::RenderQueryVersion { .. }
             | XWireRequest::RenderQueryPictFormats
+            | XWireRequest::RenderQueryFilters { .. }
             | XWireRequest::RenderUnimplemented { .. }
     ) {
         return Unhandled(request);
@@ -70,6 +71,31 @@ fn dispatch_render_request(
             })],
             metadata_candidates: Vec::new(),
         },
+        XWireRequest::RenderQueryFilters { drawable } => {
+            // The drawable selects a screen, and this server has one; it is
+            // still validated, because answering for a drawable that does not
+            // exist would tell a client its identifier was good.
+            let outputs = if runtime
+                .validate_drawable_access(context.namespace, drawable)
+                .is_err()
+            {
+                vec![render_error_output(
+                    context,
+                    XErrorCode::BadDrawable,
+                    u32::try_from(drawable.local.raw()).unwrap_or(0),
+                    crate::X_RENDER_QUERY_FILTERS_MINOR_OPCODE,
+                )]
+            } else {
+                vec![XClientOutput::Reply(XClientReply::RenderQueryFilters {
+                    sequence: context.sequence,
+                })]
+            };
+            XDispatchResult {
+                response: None,
+                outputs,
+                metadata_candidates: Vec::new(),
+            }
+        }
         XWireRequest::RenderUnimplemented { minor_opcode } => {
             let code = match render_minor_version_gate(minor_opcode) {
                 Some(gate) if gate <= crate::X_RENDER_MINOR_VERSION => {
@@ -105,6 +131,7 @@ fn render_picture_error_code(error: crate::XRenderPictureError) -> XErrorCode {
         crate::XRenderPictureError::InvalidValue => XErrorCode::BadValue,
         crate::XRenderPictureError::RefusedAttribute => XErrorCode::BadImplementation,
         crate::XRenderPictureError::UnknownPicture => XErrorCode::RenderPicture,
+        crate::XRenderPictureError::ParameterMismatch => XErrorCode::BadMatch,
     }
 }
 
@@ -116,6 +143,21 @@ fn render_operator_refusal(op: u8) -> XErrorCode {
     match op {
         0x10..=0x2b | 0x30..=0x3e => XErrorCode::BadImplementation,
         _ => XErrorCode::RenderPictOp,
+    }
+}
+
+/// The filter a name selects, or `None` for a name this server does not
+/// offer.
+///
+/// Names are matched exactly, as the protocol defines them. The three
+/// aliases exist so a client can ask for a quality rather than an algorithm;
+/// both `good` and `best` land on bilinear because there is nothing better
+/// here to promise.
+fn render_filter_from_name(name: &[u8]) -> Option<crate::XRenderPictureFilter> {
+    match name {
+        b"nearest" | b"fast" => Some(crate::XRenderPictureFilter::Nearest),
+        b"bilinear" | b"good" | b"best" => Some(crate::XRenderPictureFilter::Bilinear),
+        _ => None,
     }
 }
 
@@ -147,6 +189,8 @@ fn dispatch_render_picture_request(
             | XWireRequest::RenderFreePicture { .. }
             | XWireRequest::RenderFillRectangles { .. }
             | XWireRequest::RenderComposite { .. }
+            | XWireRequest::RenderSetPictureTransform { .. }
+            | XWireRequest::RenderSetPictureFilter { .. }
     ) {
         return Unhandled(request);
     }
@@ -348,6 +392,32 @@ fn dispatch_render_picture_request(
                     metadata_candidates: Vec::new(),
                 },
             }
+        }
+        XWireRequest::RenderSetPictureTransform { picture, matrix } => lifecycle_result(
+            runtime.render_set_picture_transform(context.namespace, picture, matrix),
+            u32::try_from(picture.local.raw()).unwrap_or(0),
+            crate::X_RENDER_SET_PICTURE_TRANSFORM_MINOR_OPCODE,
+        ),
+        XWireRequest::RenderSetPictureFilter {
+            picture,
+            name,
+            has_params,
+        } => {
+            let outcome = match render_filter_from_name(&name) {
+                // Only a convolution filter takes parameters, and this server
+                // offers none, so a filter it does offer arriving with them is
+                // a mismatch between the request and its argument.
+                Some(_) if has_params => Err(crate::XRenderPictureError::ParameterMismatch),
+                Some(filter) => {
+                    runtime.render_set_picture_filter(context.namespace, picture, filter)
+                }
+                None => Err(crate::XRenderPictureError::InvalidValue),
+            };
+            lifecycle_result(
+                outcome,
+                u32::try_from(picture.local.raw()).unwrap_or(0),
+                crate::X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE,
+            )
         }
         other => return Unhandled(other),
     })

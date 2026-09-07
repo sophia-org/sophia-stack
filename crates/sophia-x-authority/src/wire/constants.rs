@@ -551,7 +551,7 @@ pub const X_RENDER_GLYPH_ERROR_OFFSET: u8 = 4;
 /// client's error handler rather than in its fallback. This constant moves
 /// only when the requests behind the next version answer.
 pub const X_RENDER_MAJOR_VERSION: u32 = 0;
-pub const X_RENDER_MINOR_VERSION: u32 = 5;
+pub const X_RENDER_MINOR_VERSION: u32 = 6;
 
 // The RENDER request minors, all of them, in protocol order, the GLX way:
 // the ones Sophia does not implement are named too, each with why, so the
@@ -606,11 +606,13 @@ pub const X_RENDER_COMPOSITE_GLYPHS_32_MINOR_OPCODE: u8 = 25;
 pub const X_RENDER_FILL_RECTANGLES_MINOR_OPCODE: u8 = 26;
 /// Client-supplied ARGB cursors, the libXcursor path. Version 0.5.
 pub const X_RENDER_CREATE_CURSOR_MINOR_OPCODE: u8 = 27;
-/// Picture-space transforms. Version 0.6, above what is advertised.
+/// Picture-space transforms, so a client can scale or rotate what it
+/// composites from. Version 0.6.
 pub const X_RENDER_SET_PICTURE_TRANSFORM_MINOR_OPCODE: u8 = 28;
-/// Version 0.6, above what is advertised.
+/// Version 0.6.
 pub const X_RENDER_QUERY_FILTERS_MINOR_OPCODE: u8 = 29;
-/// Version 0.6, above what is advertised.
+/// Version 0.6. GTK sends this at startup without consulting the version
+/// first, so refusing it ended both GTK3 and GTK4 clients before they drew.
 pub const X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE: u8 = 30;
 /// Version 0.8, above what is advertised.
 pub const X_RENDER_CREATE_ANIM_CURSOR_MINOR_OPCODE: u8 = 31;
@@ -642,6 +644,21 @@ pub const X_RENDER_PICT_TYPE_DIRECT: u8 = 1;
 
 const X_RENDER_QUERY_VERSION_REQ_LEN: usize = 12;
 const X_RENDER_QUERY_PICT_FORMATS_REQ_LEN: usize = 4;
+const X_RENDER_SET_PICTURE_TRANSFORM_REQ_LEN: usize = 44;
+const X_RENDER_QUERY_FILTERS_REQ_LEN: usize = 8;
+const X_RENDER_SET_PICTURE_FILTER_REQ_LEN: usize = 12;
+
+/// The filters this server offers, and the aliases onto them.
+///
+/// The protocol's other filter is `convolution`, and it is deliberately
+/// absent: a client that finds it missing disables its own kernel work
+/// cleanly, and one that finds it advertised and ignored draws something
+/// nobody asked for.
+pub const X_RENDER_FILTER_NEAREST: &str = "nearest";
+pub const X_RENDER_FILTER_BILINEAR: &str = "bilinear";
+pub const X_RENDER_FILTER_FAST: &str = "fast";
+pub const X_RENDER_FILTER_GOOD: &str = "good";
+pub const X_RENDER_FILTER_BEST: &str = "best";
 
 /// Non-rectangular window regions.
 ///

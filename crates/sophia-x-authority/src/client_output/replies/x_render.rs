@@ -75,7 +75,9 @@ fn encode_x_render_reply(
 ) -> Result<Vec<u8>, XClientReply> {
     if !matches!(
         &reply,
-        XClientReply::RenderQueryVersion { .. } | XClientReply::RenderQueryPictFormats { .. }
+        XClientReply::RenderQueryVersion { .. }
+            | XClientReply::RenderQueryPictFormats { .. }
+            | XClientReply::RenderQueryFilters { .. }
     ) {
         return Err(reply);
     }
@@ -177,6 +179,52 @@ fn encode_x_render_reply(
                 offset += 8;
             }
             debug_assert_eq!(offset, out.len());
+            out
+        }
+        XClientReply::RenderQueryFilters { sequence } => {
+            // Aliases come first on the wire, then the names -- one alias slot
+            // per name, carrying the index of the name it resolves to, or
+            // 0xffff for a name that is itself canonical.
+            const NAMES: [&str; 5] = [
+                X_RENDER_FILTER_NEAREST,
+                X_RENDER_FILTER_BILINEAR,
+                X_RENDER_FILTER_FAST,
+                X_RENDER_FILTER_GOOD,
+                X_RENDER_FILTER_BEST,
+            ];
+            const ALIASES: [u16; 5] = [0xffff, 0xffff, 0, 1, 1];
+            let aliases_len = (ALIASES.len() * 2).next_multiple_of(4);
+            let names_len: usize = NAMES.iter().map(|name| 1 + name.len()).sum();
+            let payload_len = aliases_len + names_len.next_multiple_of(4);
+            let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN + payload_len];
+            write_reply_header(
+                byte_order,
+                &mut out,
+                sequence,
+                u32::try_from(payload_len / 4).unwrap_or(0),
+            );
+            put_u32(
+                byte_order,
+                &mut out[8..12],
+                u32::try_from(ALIASES.len()).unwrap_or(0),
+            );
+            put_u32(
+                byte_order,
+                &mut out[12..16],
+                u32::try_from(NAMES.len()).unwrap_or(0),
+            );
+            let mut offset = X_CLIENT_OUTPUT_RECORD_LEN;
+            for alias in ALIASES {
+                put_u16(byte_order, &mut out[offset..offset + 2], alias);
+                offset += 2;
+            }
+            offset = X_CLIENT_OUTPUT_RECORD_LEN + aliases_len;
+            for name in NAMES {
+                out[offset] = u8::try_from(name.len()).unwrap_or(0);
+                offset += 1;
+                out[offset..offset + name.len()].copy_from_slice(name.as_bytes());
+                offset += name.len();
+            }
             out
         }
         other => return Err(other),

@@ -730,6 +730,20 @@ pub enum XWireRequest {
     ShapeUnimplemented {
         minor_opcode: u8,
     },
+    /// `RenderSetPictureTransform`: nine 16.16 fixed-point entries, row
+    /// major, mapping a destination-relative coordinate to the source pixel.
+    RenderSetPictureTransform {
+        picture: XResourceId,
+        matrix: [i32; 9],
+    },
+    RenderQueryFilters {
+        drawable: XResourceId,
+    },
+    RenderSetPictureFilter {
+        picture: XResourceId,
+        name: Vec<u8>,
+        has_params: bool,
+    },
     /// A RENDER minor Sophia does not implement, decoded so the refusal can
     /// name it.
     RenderUnimplemented {

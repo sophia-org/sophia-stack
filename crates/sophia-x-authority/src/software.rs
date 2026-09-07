@@ -21,11 +21,11 @@ pub(crate) use raster_variants::{
 };
 pub use raster_variants::{XPutImageSemantics, XRasterFallbackCause};
 pub use render_ops::XRenderPictFormatKind;
-pub use render_ops::XRenderPictureFilter;
+pub use render_ops::{X_RENDER_IDENTITY_TRANSFORM, XRenderPictureFilter};
 pub(crate) use render_ops::{
-    X_RENDER_IDENTITY_TRANSFORM, XRenderSampleMapping, XRenderSamplePlane,
-    render_operator_is_implemented,
+    XRenderSampleMapping, XRenderSamplePlane, render_operator_is_implemented,
 };
+
 use render_ops::{mask_rect_to_shape, render_composite_rect, render_fill_rect};
 pub use update::{
     X_AUTHORITY_CPU_PATCH_BATCH_MAX_RECTS, XAuthorityCpuBufferPatch, XAuthorityCpuBufferPatchBatch,

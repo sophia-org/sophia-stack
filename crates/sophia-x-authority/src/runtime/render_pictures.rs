@@ -42,6 +42,9 @@ pub(crate) enum XRenderPictureError {
     RefusedAttribute,
     /// The named picture does not exist or belongs to another namespace.
     UnknownPicture,
+    /// An argument that does not fit the request it arrived with -- a filter
+    /// that takes no parameters, sent with parameters.
+    ParameterMismatch,
 }
 
 impl XAuthorityRuntime {
@@ -170,6 +173,43 @@ impl XAuthorityRuntime {
         record.clip_x_origin = clip_x_origin;
         record.clip_y_origin = clip_y_origin;
         record.clip_rects = rectangles;
+        Ok(())
+    }
+
+    pub(crate) fn render_set_picture_transform(
+        &mut self,
+        namespace: NamespaceId,
+        picture: crate::XResourceId,
+        matrix: [i32; 9],
+    ) -> Result<(), XRenderPictureError> {
+        self.resources
+            .lookup(namespace, picture, XResourceKind::Picture)
+            .map_err(|_| XRenderPictureError::UnknownPicture)?;
+        let record = self
+            .render_pictures
+            .get_mut(&picture)
+            .ok_or(XRenderPictureError::UnknownPicture)?;
+        // Identity is stored as no transform at all, so an untransformed
+        // picture keeps the integer sampling path even after a client sets
+        // the matrix explicitly -- which toolkits do, to reset one.
+        record.transform = (matrix != crate::X_RENDER_IDENTITY_TRANSFORM).then_some(matrix);
+        Ok(())
+    }
+
+    pub(crate) fn render_set_picture_filter(
+        &mut self,
+        namespace: NamespaceId,
+        picture: crate::XResourceId,
+        filter: crate::XRenderPictureFilter,
+    ) -> Result<(), XRenderPictureError> {
+        self.resources
+            .lookup(namespace, picture, XResourceKind::Picture)
+            .map_err(|_| XRenderPictureError::UnknownPicture)?;
+        let record = self
+            .render_pictures
+            .get_mut(&picture)
+            .ok_or(XRenderPictureError::UnknownPicture)?;
+        record.filter = filter;
         Ok(())
     }
 

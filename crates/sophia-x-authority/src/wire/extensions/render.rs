@@ -241,6 +241,58 @@ fn decode_render(
                 hotspot_y: context.byte_order.u16(&bytes[14..16]),
             })
         }
+        X_RENDER_SET_PICTURE_TRANSFORM_MINOR_OPCODE => {
+            require_exact_len(
+                X_RENDER_MAJOR_OPCODE,
+                X_RENDER_SET_PICTURE_TRANSFORM_REQ_LEN,
+                bytes.len(),
+            )?;
+            let mut matrix = [0i32; 9];
+            for (index, entry) in matrix.iter_mut().enumerate() {
+                let offset = 8 + index * 4;
+                *entry = context.byte_order.u32(&bytes[offset..offset + 4]) as i32;
+            }
+            Ok(XWireRequest::RenderSetPictureTransform {
+                picture: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+                matrix,
+            })
+        }
+        X_RENDER_QUERY_FILTERS_MINOR_OPCODE => {
+            require_exact_len(
+                X_RENDER_MAJOR_OPCODE,
+                X_RENDER_QUERY_FILTERS_REQ_LEN,
+                bytes.len(),
+            )?;
+            Ok(XWireRequest::RenderQueryFilters {
+                drawable: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+            })
+        }
+        X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE => {
+            require_len(
+                X_RENDER_MAJOR_OPCODE,
+                X_RENDER_SET_PICTURE_FILTER_REQ_LEN,
+                bytes.len(),
+            )?;
+            let name_len = usize::from(context.byte_order.u16(&bytes[8..10]));
+            let name_end = X_RENDER_SET_PICTURE_FILTER_REQ_LEN
+                .checked_add(name_len)
+                .ok_or(XWireParseError::InvalidLength {
+                    opcode: X_RENDER_MAJOR_OPCODE,
+                    expected_at_least: X_RENDER_SET_PICTURE_FILTER_REQ_LEN,
+                    actual: bytes.len(),
+                })?;
+            let padded_end = name_end.next_multiple_of(4);
+            require_len(X_RENDER_MAJOR_OPCODE, padded_end, bytes.len())?;
+            Ok(XWireRequest::RenderSetPictureFilter {
+                picture: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+                name: bytes[X_RENDER_SET_PICTURE_FILTER_REQ_LEN..name_end].to_vec(),
+                // Only a convolution filter takes parameters, and this server
+                // does not offer one. Carrying the fact lets the refusal say
+                // that the named filter takes none rather than that the name
+                // is wrong.
+                has_params: bytes.len() > padded_end,
+            })
+        }
         // Decoded so the refusal can name the request. RENDER has thirty-six
         // minors and this server implements a subset; a parse rejection would
         // tell a client only that the extension exists, not which request it

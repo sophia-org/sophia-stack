@@ -293,6 +293,108 @@ fn decode_render(
                 has_params: bytes.len() > padded_end,
             })
         }
+        X_RENDER_TRAPEZOIDS_MINOR_OPCODE => {
+            require_len(X_RENDER_MAJOR_OPCODE, X_RENDER_PRIMITIVE_PREFIX_LEN, bytes.len())?;
+            let body = &bytes[X_RENDER_PRIMITIVE_PREFIX_LEN..];
+            if !body.len().is_multiple_of(40) {
+                return Err(XWireParseError::InvalidLength {
+                    opcode: X_RENDER_MAJOR_OPCODE,
+                    expected_at_least: X_RENDER_PRIMITIVE_PREFIX_LEN,
+                    actual: bytes.len(),
+                });
+            }
+            let fixed = |slice: &[u8]| context.byte_order.u32(slice) as i32;
+            Ok(XWireRequest::RenderTrapezoids {
+                op: bytes[4],
+                source: XResourceId::new(u64::from(context.byte_order.u32(&bytes[8..12])), 1),
+                destination: XResourceId::new(
+                    u64::from(context.byte_order.u32(&bytes[12..16])),
+                    1,
+                ),
+                mask_format: context.byte_order.u32(&bytes[16..20]),
+                source_x: context.byte_order.i16(&bytes[20..22]),
+                source_y: context.byte_order.i16(&bytes[22..24]),
+                trapezoids: body
+                    .chunks_exact(40)
+                    .map(|trap| crate::XRenderTrapezoid {
+                        top: fixed(&trap[0..4]),
+                        bottom: fixed(&trap[4..8]),
+                        left_p1: (fixed(&trap[8..12]), fixed(&trap[12..16])),
+                        left_p2: (fixed(&trap[16..20]), fixed(&trap[20..24])),
+                        right_p1: (fixed(&trap[24..28]), fixed(&trap[28..32])),
+                        right_p2: (fixed(&trap[32..36]), fixed(&trap[36..40])),
+                    })
+                    .collect(),
+            })
+        }
+        minor @ (X_RENDER_TRIANGLES_MINOR_OPCODE
+        | X_RENDER_TRI_STRIP_MINOR_OPCODE
+        | X_RENDER_TRI_FAN_MINOR_OPCODE) => {
+            require_len(X_RENDER_MAJOR_OPCODE, X_RENDER_PRIMITIVE_PREFIX_LEN, bytes.len())?;
+            let body = &bytes[X_RENDER_PRIMITIVE_PREFIX_LEN..];
+            let unit = if minor == X_RENDER_TRIANGLES_MINOR_OPCODE {
+                24
+            } else {
+                8
+            };
+            if !body.len().is_multiple_of(unit) {
+                return Err(XWireParseError::InvalidLength {
+                    opcode: X_RENDER_MAJOR_OPCODE,
+                    expected_at_least: X_RENDER_PRIMITIVE_PREFIX_LEN,
+                    actual: bytes.len(),
+                });
+            }
+            let fixed = |slice: &[u8]| context.byte_order.u32(slice) as i32;
+            let triangles = if minor == X_RENDER_TRIANGLES_MINOR_OPCODE {
+                body.chunks_exact(24)
+                    .map(|tri| crate::XRenderTriangle {
+                        p1: (fixed(&tri[0..4]), fixed(&tri[4..8])),
+                        p2: (fixed(&tri[8..12]), fixed(&tri[12..16])),
+                        p3: (fixed(&tri[16..20]), fixed(&tri[20..24])),
+                    })
+                    .collect()
+            } else {
+                // A strip and a fan are both point lists; expanding them here
+                // means one rasteriser serves all three requests and the
+                // runtime never has to know which arrived.
+                let points: Vec<(i32, i32)> = body
+                    .chunks_exact(8)
+                    .map(|point| (fixed(&point[0..4]), fixed(&point[4..8])))
+                    .collect();
+                points
+                    .windows(3)
+                    .enumerate()
+                    .filter_map(|(index, window)| {
+                        if minor == X_RENDER_TRI_STRIP_MINOR_OPCODE {
+                            Some(crate::XRenderTriangle {
+                                p1: window[0],
+                                p2: window[1],
+                                p3: window[2],
+                            })
+                        } else {
+                            points.first().map(|first| crate::XRenderTriangle {
+                                p1: *first,
+                                p2: points[index + 1],
+                                p3: points[index + 2],
+                            })
+                        }
+                    })
+                    .collect()
+            };
+            Ok(XWireRequest::RenderTriangles {
+                op: bytes[4],
+                source: XResourceId::new(u64::from(context.byte_order.u32(&bytes[8..12])), 1),
+                destination: XResourceId::new(
+                    u64::from(context.byte_order.u32(&bytes[12..16])),
+                    1,
+                ),
+                mask_format: context.byte_order.u32(&bytes[16..20]),
+                source_x: context.byte_order.i16(&bytes[20..22]),
+                source_y: context.byte_order.i16(&bytes[22..24]),
+                triangles,
+                minor_opcode: minor,
+            })
+        }
         // Decoded so the refusal can name the request. RENDER has thirty-six
         // minors and this server implements a subset; a parse rejection would
         // tell a client only that the extension exists, not which request it

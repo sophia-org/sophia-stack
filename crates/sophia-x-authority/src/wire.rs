@@ -744,6 +744,29 @@ pub enum XWireRequest {
         name: Vec<u8>,
         has_params: bool,
     },
+    /// `RenderTrapezoids`: a coverage mask built from trapezoids, which is
+    /// how GTK draws the shadow under a window decoration.
+    RenderTrapezoids {
+        op: u8,
+        source: XResourceId,
+        destination: XResourceId,
+        mask_format: u32,
+        source_x: i16,
+        source_y: i16,
+        trapezoids: Vec<crate::XRenderTrapezoid>,
+    },
+    /// `RenderTriangles`, `RenderTriStrip` and `RenderTriFan`, expanded at
+    /// decode into the triangles they all describe.
+    RenderTriangles {
+        op: u8,
+        source: XResourceId,
+        destination: XResourceId,
+        mask_format: u32,
+        source_x: i16,
+        source_y: i16,
+        triangles: Vec<crate::XRenderTriangle>,
+        minor_opcode: u8,
+    },
     /// A RENDER minor Sophia does not implement, decoded so the refusal can
     /// name it.
     RenderUnimplemented {

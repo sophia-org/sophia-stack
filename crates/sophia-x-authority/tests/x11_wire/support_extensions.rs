@@ -1330,3 +1330,70 @@ fn render_set_picture_filter_request(
     }
     out
 }
+
+/// A trapezoid in the 16.16 fixed point the wire carries.
+type TestTrapezoid = (i32, i32, (i32, i32), (i32, i32), (i32, i32), (i32, i32));
+
+fn fixed(value: i32) -> i32 {
+    value * 65536
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_trapezoids_request(
+    byte_order: XByteOrder,
+    op: u8,
+    source: u32,
+    destination: u32,
+    mask_format: u32,
+    source_x: i16,
+    source_y: i16,
+    traps: &[TestTrapezoid],
+) -> Vec<u8> {
+    let mut out = vec![X_RENDER_MAJOR_OPCODE, X_RENDER_TRAPEZOIDS_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, (6 + traps.len() * 10) as u16);
+    out.push(op);
+    out.extend_from_slice(&[0, 0, 0]);
+    push_u32(&mut out, byte_order, source);
+    push_u32(&mut out, byte_order, destination);
+    push_u32(&mut out, byte_order, mask_format);
+    push_i16(&mut out, byte_order, source_x);
+    push_i16(&mut out, byte_order, source_y);
+    for (top, bottom, l1, l2, r1, r2) in traps {
+        for value in [
+            *top, *bottom, l1.0, l1.1, l2.0, l2.1, r1.0, r1.1, r2.0, r2.1,
+        ] {
+            push_u32(&mut out, byte_order, value as u32);
+        }
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn render_triangles_request(
+    byte_order: XByteOrder,
+    minor_opcode: u8,
+    op: u8,
+    source: u32,
+    destination: u32,
+    points: &[(i32, i32)],
+) -> Vec<u8> {
+    let mut out = vec![X_RENDER_MAJOR_OPCODE, minor_opcode];
+    let words = if minor_opcode == X_RENDER_TRIANGLES_MINOR_OPCODE {
+        6 + points.len() / 3 * 6
+    } else {
+        6 + points.len() * 2
+    };
+    push_u16(&mut out, byte_order, words as u16);
+    out.push(op);
+    out.extend_from_slice(&[0, 0, 0]);
+    push_u32(&mut out, byte_order, source);
+    push_u32(&mut out, byte_order, destination);
+    push_u32(&mut out, byte_order, 0);
+    push_i16(&mut out, byte_order, 0);
+    push_i16(&mut out, byte_order, 0);
+    for (x, y) in points {
+        push_u32(&mut out, byte_order, *x as u32);
+        push_u32(&mut out, byte_order, *y as u32);
+    }
+    out
+}

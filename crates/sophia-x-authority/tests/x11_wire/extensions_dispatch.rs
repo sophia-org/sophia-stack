@@ -1860,7 +1860,7 @@ fn render_refusals_split_between_not_offered_and_not_that_version() {
 
     // Within the advertised 0.4: the never-implemented five, the declined
     // trapezoid family, and the base requests still to be implemented.
-    for minor in [3, 9, 10, 11, 12, 13, 14, 15, 21] {
+    for minor in [3, 9, 14, 15, 21] {
         let (code, named) = refusal_for(minor);
         assert_eq!(code, XErrorCode::BadImplementation, "minor {minor}");
         assert_eq!(named, u16::from(minor));
@@ -4242,4 +4242,262 @@ fn render_set_picture_filter_accepts_what_it_advertises_and_refuses_the_rest() {
         RenderFixture::error_of(&with_params),
         Some(XErrorCode::BadMatch)
     );
+}
+
+impl RenderFixture {
+    /// An opaque white source, so a trapezoid's coverage byte becomes the
+    /// destination pixel and can be read directly.
+    fn with_white_source(width: u16, height: u16) -> Self {
+        let mut fixture = Self::with_argb_pixmap(width, height);
+        fixture.add_source(width, height, true);
+        fixture.fill_source(
+            [0xffff, 0xffff, 0xffff, 0xffff],
+            Rect {
+                x: 0,
+                y: 0,
+                width: i32::from(width),
+                height: i32::from(height),
+            },
+        );
+        fixture
+    }
+}
+
+/// A trapezoid covers what it encloses and nothing beyond it.
+///
+/// Ported from yserver's rasteriser tests. Compositing an opaque white
+/// source through the coverage makes each destination pixel equal to the
+/// coverage byte, so the assertions read the rasteriser directly.
+#[test]
+fn render_trapezoids_cover_their_interior_and_leave_the_rest_alone() {
+    let mut fixture = RenderFixture::with_white_source(8, 8);
+    // An axis-aligned box from (1,1) to (5,5).
+    let result = fixture.send(&render_trapezoids_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        &[(
+            fixed(1),
+            fixed(5),
+            (fixed(1), fixed(1)),
+            (fixed(1), fixed(5)),
+            (fixed(5), fixed(1)),
+            (fixed(5), fixed(5)),
+        )],
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+    assert_eq!(
+        fixture.pixel(2, 2),
+        [0xff, 0xff, 0xff, 0xff],
+        "the interior is fully covered"
+    );
+    assert_eq!(
+        fixture.pixel(0, 0),
+        [0, 0, 0, 0],
+        "outside the trapezoid nothing was drawn"
+    );
+    assert_eq!(fixture.pixel(6, 6), [0, 0, 0, 0], "and beyond it");
+}
+
+/// A trapezoid that is not axis-aligned covers only its slant.
+#[test]
+fn render_trapezoids_narrow_with_their_slanted_sides() {
+    let mut fixture = RenderFixture::with_white_source(16, 8);
+    // A wedge: wide at the top, narrow at the bottom.
+    let result = fixture.send(&render_trapezoids_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        &[(
+            fixed(0),
+            fixed(8),
+            (fixed(0), fixed(0)),
+            (fixed(6), fixed(8)),
+            (fixed(16), fixed(0)),
+            (fixed(10), fixed(8)),
+        )],
+    ));
+    assert_eq!(RenderFixture::error_of(&result), None);
+    // The top row spans the full width; the bottom row does not.
+    assert_ne!(fixture.pixel(1, 0)[3], 0, "wide at the top");
+    assert_eq!(
+        fixture.pixel(1, 7)[3],
+        0,
+        "the left slant has moved inward by the bottom"
+    );
+    assert_ne!(fixture.pixel(8, 7)[3], 0, "and the middle is still covered");
+}
+
+/// A triangle covers its interior, and a fan expands to the same triangles
+/// an explicit list would have drawn.
+#[test]
+fn render_triangles_and_fans_cover_the_same_shapes() {
+    let explicit = {
+        let mut fixture = RenderFixture::with_white_source(8, 8);
+        let result = fixture.send(&render_triangles_request(
+            RenderFixture::ORDER,
+            X_RENDER_TRIANGLES_MINOR_OPCODE,
+            3,
+            RenderFixture::SOURCE_PICTURE,
+            RenderFixture::PICTURE,
+            &[
+                (fixed(0), fixed(0)),
+                (fixed(6), fixed(0)),
+                (fixed(0), fixed(6)),
+            ],
+        ));
+        assert_eq!(RenderFixture::error_of(&result), None);
+        assert_ne!(fixture.pixel(1, 1)[3], 0, "inside the triangle");
+        assert_eq!(fixture.pixel(6, 6), [0, 0, 0, 0], "outside it");
+        (0..8)
+            .flat_map(|y| (0..8).map(move |x| (x, y)))
+            .map(|(x, y)| fixture.pixel(x, y))
+            .collect::<Vec<_>>()
+    };
+
+    // The same triangle as a fan of three points.
+    let fanned = {
+        let mut fixture = RenderFixture::with_white_source(8, 8);
+        let result = fixture.send(&render_triangles_request(
+            RenderFixture::ORDER,
+            X_RENDER_TRI_FAN_MINOR_OPCODE,
+            3,
+            RenderFixture::SOURCE_PICTURE,
+            RenderFixture::PICTURE,
+            &[
+                (fixed(0), fixed(0)),
+                (fixed(6), fixed(0)),
+                (fixed(0), fixed(6)),
+            ],
+        ));
+        assert_eq!(RenderFixture::error_of(&result), None);
+        (0..8)
+            .flat_map(|y| (0..8).map(move |x| (x, y)))
+            .map(|(x, y)| fixture.pixel(x, y))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(explicit, fanned, "a fan draws the triangles it describes");
+}
+
+/// The source is anchored at the first primitive's leading corner.
+///
+/// Xorg's `fbTrapezoids` subtracts the first trapezoid's leading corner from
+/// the source offset before compositing, so a client that measures that
+/// offset from the shape's own corner reads the source it meant. Without the subtraction the read is
+/// displaced by wherever the shape happens to sit, which is how a window
+/// shadow ends up with a transparent band.
+#[test]
+fn render_trapezoids_anchor_the_source_at_the_first_corner() {
+    // A source opaque in exactly one pixel, at (2, 2).
+    let build = |source_x: i16, source_y: i16| -> [u8; 4] {
+        let mut fixture = RenderFixture::with_argb_pixmap(8, 8);
+        fixture.add_source(8, 8, false);
+        fixture.fill_source(
+            [0xffff, 0xffff, 0xffff, 0xffff],
+            Rect {
+                x: 2,
+                y: 2,
+                width: 1,
+                height: 1,
+            },
+        );
+        let result = fixture.send(&render_trapezoids_request(
+            RenderFixture::ORDER,
+            3,
+            RenderFixture::SOURCE_PICTURE,
+            RenderFixture::PICTURE,
+            0,
+            source_x,
+            source_y,
+            &[(
+                fixed(2),
+                fixed(4),
+                (fixed(2), fixed(2)),
+                (fixed(2), fixed(4)),
+                (fixed(4), fixed(2)),
+                (fixed(4), fixed(4)),
+            )],
+        ));
+        assert_eq!(RenderFixture::error_of(&result), None);
+        fixture.pixel(2, 2)
+    };
+
+    // Offset measured from the shape's corner: the anchor cancels it, the
+    // read lands at the shape's own position, and the opaque pixel is found.
+    assert_ne!(
+        build(2, 2)[3],
+        0,
+        "an offset measured from the corner reads the source the client meant"
+    );
+    // A different offset reads somewhere else, which is what makes the
+    // subtraction observable rather than decorative.
+    assert_eq!(
+        build(0, 0)[3],
+        0,
+        "and a different offset reads a different part of the source"
+    );
+}
+
+/// Coverage requests refuse the operators and formats they must.
+#[test]
+fn render_coverage_requests_refuse_unimplemented_operators_and_formats() {
+    let mut fixture = RenderFixture::with_white_source(4, 4);
+    let trap = (
+        fixed(0),
+        fixed(2),
+        (fixed(0), fixed(0)),
+        (fixed(0), fixed(2)),
+        (fixed(2), fixed(0)),
+        (fixed(2), fixed(2)),
+    );
+    // An operator the protocol defines and this server withholds.
+    let withheld = fixture.send(&render_trapezoids_request(
+        RenderFixture::ORDER,
+        0x13,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        &[trap],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&withheld),
+        Some(XErrorCode::BadImplementation)
+    );
+    // A mask format naming nothing this server has.
+    let bad_format = fixture.send(&render_trapezoids_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        0x1234,
+        0,
+        0,
+        &[trap],
+    ));
+    assert_eq!(
+        RenderFixture::error_of(&bad_format),
+        Some(XErrorCode::RenderPictFormat)
+    );
+    // An empty list is accepted and draws nothing.
+    let empty = fixture.send(&render_trapezoids_request(
+        RenderFixture::ORDER,
+        3,
+        RenderFixture::SOURCE_PICTURE,
+        RenderFixture::PICTURE,
+        0,
+        0,
+        0,
+        &[],
+    ));
+    assert_eq!(RenderFixture::error_of(&empty), None);
 }

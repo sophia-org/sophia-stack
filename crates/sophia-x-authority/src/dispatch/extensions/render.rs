@@ -191,6 +191,8 @@ fn dispatch_render_picture_request(
             | XWireRequest::RenderComposite { .. }
             | XWireRequest::RenderSetPictureTransform { .. }
             | XWireRequest::RenderSetPictureFilter { .. }
+            | XWireRequest::RenderTrapezoids { .. }
+            | XWireRequest::RenderTriangles { .. }
     ) {
         return Unhandled(request);
     }
@@ -419,6 +421,45 @@ fn dispatch_render_picture_request(
                 crate::X_RENDER_SET_PICTURE_FILTER_MINOR_OPCODE,
             )
         }
+        XWireRequest::RenderTrapezoids {
+            op,
+            source,
+            destination,
+            mask_format,
+            source_x,
+            source_y,
+            trapezoids,
+        } => render_primitive_result(
+            context,
+            runtime,
+            op,
+            source,
+            destination,
+            mask_format,
+            (source_x, source_y),
+            crate::XRenderPrimitiveCoverage::Trapezoids(&trapezoids),
+            crate::X_RENDER_TRAPEZOIDS_MINOR_OPCODE,
+        ),
+        XWireRequest::RenderTriangles {
+            op,
+            source,
+            destination,
+            mask_format,
+            source_x,
+            source_y,
+            triangles,
+            minor_opcode,
+        } => render_primitive_result(
+            context,
+            runtime,
+            op,
+            source,
+            destination,
+            mask_format,
+            (source_x, source_y),
+            crate::XRenderPrimitiveCoverage::Triangles(&triangles),
+            minor_opcode,
+        ),
         other => return Unhandled(other),
     })
 }
@@ -651,4 +692,79 @@ fn dispatch_render_glyph_request(
         }
         other => return Unhandled(other),
     })
+}
+
+
+/// One coverage composite's outcome as a dispatch result.
+///
+/// Trapezoids and triangles share every step but the shapes, including the
+/// operator check: an operator this server does not implement is refused
+/// before any pixel is rasterised.
+#[allow(clippy::too_many_arguments)]
+fn render_primitive_result(
+    context: XDispatchContext,
+    runtime: &mut XAuthorityRuntime,
+    op: u8,
+    source: crate::XResourceId,
+    destination: crate::XResourceId,
+    mask_format: u32,
+    source_origin: (i16, i16),
+    coverage: crate::XRenderPrimitiveCoverage<'_>,
+    minor_opcode: u8,
+) -> XDispatchResult {
+    let transaction = context.transaction;
+    if !crate::software::render_operator_is_implemented(op) {
+        return XDispatchResult {
+            response: None,
+            outputs: vec![render_error_output(
+                context,
+                render_operator_refusal(op),
+                0,
+                minor_opcode,
+            )],
+            metadata_candidates: Vec::new(),
+        };
+    }
+    match runtime.render_apply_primitive_coverage(
+        transaction,
+        context.namespace,
+        op,
+        source,
+        destination,
+        mask_format,
+        source_origin,
+        coverage,
+    ) {
+        Ok(response) => {
+            let outputs = if let XAuthorityResponseOutcome::Rejected(error) = response.outcome {
+                vec![XClientOutput::Error(x_error_from_runtime(
+                    error,
+                    context.sequence,
+                    context.major_opcode,
+                    u16::from(minor_opcode),
+                    u32::try_from(destination.local.raw()).unwrap_or(0),
+                ))]
+            } else {
+                Vec::new()
+            };
+            XDispatchResult {
+                response: Some(response),
+                outputs,
+                metadata_candidates: Vec::new(),
+            }
+        }
+        Err(error) => XDispatchResult {
+            response: Some(XAuthorityResponsePacket::rejected(
+                transaction,
+                XAuthorityRuntimeError::InvalidResource,
+            )),
+            outputs: vec![render_error_output(
+                context,
+                render_picture_error_code(error),
+                u32::try_from(destination.local.raw()).unwrap_or(0),
+                minor_opcode,
+            )],
+            metadata_candidates: Vec::new(),
+        },
+    }
 }

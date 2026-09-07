@@ -32,6 +32,7 @@ include!("runtime/render_resources.rs");
 include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
 include!("runtime/render_glyphs.rs");
+include!("runtime/render_traps.rs");
 include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");

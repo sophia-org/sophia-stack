@@ -9,6 +9,7 @@ mod raster_ops;
 mod raster_replay;
 mod raster_variants;
 mod render_ops;
+mod render_traps;
 mod update;
 
 use raster_ops::{
@@ -24,6 +25,10 @@ pub use render_ops::XRenderPictFormatKind;
 pub use render_ops::{X_RENDER_IDENTITY_TRANSFORM, XRenderPictureFilter};
 pub(crate) use render_ops::{
     XRenderSampleMapping, XRenderSamplePlane, render_operator_is_implemented,
+};
+pub(crate) use render_traps::{
+    XRenderTrapezoid, XRenderTriangle, rasterize_trapezoids, rasterize_triangles, trapezoid_bounds,
+    triangle_bounds,
 };
 
 use render_ops::{mask_rect_to_shape, render_composite_rect, render_fill_rect};

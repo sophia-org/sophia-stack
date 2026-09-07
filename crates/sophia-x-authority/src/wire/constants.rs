@@ -644,6 +644,8 @@ pub const X_RENDER_PICT_TYPE_DIRECT: u8 = 1;
 
 const X_RENDER_QUERY_VERSION_REQ_LEN: usize = 12;
 const X_RENDER_QUERY_PICT_FORMATS_REQ_LEN: usize = 4;
+/// The fixed part every trapezoid and triangle request begins with.
+const X_RENDER_PRIMITIVE_PREFIX_LEN: usize = 24;
 const X_RENDER_SET_PICTURE_TRANSFORM_REQ_LEN: usize = 44;
 const X_RENDER_QUERY_FILTERS_REQ_LEN: usize = 8;
 const X_RENDER_SET_PICTURE_FILTER_REQ_LEN: usize = 12;

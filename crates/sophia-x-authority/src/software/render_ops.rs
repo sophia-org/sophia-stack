@@ -459,6 +459,21 @@ impl XRenderSamplePlane {
 }
 
 impl XRenderSamplePlane {
+    /// A plane over a coverage buffer, one byte per pixel.
+    ///
+    /// Trapezoid and triangle rasterisation produces coverage, and coverage
+    /// composites as a mask: the alpha attenuates the source and the colour
+    /// channels are empty.
+    pub(crate) fn from_coverage(coverage: &[u8], width: usize, height: usize) -> Self {
+        Self {
+            pixels: coverage.iter().map(|value| [0, 0, 0, *value]).collect(),
+            width,
+            height,
+            repeat: false,
+            mapping: None,
+        }
+    }
+
     /// A plane over one glyph's already-unpacked pixels. Glyphs never repeat:
     /// outside the bitmap a glyph covers nothing.
     pub(crate) fn from_glyph(pixels: &[[u8; 4]], width: usize, height: usize) -> Self {

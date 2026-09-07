@@ -888,7 +888,6 @@ for requested in ${requested_flags[@]+"${requested_flags[@]}"}; do
 done
 session_environment=(
     SOPHIA_RUN_REAL_ATOMIC_SCANOUT_SMOKE=1
-    DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null
     "SOPHIA_SESSION_TTY=$tty_name"
 )
 if [[ "$FIREFOX_M10_ANY_PROOF" == true ]]; then
@@ -929,6 +928,48 @@ if [[ "$FIREFOX_M10_RENDERING_PROOF" == true ]]; then
         "SOPHIA_X11_PIXEL_TRACE=${SOPHIA_X11_PIXEL_TRACE-1}"
     )
 fi
+# The session bus every desktop application expects to find.
+#
+# A toolkit acquires the bus before it opens the display. A browser wants the
+# secret service for its password store, a file manager wants xfconf for its
+# settings, and portals and notifications are bus services too. This ran every
+# profile with `unix:path=/dev/null`, an address that parses and refuses every
+# connection, so all of that failed and said so once per attempt.
+#
+# That address is right for a measurement and only for a measurement: with no
+# address at all a toolkit autolaunches a daemon of its own, which costs time
+# the run then charges to the graphics path. So it stays available, by asking
+# for it. A desktop gets a real bus scoped to the session, which is what the
+# QEMU acceptance path already does, for the reason written there.
+session_bus_launcher=()
+if [[ "${SOPHIA_ISOLATE_SESSION_BUS:-0}" == 1 ]]; then
+    session_environment+=(DBUS_SESSION_BUS_ADDRESS=unix:path=/dev/null)
+    session_bus_mode=isolated
+elif [[ -n "${DBUS_SESSION_BUS_ADDRESS:-}"
+    && "${DBUS_SESSION_BUS_ADDRESS:-}" != unix:path=/dev/null ]]; then
+    # One was provided already. Nesting a second would split this session's
+    # applications across two buses that cannot see each other, which is the
+    # failure the shared bus exists to prevent.
+    session_bus_mode=inherited
+elif command -v dbus-run-session >/dev/null 2>&1; then
+    # The daemon is a child of the wrapper, and the wrapper leads the process
+    # group `setsid` creates below, so the bus dies with the session on both
+    # the normal exit and the watchdog's group kill. Nothing is left running
+    # for the next login to inherit.
+    session_bus_launcher=(dbus-run-session --)
+    session_bus_mode=session_scoped
+else
+    # Leaving the address unset lets each application autolaunch its own bus.
+    # That is worse than one shared bus, because those applications cannot
+    # then talk to each other, and much better than an address that refuses
+    # every connection.
+    session_bus_mode=unavailable
+fi
+# A run that quietly chooses a different bus than the operator expected
+# measures, and debugs, the wrong thing -- the same reason the flag check
+# above refuses a dropped flag.
+printf 'sophia_session_bus schema=1 mode=%s\n' "$session_bus_mode" >>"$SESSION_LOG"
+
 session_command=(
     env
     -u WAYLAND_DISPLAY
@@ -936,6 +977,13 @@ session_command=(
     "${session_environment[@]}"
     "$SOPHIA_BIN"
     "${session_args[@]}"
+)
+# Validation asks the binary whether it would accept these arguments; it opens
+# no display and needs no bus, so it runs unwrapped rather than starting a
+# daemon to answer a question about argument parsing.
+session_launch=(
+    ${session_bus_launcher[@]+"${session_bus_launcher[@]}"}
+    "${session_command[@]}"
 )
 
 # Ask the session whether it would accept this exact command.
@@ -984,9 +1032,9 @@ lifecycle_phase entering graphics_takeover
 if [[ -n "${SOPHIA_DIAGNOSTIC_DIR:-}" || "${SOPHIA_DIAGNOSTICS_DISABLED:-false}" == true ]]; then
     # Only Sophia's approved evidence callback enters daily history. Arbitrary
     # application stdout/stderr must not become a metadata-disclosure channel.
-    setsid "${session_command[@]}" >/dev/null 2>&1 &
+    setsid "${session_launch[@]}" >/dev/null 2>&1 &
 else
-    setsid "${session_command[@]}" > >(tee -a "$SESSION_LOG") 2>&1 &
+    setsid "${session_launch[@]}" > >(tee -a "$SESSION_LOG") 2>&1 &
 fi
 session_pid=$!
 if [[ -n "$SESSION_WATCHDOG_SECONDS" ]]; then

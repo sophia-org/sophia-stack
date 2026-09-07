@@ -150,10 +150,10 @@ visible input evidence depend on client scheduling and surface-ID order.
 Dedicated-KMS evidence now passes in 1,487 milliseconds with a 10-millisecond
 maximum composition, 23-millisecond input-to-presentation latency, and all 14
 X11 input events flushed.
-`tools/live_session_two_xterm_hardware_proof.sh` applies a stricter specialized
-gate: the complete startup-through-echo proof must finish within 2,000
+The retired `tools/live_session_two_xterm_hardware_proof.sh` used a stricter
+specialized gate: the complete startup-through-echo proof must finish within 2,000
 milliseconds and no CPU composition may exceed 25 milliseconds. Positive
-integer overrides are available through
+integer overrides for historical evidence verification remain available through
 `SOPHIA_TWO_XTERM_STARTUP_BUDGET_MSEC` and
 `SOPHIA_TWO_XTERM_COMPOSE_BUDGET_MSEC`; do not raise them to admit a regression.
 

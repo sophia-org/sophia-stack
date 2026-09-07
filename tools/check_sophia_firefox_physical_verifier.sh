@@ -7,7 +7,8 @@ GUARD="$ROOT_DIR/tools/fixtures/physical_firefox_guard_pass.log"
 RECOVERY="$ROOT_DIR/tools/fixtures/physical_firefox_recovery_pass.log"
 TEMP_FILE="$(mktemp)"
 RECOVERY_SESSION="$(mktemp)"
-trap 'rm -f -- "$TEMP_FILE" "$RECOVERY_SESSION"' EXIT
+NATIVE_SESSION="$(mktemp)"
+trap 'rm -f -- "$TEMP_FILE" "$RECOVERY_SESSION" "$NATIVE_SESSION"' EXIT
 
 "$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" \
     "$SESSION" "$GUARD" "$RECOVERY"
@@ -60,6 +61,41 @@ awk '
 ' "$SESSION" | sed 's/wm_restarts=0/wm_restarts=1/' >"$RECOVERY_SESSION"
 "$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" \
     "$RECOVERY_SESSION" "$GUARD" "$RECOVERY"
+# Native records must exercise the same restart and reseed clauses as archives.
+native_fixture() {
+    sed -e 's/sophia_live_wm schema=1 status=ready adapter=external socket=private restarts=0/sophia_live_wm schema=4 status=ready adapter=sophia_wm_v1 socket=session_owned epoch=1 restarts=0/' \
+        -e 's/sophia_live_wm schema=1 status=restarted restarts=1/sophia_live_wm schema=4 status=restarted adapter=sophia_wm_v1 epoch=2 restarts=1/' \
+        -e 's/sophia_live_session schema=14 status=bounded_complete/sophia_live_session schema=16 status=bounded_complete/' "$1" >"$NATIVE_SESSION"
+}
+expect_native_refusal() {
+    local description="$1" reason="$2" output
+    if output="$("$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" "$TEMP_FILE" "$GUARD" "$RECOVERY" 2>&1)"; then
+        echo "physical Firefox verifier accepted $description" >&2
+        exit 1
+    fi
+    [[ "$output" == *"$reason"* ]] || {
+        echo "physical Firefox refused $description for the wrong reason: $output" >&2
+        exit 1
+    }
+}
+native_fixture "$SESSION"
+"$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" "$NATIVE_SESSION" "$GUARD" "$RECOVERY"
+sed 's/socket=session_owned/socket=private/' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'mixed readiness tuple' 'WM readiness does not match'
+{ cat "$NATIVE_SESSION"; head -n 1 "$NATIVE_SESSION"; } >"$TEMP_FILE"
+expect_native_refusal 'duplicate readiness' 'expected exactly one WM readiness'
+sed 's/startup_ready_msec=700/startup_ready_msec=not_requested/' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'unrequested startup proof' 'startup_ready_msec is not an integer'
+sed 's/sophia_live_session schema=16 status=bounded_complete/sophia_live_session schema=17 status=bounded_complete/' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'normal completion as proof' 'expected exactly one bounded session completion'
+native_fixture "$RECOVERY_SESSION"
+"$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" "$NATIVE_SESSION" "$GUARD" "$RECOVERY"
+sed 's/schema=4 status=restarted adapter=sophia_wm_v1 epoch=2/schema=1 status=restarted/' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'historical restart in native session' 'WM restart does not match'
+grep -Fv 'phase=committed_layout request=relayout' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'missing native recovery reseed' 'did not queue committed layout'
+sed '/schema=4 status=restarted /a sophia_live_wm schema=4 status=restarted adapter=sophia_wm_v1 epoch=3 restarts=2 preserved_layout=true' "$NATIVE_SESSION" >"$TEMP_FILE"
+expect_native_refusal 'repeated native restart' 'restarted the WM more than once'
 grep -Fv 'sophia_live_surface_geometry schema=1 status=frontend_configured transaction=16 surface=2' \
     "$RECOVERY_SESSION" >"$TEMP_FILE"
 if "$ROOT_DIR/tools/verify_sophia_firefox_physical.sh" \

@@ -358,7 +358,6 @@ cargo run --offline -q -p sophia-cli --features native-session -- session run --
 # type into xterm, and require physical_keys_routed>0 plus changed pixels.
 tools/live_session_content_hardware_proof.sh
 tools/live_session_persistent_hardware_proof.sh
-tools/live_session_two_xterm_hardware_proof.sh
 tools/live_session_milestone4_hardware_proof.sh
 tools/operator_keyboard_hardware_proof.sh
 tools/vrr_hardware_proof.sh
@@ -749,6 +748,26 @@ distribution fields with `verdict=none`. Reference performance is never a
 Sophia correctness threshold. The XLibre+xmonad entry is a direct reference
 desktop: it never connects xmonad to Sophia and does not define a supported
 Sophia policy path.
+
+## Evidence reader compatibility
+
+`tools/check_live_record_schema_readers.sh` checks current emitters against
+reviewed readers during `cargo xtask check`. Message identity includes the record
+name and status: WM readiness uses schema 4, while other WM records retain their
+own schemas. Session completion uses schema 16 when startup proof was requested
+and schema 17 when it was not. A normal completion is not startup-proof evidence.
+The guard checks literal selectors and the registered parsed schema conditions;
+verifier fixtures retain authority over required fields and lifecycle assertions.
+Run its mutation checks with `--self-test`. New reader purposes or emitter forms
+must be reviewed explicitly rather than silently excluded from the guard.
+
+The two-xterm and paired Milestone 3 hardware launchers are retired. They exit
+before touching devices or services. Their evidence verifiers and the three-class
+archive entry point retain the historical schema ranges and acceptance rules;
+they do not certify a current live session. Use the native integration paths below
+for current sessions. The Milestone 4 GPU diagnostic remains available: it reads
+historical schema 14 and current proof schema 16, accounting for Copy and Flip
+separately while retaining its mixed-export and controlled-rejection requirements.
 
 ## Native Session Integration
 

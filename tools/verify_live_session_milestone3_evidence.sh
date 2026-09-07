@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Archive-only: preserves the historical milestone contract and schema range.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"

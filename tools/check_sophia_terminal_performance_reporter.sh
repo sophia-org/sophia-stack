@@ -50,6 +50,12 @@ report="$("$REPORTER" "$FIXTURE")"
 MUTATED="$(mktemp)"
 trap 'rm -f "$MUTATED"' EXIT
 
+# The reporter measures normal runs as well as startup-proof runs.
+sed 's/sophia_live_session schema=16 status=bounded_complete /sophia_live_session schema=17 status=bounded_complete startup_ready_msec=not_requested /' \
+    "$FIXTURE" >"$MUTATED"
+normal_report="$("$REPORTER" "$MUTATED")"
+[[ "$normal_report" == *" status=pass "* ]] || fail "normal completion did not pass"
+
 # Fails closed when the immutable patch-batch path was never exercised.
 # The retained field shape from the failed physical run had healthy aggregate
 # counts but no work after readiness. It must remain a permanent negative

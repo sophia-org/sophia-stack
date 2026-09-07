@@ -24,14 +24,21 @@ Previously completed evidence: [Document descriptor and content shell models and
 
 ## t024
 
-Repair the evidence readers still pinned below their emitter. Ten accept
-`sophia_live_session status=bounded_complete` at schema 15 or lower against an
-emitter that writes 16, and nine accept `sophia_live_wm status=ready` at
-schema 1 against an emitter that writes 4. These are retired-policy physical and
-QEMU gates; they fail loudly rather than silently, so each needs a per-gate
-decision about whether it still earns its keep. Add each repaired record to
-`tools/check_live_record_schema_readers.sh` once its emitters are confirmed to
-agree.
+Repair current native-session readers and guard them against schema drift.
+Preserve the two-xterm and Milestone 3 readers for historical archives, and
+retire their live launchers before any hardware or service action. Keep the
+Milestone 4 GPU diagnostic, including its Present accounting requirements.
+
+The original counts of ten completion readers and nine WM-ready readers were
+an August snapshot, not a current inventory. Completion now distinguishes
+startup-proof schema 16 from normal-session schema 17. Check record name and
+status together, and retain each reader's proof requirements and historical
+compatibility. The exit is passing schema mutation tests, the affected verifier
+fixtures, retirement checks, and `cargo xtask check`. No physical milestone is
+closed by repairing its evidence reader.
+
+The [reader investigation](../investigations/lqicnr4v-evidence-readers-must-follow-message-identity-and-proof-requirements.md)
+records the inventory, repairs, archive decisions, and validation.
 
 
 ## t025

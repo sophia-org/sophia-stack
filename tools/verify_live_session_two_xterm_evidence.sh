@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Archive-only: preserves the historical milestone contract and schema range.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,7 +24,7 @@ fi
 
 mapfile -t lines < <(grep -E '^sophia_live_session schema=(10|11|12|13) status=bounded_complete ' "$EVIDENCE_FILE" || true)
 if [[ "${#lines[@]}" -ne 1 ]]; then
-    echo "two-xterm proof expected exactly one current completion record, got ${#lines[@]}" >&2
+    echo "two-xterm proof expected exactly one historical completion record, got ${#lines[@]}" >&2
     exit 1
 fi
 

@@ -79,8 +79,21 @@ if grep -Eq 'stage_complete stage=(clipboard|primary) |checkpoint=(clipboard_pee
     "$SESSION_LOG"; then
     fail "promotion replayed focused CLIPBOARD or PRIMARY work"
 fi
-grep -Eq '^sophia_live_wm schema=1 status=ready adapter=external socket=private restarts=0$' \
-    "$SESSION_LOG" || fail "native Hagia policy never became ready"
+# Keep old archives readable without accepting a hybrid of the two protocols.
+mapfile -t wm_ready < <(grep -E '^sophia_live_wm schema=[^ ]+ status=ready([[:space:]]|$)' "$SESSION_LOG" || true)
+(( ${#wm_ready[@]} == 1 )) || fail "expected exactly one WM readiness record"
+case "${wm_ready[0]}" in
+    'sophia_live_wm schema=4 status=ready adapter=sophia_wm_v1 socket=session_owned epoch=1 restarts=0')
+        restart_pattern='^sophia_live_wm schema=4 status=restarted adapter=sophia_wm_v1 epoch=[1-9][0-9]* restarts=[1-9][0-9]* preserved_layout=true$'
+        ;;
+    'sophia_live_wm schema=1 status=ready adapter=external socket=private restarts=0')
+        restart_pattern='^sophia_live_wm schema=1 status=restarted restarts=[1-9][0-9]* preserved_layout=true$'
+        ;;
+    *) fail "WM readiness does not match a supported native or historical tuple" ;;
+esac
+while IFS= read -r restart; do
+    [[ "$restart" =~ $restart_pattern ]] || fail "WM restart does not match its readiness protocol"
+done < <(grep -E '^sophia_live_wm schema=[^ ]+ status=restarted([[:space:]]|$)' "$SESSION_LOG" || true)
 grep -Eq '^sophia_live_outputs schema=2 status=ready discovered=2 presentation=2 native_owned=2 multi_output_scanout=enabled ' \
     "$SESSION_LOG" || fail "two-output native ownership was not established"
 grep -Eq '^sophia_live_session_startup schema=2 status=output_baseline_ready outputs=2/2$' \
@@ -235,8 +248,8 @@ for index in 0 1; do
     [[ -n "$visual_presented_line" ]] && (( visual_presented_line < admitted_line )) ||
         fail "Firefox action $action_transaction lacks retired admission pixels"
 
-    mapfile -t admission_restarts < <(awk -v first="$surface_observed_line" -v last="$admitted_line" '
-        NR > first && NR < last && /^sophia_live_wm schema=1 status=restarted / { print NR }
+    mapfile -t admission_restarts < <(awk -v first="$surface_observed_line" -v last="$admitted_line" -v restart_pattern="$restart_pattern" '
+        NR > first && NR < last && $0 ~ restart_pattern { print NR }
     ' "$SESSION_LOG")
     (( ${#admission_restarts[@]} <= 1 )) ||
         fail "Firefox action $action_transaction restarted the WM more than once"
@@ -500,6 +513,7 @@ done
 mapfile -t completions < <(grep -E '^sophia_live_session schema=(14|15|16) status=bounded_complete ' "$SESSION_LOG")
 (( ${#completions[@]} == 1 )) || fail "expected exactly one bounded session completion"
 completion="${completions[0]}"
+require_at_least "$completion" startup_ready_msec 0
 for assignment in \
     native_presentation=enabled physical_input=enabled wm_policy=external \
     wm_degraded=false native_submit_failures=0 \

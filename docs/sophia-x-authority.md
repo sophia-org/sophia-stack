@@ -97,12 +97,12 @@ real xterms against a two-worker frontend, waits for both client routes and CPU
 surfaces, routes distinct key sequences by client ID, and proves two successive
 pixel changes before draining the service. The live launcher still starts one
 xterm by default, but `--secondary-terminal` starts and supervises a second
-xterm on the same bounded frontend. `tools/live_session_two_xterm_hardware_proof.sh`
-remains the earlier KMS-backed CPU-layer gate. The stricter
-`tools/live_session_milestone3_hardware_proof.sh` now supplies paired `session`
-evidence under classic-shared and fresh zero-capability confined profiles. Both
-runs require physical keyboard and pointer input, authenticated RandR delivery,
-configure-plus-pixels resize, two retained CPU layers, and clean KMS teardown.
+xterm on the same bounded frontend. The earlier two-xterm and paired Milestone 3
+KMS launchers are retired; their verifiers preserve historical evidence only.
+Those runs required physical keyboard and pointer input, authenticated RandR
+delivery, configure-plus-pixels resize, two retained CPU layers, and clean KMS
+teardown. Use the [native-session validation paths](validation.md#native-session-integration)
+for current sessions.
 Initial Engine focus is
 acknowledged by the owning X11 client before the input proof begins, so
 either focused terminal can demonstrate delivery.

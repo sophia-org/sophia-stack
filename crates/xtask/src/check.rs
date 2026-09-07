@@ -52,10 +52,18 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
         "tools/run_sophia_terminal_gate_tty3.sh",
         &["--self-test"],
     )?;
+    command(
+        repo,
+        "tools/check_live_record_schema_readers.sh",
+        &["--self-test"],
+    )?;
     for tool in [
         "tools/check_hagia_profile_preflight.sh",
         "tools/check_bounded_xterm_geometry.sh",
         "tools/check_live_record_schema_readers.sh",
+        "tools/check_retired_milestone_launchers.sh",
+        "tools/check_live_session_milestone4_verifier.sh",
+        "tools/check_sophia_firefox_physical_verifier.sh",
         "tools/check_direct_scanout_verifier.sh",
         "tools/check_direct_scanout_archive_verifier.sh",
         "tools/check_sophia_standalone_vkcube_verifier.sh",

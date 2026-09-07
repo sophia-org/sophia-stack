@@ -107,7 +107,10 @@ for key in "${expected_keys[@]}"; do
     fi
 done
 
-[[ "${observed[schema]}" =~ ^(6|7|8|9|10|11|12|13|14|15|16|17)$ ]]
+[[ "${observed[schema]}" =~ ^(6|7|8|9|10|11|12|13|14|15|16)$ ]] || {
+    echo "persistent live-session evidence requires a supported startup-proof schema" >&2
+    exit 1
+}
 [[ "${observed[status]}" == "bounded_complete" ]]
 [[ "${observed[injected_input]}" == "true" || "${observed[injected_input]}" == "false" ]]
 [[ "${observed[input_pixel_change]}" == "true" ]]

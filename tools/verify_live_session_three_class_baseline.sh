@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# Historical aggregate; its Milestone 3 input is archive-only.
 set -euo pipefail
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 (( $# == 5 )) || { echo "usage: $0 M3_CLASSIC M3_CONFINED M4_GPU M5_CLASSIC M5_CONFINED" >&2; exit 2; }

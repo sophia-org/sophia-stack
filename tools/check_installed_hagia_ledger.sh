@@ -94,6 +94,23 @@ record=(env XDG_STATE_HOME="$state" SOPHIA_INSTALL_PREFIX="$prefix" \
 
 write_identity clean
 write_normal_session
+# Normal desktop evidence needs no application startup proof. Its schema-17
+# completion still has to carry clean lifecycle and output admission evidence.
+sed -e '/^sophia_session_app .*status=started /d' \
+    -e '/^sophia_live_session_startup schema=2 status=ready /d' \
+    -e 's/sophia_live_session schema=16 status=bounded_complete /sophia_live_session schema=17 status=bounded_complete startup_ready_msec=not_requested /' \
+    "$session/session.log" >"$fixture/normal.log"
+printf '%s\n' \
+    'sophia_live_session_startup_proof schema=1 status=not_requested' \
+    'sophia_live_session schema=1 status=desktop_ready startup_apps=0' \
+    'sophia_live_outputs schema=2 status=ready discovered=1 presentation=1 native_owned=1' >>"$fixture/normal.log"
+"$ROOT_DIR/tools/verify_installed_hagia_session.sh" "$fixture/normal.log" "$session/input-guard.log" "$session/recovery.log"
+grep -v '^sophia_live_session_cleanup ' "$fixture/normal.log" >"$fixture/no-cleanup.log"
+if output="$("$ROOT_DIR/tools/verify_installed_hagia_session.sh" "$fixture/no-cleanup.log" "$session/input-guard.log" "$session/recovery.log" 2>&1)"; then
+    echo 'normal completion bypassed cleanup verification' >&2
+    exit 1
+fi
+[[ "$output" == *'application cleanup did not drain'* ]]
 clean_run="$("${record[@]}" begin)"
 [[ "$(grep -c '^hagia_binary_sha256=' "$clean_run/manifest")" == 1 ]]
 grep -Fxq "hagia_binary_sha256=$hagia_digest" "$clean_run/manifest"

@@ -89,7 +89,28 @@ fi
 SESSION_LABEL="Sophia $SESSION_PROFILE session"
 runtime_root="${XDG_RUNTIME_DIR:-/tmp}"
 tty_name="$(tty 2>/dev/null || true)"
+STATE_DIR="$runtime_root/sophia-${SESSION_PROFILE}-session-${UID}"
+PID_FILE="$STATE_DIR/wrapper.pid"
+GUARD_ARMED_FILE="$STATE_DIR/input-guard.armed"
+GUARD_TRIGGERED_FILE="$STATE_DIR/input-guard.triggered"
+WATCHDOG_TRIGGERED_FILE="$STATE_DIR/session-watchdog.triggered"
+
+mkdir -p "$STATE_DIR"
+chmod 700 "$STATE_DIR"
+firefox_m10_probe_dir=""
+firefox_m10_profile_dir=""
+if [[ -s "$PID_FILE" ]]; then
+    previous_pid="$(<"$PID_FILE")"
+    if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null; then
+        echo "A $SESSION_LABEL is already running (wrapper PID $previous_pid)." >&2
+        echo "Stop it with: tools/stop_sophia_${SESSION_PROFILE}_session.sh" >&2
+        exit 1
+    fi
+    rm -f "$PID_FILE"
+fi
+
 LOG_DIR="${XDG_STATE_HOME:-${HOME}/.local/state}/sophia/${SESSION_PROFILE}-session"
+LOG_DIR="${SOPHIA_DIAGNOSTIC_DIR:-$LOG_DIR}"
 GUARD_LOG="$LOG_DIR/input-guard.log"
 RECOVERY_LOG="$LOG_DIR/recovery.log"
 SESSION_LOG="$LOG_DIR/session.log"
@@ -147,25 +168,6 @@ if [[ "$INSTALLED_SESSION" == true
     && ( "$BUILD_SESSION" != false || "$MANAGE_KEYD" != false ) ]]; then
     echo "Installed Sophia forbids source builds and manual service control." >&2
     exit 1
-fi
-STATE_DIR="$runtime_root/sophia-${SESSION_PROFILE}-session-${UID}"
-PID_FILE="$STATE_DIR/wrapper.pid"
-GUARD_ARMED_FILE="$STATE_DIR/input-guard.armed"
-GUARD_TRIGGERED_FILE="$STATE_DIR/input-guard.triggered"
-WATCHDOG_TRIGGERED_FILE="$STATE_DIR/session-watchdog.triggered"
-
-mkdir -p "$STATE_DIR"
-chmod 700 "$STATE_DIR"
-firefox_m10_probe_dir=""
-firefox_m10_profile_dir=""
-if [[ -s "$PID_FILE" ]]; then
-    previous_pid="$(<"$PID_FILE")"
-    if [[ "$previous_pid" =~ ^[0-9]+$ ]] && kill -0 "$previous_pid" 2>/dev/null; then
-        echo "A $SESSION_LABEL is already running (wrapper PID $previous_pid)." >&2
-        echo "Stop it with: tools/stop_sophia_${SESSION_PROFILE}_session.sh" >&2
-        exit 1
-    fi
-    rm -f "$PID_FILE"
 fi
 
 live_named_processes() {
@@ -979,7 +981,13 @@ python3 "$TTY_MODE_HELPER" graphics
 python3 "$TTY_MODE_HELPER" keyboard-off
 stty raw -echo
 lifecycle_phase entering graphics_takeover
-setsid "${session_command[@]}" > >(tee -a "$SESSION_LOG") 2>&1 &
+if [[ -n "${SOPHIA_DIAGNOSTIC_DIR:-}" || "${SOPHIA_DIAGNOSTICS_DISABLED:-false}" == true ]]; then
+    # Only Sophia's approved evidence callback enters daily history. Arbitrary
+    # application stdout/stderr must not become a metadata-disclosure channel.
+    setsid "${session_command[@]}" >/dev/null 2>&1 &
+else
+    setsid "${session_command[@]}" > >(tee -a "$SESSION_LOG") 2>&1 &
+fi
 session_pid=$!
 if [[ -n "$SESSION_WATCHDOG_SECONDS" ]]; then
     (

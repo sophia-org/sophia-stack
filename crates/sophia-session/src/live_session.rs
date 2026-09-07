@@ -319,6 +319,16 @@ pub(crate) fn run_persistent_xterm_session(
             config.desktop_profile.sources.len()
         );
     }
+    crate::session_println!(
+        "sophia_session_profile schema=1 status=loaded role=desktop generation={} digest={}",
+        config.desktop_profile.generation.raw(),
+        config.desktop_profile.digest
+    );
+    crate::session_println!(
+        "sophia_session_profile schema=1 status=loaded role=core generation={} digest={}",
+        config.core_config_state.active().generation.raw(),
+        config.core_config_state.active().digest
+    );
     let prepared_public_launch = LiveWmSession::prepare_public_launch(&mut config)?;
     let public_policy_launch =
         LiveWmSession::activate_public_launch(&mut config, prepared_public_launch)?;

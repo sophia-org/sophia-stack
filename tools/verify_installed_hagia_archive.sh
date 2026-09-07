@@ -14,6 +14,11 @@ else
     run_root="${SOPHIA_HAGIA_RUN_ROOT:-$STATE_HOME/sophia/promotion/hagia-runs}"
 fi
 run="${1:-}"
+if [[ "$expected_kind" == hagia && -z "$run" && -d "$STATE_HOME/sophia/sessions" ]]; then
+    echo "Daily sessions now use rolling diagnostics: sophia session inspect latest" >&2
+    echo "To verify a retained legacy proof, pass its archive directory explicitly." >&2
+    exit 2
+fi
 if [[ -z "$run" ]]; then
     run="$(find "$run_root" -mindepth 1 -maxdepth 1 -type d 2>/dev/null | sort -V | tail -n 1 || true)"
 fi

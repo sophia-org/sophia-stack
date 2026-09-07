@@ -53,6 +53,9 @@ pub(crate) fn print(verbose: bool) {
         "commands: session run [--desktop-profile=/absolute/path] [--session-mode=normal --session-app=ID=/PATH --session-app-arg=ID=ARG ... --session-start=ID ... --session-start-default=ID --session-action-app=terminal|launcher|firefox=ID --exit-when-startup-exits --startup-ready-timeout-ms=8000] [--client-backend=sophia-x] [--client=PATH] [--client-arg=ARG ...] [--display=:77] [--terminal=xterm] [--terminal-exec=PATH] [--terminal-exec-arg=ARG ...] [--secondary-terminal] [--namespace-profile=classic|confined] [--no-input|--input-seat=seat0|--input-devices=/dev/input/eventN,...] [--native-scanout] [--wm-process=PATH --wm-interface=sophia_wm_v1] [--wm-process-arg=ARG ...] [--wm-process-executable-grant=/absolute/path ...] [--max-runtime-ms=N] [--max-ticks=N] [--inject-text=lowercase|--expect-physical-text=lowercase] [--expect-physical-pointer] [--exit-after-input-proof] [--proof]"
     );
     #[cfg(feature = "native-session")]
+    println!(
+        "diagnostics: session mark [--session=ID|latest] [LABEL] | session inspect ID|latest [--marker=ID] | session keep ID|latest | session list"
+    );
     println!("compatibility aliases: sophia-live-session, sophia-session-input-guard");
     #[cfg(feature = "native-session")]
     println!(

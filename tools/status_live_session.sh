@@ -113,3 +113,8 @@ for field in terminal_starts firefox_starts physical_actions session_actions \
     fi
     printf 'hagia_scenario_%s_sessions=%s\n' "$field" "$observed"
 done
+
+# The installed CLI owns rolling diagnostics; proof attempts above remain separate.
+if [[ -x "$PREFIX/current/target/release/sophia" ]]; then
+    "$PREFIX/current/target/release/sophia" session list || true
+fi

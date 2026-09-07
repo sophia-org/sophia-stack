@@ -2250,6 +2250,9 @@ impl LiveWmSession {
             control_restart: None,
             control_lifetime: None,
         };
+        if let Some(pid) = session.supervisor.peer_id() {
+            crate::diagnostics::capture_process_identity("wm", pid, 1);
+        }
         crate::session_println!(
             "sophia_live_wm schema=4 status=ready adapter=sophia_wm_v1 socket=session_owned epoch=1 restarts=0"
         );
@@ -2277,6 +2280,9 @@ impl LiveWmSession {
         let proposal = match event {
             Ok(Some(PolicyTransportEvent::Negotiated)) => {
                 public.negotiated = true;
+                if let Some(key) = public.profile_key {
+                    crate::session_println!("sophia_session_profile schema=1 status=activated role=wm epoch={} generation={} digest={}", public.connection_epoch, key.generation().raw(), key.digest());
+                }
                 // A client that negotiated is a client that works, so the
                 // restart budget starts over. Without this the count only ever
                 // rises: ProcessHealthy is the one event that clears it and
@@ -2732,6 +2738,7 @@ impl LiveWmSession {
             .peer_id()
             .ok_or("restarted public WM has no supervised PID")?;
         transport.authorize_supervised_pid(pid)?;
+        crate::diagnostics::capture_process_identity("wm", pid, next_epoch);
         if let Some(output_service) = public.output_service.as_ref() {
             output_service
                 .command(

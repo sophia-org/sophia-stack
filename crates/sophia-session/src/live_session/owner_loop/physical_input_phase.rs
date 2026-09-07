@@ -938,7 +938,7 @@ let mut primary_frame_interval = Duration::from_micros(
 let mut primary_frame_pacer = sophia_engine::PrimaryFramePacer::new(primary_frame_interval);
 // Samples the gauges the completion record reports once, so a verifier can ask
 // whether they grew rather than only whether they drained.
-let mut resource_sampler = LiveResourceSampler::new(started);
+let mut resource_sampler = LiveResourceSampler::new(started, config.normal_session && crate::diagnostics::recording());
 let mut next_surface_sample = started + Duration::from_secs(1);
 let mut surface_samples = 0_u32;
 let mut native_frame_service_deadline_armed = false;

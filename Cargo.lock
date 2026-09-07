@@ -1061,6 +1061,7 @@ name = "sophia-session"
 version = "0.1.0"
 dependencies = [
  "rustix",
+ "sha2",
  "sophia-backend-live",
  "sophia-broker",
  "sophia-config",

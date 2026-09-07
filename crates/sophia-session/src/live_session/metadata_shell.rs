@@ -641,6 +641,7 @@ impl LiveMetadataShell {
             .next_connection_epoch
             .checked_add(1)
             .ok_or("metadata shell connection epoch exhausted")?;
+        crate::diagnostics::capture_process_identity("shell", evidence.peer_pid, connection_epoch);
         Ok((
             evidence.peer_pid,
             welcome.selected_revision,

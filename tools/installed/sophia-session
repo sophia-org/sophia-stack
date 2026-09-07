@@ -44,6 +44,23 @@ version="$(sed -n 's/^version=//p' "$manifest" | head -n 1)"
 commit="$(sed -n 's/^commit=//p' "$manifest" | head -n 1)"
 export SOPHIA_INSTALLED_VERSION="${version:-unknown}"
 export SOPHIA_INSTALLED_COMMIT="${commit:-unknown}"
+# Ordinary daily evidence is written during execution by the Rust session owner.
+# Explicit proof/promotion modes retain their immutable attempt ledger below.
+ordinary_diagnostics=false
+if [[ "${SOPHIA_INSTALLED_ATTEMPT_MODE:-$SOPHIA_TTY_PROFILE}" == hagia
+    && "${SOPHIA_HAGIA_PROFILE_MODE:-}" != packaged-promotion ]]; then
+    ordinary_diagnostics=true
+    for argument in "$@"; do
+        case "${argument%%=*}" in
+            --proof|*-proof*|--max-runtime-ms|--max-ticks) ordinary_diagnostics=false ;;
+        esac
+    done
+fi
+if [[ "$ordinary_diagnostics" == true ]]; then
+    exec "$SOPHIA_BIN" session _supervise --profile="$SOPHIA_TTY_PROFILE" -- \
+        "$RELEASE_DIR/tools/run_sophia_session.sh" "$@"
+fi
+
 state_dir="${XDG_STATE_HOME:-$HOME/.local/state}/sophia/installed-session"
 install -d -m 700 "$state_dir"
 identity_log="$state_dir/launch.log"

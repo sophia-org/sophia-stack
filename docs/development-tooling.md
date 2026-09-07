@@ -88,10 +88,14 @@ the default atomic path rather than selecting it. Each has a matching
 The active development-session path is CP-14.3 in `todo.md`. Reuse the existing
 `sophia session run` entry, installed launcher, and necessary TTY adapter, with
 exact binary/profile identity and a known working fallback. The lifecycle fixes have passed deterministic verification; the
-[two recovery canaries](native-recovery-canary.md) remain pending. The roadmap
-queues the broader physical acceptance checklist, per-session diagnostic
-preservation, and incident markers; those are not new commands already provided
-by this document. Extend existing bounded telemetry first.
+[two recovery canaries](native-recovery-canary.md) remain pending. Installed daily sessions now provide `sophia session mark`, `inspect`, `keep`,
+and `list`. The [operator guide](operations.md#mark-and-investigate-a-problem)
+defines their selection, retention, and disclosure rules. The installed launcher
+uses the internal `session _supervise` adapter to bind the TTY wrapper's lifetime
+to its record before takeover. This adapter is not a display-control endpoint.
+The CLI owns the concrete output callbacks; Session owns bounded recording,
+resource cadence, identity, retention, and incident operations. Component hashes
+use a separate bounded worker, so reading an executable cannot hold up logs.
 Production session events stay in `sophia-session`; developer evidence packaging
 and validation stay in `sophia-conformance`/`xtask`. Expensive tracing and pixel
 inspection remain opt-in.

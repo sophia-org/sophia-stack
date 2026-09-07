@@ -17,31 +17,11 @@
 // is decided by the verifier from the samples, because an emitter that graded
 // its own health would be the only witness to its own failure.
 
-/// How often a sample is taken.
-///
-/// Slow enough that sampling is not itself the workload, fast enough that a
-/// bounded gate produces a population a halves comparison can use: a
-/// twelve-minute run yields well over a hundred samples.
-pub(crate) const RESOURCE_SAMPLE_INTERVAL: Duration = Duration::from_secs(5);
+pub(crate) use crate::resource_sampling::{RESOURCE_SAMPLE_CAPACITY, RESOURCE_SAMPLE_INTERVAL};
 
-/// The most samples one session records.
-///
-/// At five seconds this covers two hours plus ten minutes of teardown margin.
-/// A longer session keeps running and stops sampling, and says so: the
-/// alternative is an unbounded record stream in a soak, which is the shape of
-/// leak this file exists to detect.
-pub(crate) const RESOURCE_SAMPLE_CAPACITY: u64 = 1_560;
-
-/// Bounded periodic sampling of the session's resource gauges.
-///
-/// Passive: it owns when a sample is due and how many have been taken, and
-/// nothing else. The values come from the caller, which is the only thing that
-/// can see them.
 struct LiveResourceSampler {
     started: Instant,
-    next_sample_at: Instant,
-    sequence: u64,
-    saturated: bool,
+    schedule: crate::resource_sampling::ResourceSamplingSchedule,
 }
 
 /// One reading of the gauges a growth check compares.
@@ -61,12 +41,10 @@ struct LiveResourceSample {
 }
 
 impl LiveResourceSampler {
-    fn new(started: Instant) -> Self {
+    fn new(started: Instant, continuous: bool) -> Self {
         Self {
             started,
-            next_sample_at: started + RESOURCE_SAMPLE_INTERVAL,
-            sequence: 0,
-            saturated: false,
+            schedule: crate::resource_sampling::ResourceSamplingSchedule::new(started, continuous),
         }
     }
 
@@ -76,24 +54,17 @@ impl LiveResourceSampler {
     /// and read `/proc`, and doing that per loop iteration would make the
     /// measurement part of what it measures.
     fn is_due(&self, now: Instant) -> bool {
-        !self.saturated && now >= self.next_sample_at
+        self.schedule.is_due(now)
     }
 
     /// Record one sample, and say when the next is due.
     fn record(&mut self, now: Instant, sample: LiveResourceSample) {
-        if self.saturated {
-            return;
-        }
-        self.sequence = self.sequence.saturating_add(1);
-        if self.sequence >= RESOURCE_SAMPLE_CAPACITY {
-            self.saturated = true;
-        }
-        self.next_sample_at = now + RESOURCE_SAMPLE_INTERVAL;
+        let Some(sequence) = self.schedule.advance(now) else { return; };
         let uptime_msec = u64::try_from(now.duration_since(self.started).as_millis())
             .unwrap_or(u64::MAX);
         crate::session_println!(
             "sophia_live_resource_sample schema=1 seq={} uptime_msec={uptime_msec} rss_kib={} cpu_registry_buffers={} cpu_registry_bytes={} cpu_cow_splits={} frame_slots_leased={} snapshot_live_entries={} import_cache_live_entries={}",
-            self.sequence,
+            sequence,
             resident_kib().unwrap_or(0),
             sample.cpu_registry_buffers,
             sample.cpu_registry_bytes,
@@ -113,8 +84,8 @@ impl LiveResourceSampler {
     fn report(&self) {
         crate::session_println!(
             "sophia_live_resource_steady_state schema=1 status=complete samples={} saturated={} interval_msec={}",
-            self.sequence,
-            self.saturated,
+            self.schedule.samples(),
+            self.schedule.saturated(),
             RESOURCE_SAMPLE_INTERVAL.as_millis(),
         );
     }

@@ -80,20 +80,98 @@ Durable user evidence lives below
 
 | Evidence | Path |
 | --- | --- |
-| Hagia session, guard, recovery, lifecycle | `hagia-session/` |
+| Ordinary session identity, events, guard, recovery, lifecycle | `sessions/SESSION_ID/` |
+| Current ordinary Hagia record | `hagia-session/current/` |
+| Explicitly preserved diagnostic snapshots | `session-investigations/` |
 | Kitty fallback session | `kitty-session/` |
 | native diagnostics | `native-session/` |
 | installed launch and runtime identity | `installed-session/` |
-| Hagia attempts and coverage | `promotion/hagia-runs/` |
+| Legacy Hagia attempts and explicit proof coverage | `promotion/hagia-runs/` |
 | packaged-default Hagia attempts | `promotion/hagia-promotion-runs/` |
 | Firefox, xterm, and TrueColor attempts | `promotion/{firefox,xterm,truecolor}-runs/` |
 | fallback, emergency, watchdog, and native-chrome attempts | `promotion/{fallback,emergency,watchdog,native-chrome}-runs/` |
 
-Active logs retain at most one `.previous` generation. Immutable attempts bind
+Legacy/proof log paths retain at most one `.previous` generation. Daily sessions
+use the rolling history described below. Immutable proof attempts bind
 the Sophia executable, relevant native policy executable, selected profile
 identity, lifecycle, recovery, and reduced session evidence. Personal
 configuration contents are never copied into an archive. Logs must not contain
 typed text, clipboard data, window titles, or application content.
+
+## Mark and investigate a problem
+
+In an ordinary installed session, use a terminal or switch to another TTY and run:
+
+```sh
+sophia session mark "window stopped responding"
+```
+
+This command writes a local marker without asking the desktop to respond. It
+selects the sole live session. If more than one session is live, select its ID
+with `--session=ID`. After a crash, select the previous launch explicitly:
+
+```sh
+sophia session mark --session=latest "previous session crashed"
+sophia session inspect latest
+sophia session keep latest
+```
+
+The marker command prints the exact session and marker IDs and the command to
+inspect that marker. `inspect ID --marker=MARKER_ID` shows events within sixty
+seconds of either side of the marker, as far as retained evidence permits. A
+marker written after the session ended is a report time, not an inferred crash
+time; inspection shows the final retained minute. `sophia session list` lists
+retained launches and storage totals. `sophia-status` includes that listing.
+
+Each launch gets its own record before graphics takeover. Its manifest binds
+Sophia's executable digest and installed release identity. The identity journal
+records loaded core/desktop profile digests, WM profile activation, and the
+executed WM and native-shell digests at each connection epoch. Hashing runs
+separately from event recording; a pending or unavailable digest is not an
+assertion about which executable ran. Component-private configuration remains
+owned by its component and is reported as unobserved. File contents are not
+copied, and editing a profile later does not change a recorded digest.
+
+Events carry a write sequence, UTC milliseconds, boot-clock milliseconds, and
+an approved Sophia record, separated by tabs. The manifest identifies the boot.
+The boot clock permits correlation across wall-clock corrections. Identity
+records may arrive after ordinary events; inspection orders events by their
+observation time. Guard and TTY recovery records retain their existing schemas.
+
+Resource observations continue every five seconds throughout an ordinary
+recorded session. Storage keeps four event segments of at most 15 MiB each,
+with separate bounded identity and marker journals. Automatic history retains
+at most twenty finished sessions within a 1 GiB budget, reserving space for the
+active session's 64 MiB allowance. Active sessions are never deleted. If active
+sessions alone exceed the budget, their protection takes precedence.
+
+`keep ID` copies the evidence currently available into a private, checksummed
+snapshot outside automatic pruning. A running-session snapshot records its
+cutoff and is incomplete. Marking alone does not exempt a session from pruning;
+keep the evidence when an investigation needs it. Preserved snapshots remain
+until you remove them, and their storage total is reported separately. Existing
+archives are not migrated or pruned.
+
+Recording uses bounded queues and synchronizes periodically. Its health record
+reports discarded records, rotated bytes, storage failures, and the last
+confirmed synchronization time. An abrupt power loss can lose the newest
+unsynchronized tail. An unfinished record with no live owner is `interrupted`;
+Sophia does not invent an exit code or crash cause. A clean process exit is
+`exited`, a nonzero exit is `failed`, and neither is a proof verdict.
+
+Daily capture accepts Sophia's structured evidence, not mixed application
+stdout/stderr. Sensitive fields and arbitrary strings are excluded. Labels are
+operator-supplied local notes, limited to 256 UTF-8 bytes without control
+characters. Session directories require mode 0700 and files mode 0600; unsafe
+owners and links are refused. The ownership manifest contains the minimal host
+process/boot identity needed to distinguish a live wrapper from PID reuse;
+`inspect` does not print that private control identity. No new scripting socket,
+namespace grant, WM metadata, tracing, or pixel capture is enabled.
+
+Diagnostic failure is reported without replacing the ordinary session's exit
+status. Explicit proof/promotion workflows retain their exact evidence and
+strict verifiers. For a recorded daily session, use `inspect`; to verify a
+legacy Hagia archive, pass its directory explicitly to `sophia-verify-hagia`.
 
 ## Normal Stop
 
@@ -148,15 +226,16 @@ release. A second invocation swaps the same pair back.
 
 ## Native Evidence Workflows
 
-The ordinary Hagia session automatically reserves an attempt before graphics
-takeover. Normal logout records `status=passed`, emergency recovery records
-`status=recovered`, unexpected exits record `status=failed`, and interruption
-before finalization leaves `status=pending`.
+Explicit proof and promotion sessions reserve an immutable attempt before
+graphics takeover. Verified normal logout records `status=passed`, emergency
+recovery records `status=recovered`, unexpected exits record `status=failed`,
+and interruption before finalization leaves `status=pending`. Ordinary daily
+sessions use the diagnostic history above.
 
-Verify ordinary and packaged-default sessions with:
+Verify retained legacy and packaged-default proof sessions with:
 
 ```sh
-sophia-verify-hagia
+sophia-verify-hagia /absolute/path/to/legacy/archive
 sophia-verify-hagia-promotion
 ```
 

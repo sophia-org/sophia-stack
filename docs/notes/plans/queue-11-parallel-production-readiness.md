@@ -223,6 +223,102 @@ error handler. Lowering an already-negotiated version is a behaviour change to
 shipped clients, which is why it is its own decision rather than a fix folded
 into t029.
 
+### Outcome
+
+The task offered two ways out and **the evidence rules out one of them**:
+clamping cannot produce an honest claim at any level, because the implemented
+set is not a version prefix. XFIXES orders its ladder so that version 1 is
+minors 0-4 (save-set and cursor) and version 2 is 5-27 (every region request);
+Sophia implements a middle slice, with gaps beginning at version 1 while
+everything that works lives at version 2. A version number can only express a
+prefix, so no number describes this server.
+
+Clamping was measured rather than assumed. Disassembling this host's libXfixes
+3.1.0 shows *no* region entry point gating on the version; only cursor images,
+cursor naming, Hide/Show, barriers and disconnect modes gate at all, and xcb
+gates nothing. So clamping would neither break regions nor make any claim true.
+It would only lower a number.
+
+**Decision: keep 6.0 as explicit documented policy, and let the named
+two-tier refusal carry the honesty.** Minor 34 has a reply, so 6.0 usefully
+invites a probe this server unblocks with `BadImplementation` where silence
+would hang it. Yesterday's RENDER work also established that clients send
+requests above the advertised version without reading it, so the version is a
+claim the server makes for its own honesty, not a gate the client respects.
+
+Implemented here: the region constructors (minors 6-9) and `ExpandRegion` (28),
+each wiring onto a store that already existed. Repaired: `FetchRegion` wrote a
+count where the protocol puts extents, and `QueryVersion` never clamped.
+
+**A crash was caught before it shipped.** Minors 20-22 briefly had decoders
+with no dispatcher behind them. A decoder without a dispatcher is worse than no
+decoder: the request decodes, misses every family matcher, and reaches
+`dispatch.rs`'s `unreachable!`, so any unprivileged client could have taken the
+server down by sending one. The rule is now that a minor is decoded only once
+something answers it, and
+`every_xfixes_minor_is_answered_rather_than_escaping_dispatch` sweeps the whole
+minor range to hold it. That test was mutation-checked: reintroducing a single
+undispatched decoder makes it fail with exactly that panic.
+
+Evidence is `wire`. The `x-authority-zenity-smoke` and `x-authority-gtk3-smoke`
+traces both report `first_error=none` but are **not** XFIXES evidence -- neither
+reaches opcode 138 offline, because with no window manager nothing is admitted
+and GTK never gets far enough to compute a region. This is the same limit
+recorded elsewhere: a headless probe cannot prove a path unused.
+
+Limits carried forward, each with a reason rather than as undifferentiated debt:
+
+- Minor 2 `SelectSelectionInput` is accepted and validated, but no
+  `XFixesSelectionNotify` has ever been encoded. Clients believe they
+  subscribed. This is the top measured demand among the unimplemented and is
+  **split out rather than folded in here**: it needs an event fan-out that has
+  no in-tree precedent (`ShapeNotify` has none), it lands in
+  `protocol_routing.rs` where concurrent work is active, and refusing it
+  outright is dangerous because GDK dies on unguarded XFIXES errors.
+- Minor 20 `SetGCClipRegion` is blocked concretely: the core
+  `SetClipRectangles` decoder discards the clip origins before they reach the
+  runtime, so there is nothing stored to install a region against. Minors 21
+  and 22 are implementable and were left to their own commit.
+- Cursor minors (3, 4, 23-27, 29, 30) are blocked on the same
+  authority-to-engine cursor plumbing that RENDER's stored ARGB cursors already
+  name as a follow-up, not fresh debt.
+- Pointer barriers (31, 32) and disconnect modes (33, 34) sit across the engine
+  and session-authority boundaries by design.
+
+## t062
+
+Deliver `XFixesSelectionNotify`. Minor 2 `SelectSelectionInput` is accepted and
+validated, and then dropped: ten measured requests with `event_mask=0x7` against
+real selection atoms, and no event has ever been encoded with the advertised
+base 66. Clients believe they subscribed. Split out of [t059](#t059) rather than
+folded into it, for three reasons that are about risk rather than size.
+
+First, there is **no in-tree precedent for the fan-out**. The obvious model,
+`ShapeNotify`, turns out to have no fan-out at all -- it is delivered to the
+requesting client, not distributed to subscribers -- so this needs a
+subscription-and-delivery path built rather than copied.
+
+Second, it lands in `protocol_routing.rs`, where concurrent work is active.
+
+Third, refusing minor 2 in the meantime is **not** a safe interim position: GDK
+dies on unguarded XFIXES errors, which the zenity trace shows. Accepting and
+dropping is a lie, but refusing is a crash, so the silent acceptance stays until
+the events are real.
+
+`xXFixesSelectionNotifyEvent` is 32 bytes: type, subtype, sequence, window,
+owner, selection, timestamp, selectionTimestamp, two pads. Subtypes are
+`SetSelectionOwner`(0), `SelectionWindowDestroy`(1) and
+`SelectionClientClose`(2), with mask bits `1 << subtype`.
+
+Emit from the existing `XSelectionMonitor` change points -- `apply_event` and
+`clear_window_owner` in `selection.rs` already carry owner transitions -- gated
+on an actual change rather than on every assertion, which is the discipline
+`ShapeNotify` established. Subscriptions key on `(client, window, selection)`
+and must be dropped on window destroy and on disconnect. Tests: one notify per
+owner change with the right subtype, none for a non-subscriber, the mask
+filtering subtypes, and teardown on both destroy paths.
+
+
 ## t060
 
 Make pointer queries reflect the latest input admitted to their namespace.

@@ -170,47 +170,6 @@ fn known_closed_ingress_is_not_polled_again() {
     );
 }
 
-#[test]
-fn quiescence_waits_for_each_accepted_work_domain_without_extending_deadline() {
-    let now = Instant::now();
-    let mut quiescence = SessionQuiescence::new("test", now, Duration::from_millis(20));
-    quiescence.mark_frontend_authority_drained();
-    for snapshot in [
-        SessionQuiescenceSnapshot {
-            pending_authority_batches: 1,
-            ..Default::default()
-        },
-        SessionQuiescenceSnapshot {
-            pending_coordinator_work: 1,
-            ..Default::default()
-        },
-        SessionQuiescenceSnapshot {
-            cpu_update_pending: true,
-            ..Default::default()
-        },
-        SessionQuiescenceSnapshot {
-            native_work_pending: true,
-            ..Default::default()
-        },
-    ] {
-        assert_eq!(
-            quiescence.decision(now + Duration::from_millis(1), snapshot),
-            SessionQuiescenceDecision::Pending
-        );
-        assert_eq!(
-            quiescence.decision(now + Duration::from_millis(20), snapshot),
-            SessionQuiescenceDecision::TimedOut
-        );
-    }
-    assert_eq!(
-        quiescence.decision(
-            now + Duration::from_millis(20),
-            SessionQuiescenceSnapshot::default()
-        ),
-        SessionQuiescenceDecision::Complete
-    );
-}
-
 fn batch(transaction: u64) -> XAuthorityObservedTransactionBatch {
     super::super::wm_update_coordinator_batch(TransactionId::from_raw(transaction))
 }

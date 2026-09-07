@@ -1206,6 +1206,9 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                     .saturating_add(usize::from(runtime.as_ref().is_some_and(
                         LiveProductionVisualRuntime::has_released_surface_content,
                     ))),
+                // Control servicing can dispatch a final command or produce
+                // more layout work; take the snapshot after both have run.
+                pending_controls: session_controls.pending_len(),
                 cpu_update_pending: !cpu_visual_progress.is_settled(),
                 native_work_pending,
             };
@@ -1213,7 +1216,7 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                 SessionQuiescenceDecision::Pending => {}
                 SessionQuiescenceDecision::Complete => {
                     crate::session_println!(
-                        "sophia_live_session_quiescence schema=2 status=complete reason={} elapsed_msec={} authority_pending=0 coordinator_pending=0 cpu_pending=0 native_pending=false pending_transaction=none pending_surface=none pending_handle=none pending_generation=none pending_target_checksum=none",
+                        "sophia_live_session_quiescence schema=3 status=complete reason={} elapsed_msec={} authority_pending=0 coordinator_pending=0 pending_control_count=0 cpu_pending=0 native_pending=false pending_transaction=none pending_surface=none pending_handle=none pending_generation=none pending_target_checksum=none",
                         quiescence.reason,
                         quiescence.elapsed(now).as_millis(),
                     );
@@ -1260,7 +1263,7 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                         Err(_) => "frontend_already_stopped",
                     };
                     crate::session_println!(
-                        "sophia_live_session_quiescence schema=2 status=timed_out reason={} elapsed_msec={} authority_pending={} cpu_pending={} native_pending={} cancellation={} pending_transaction={} pending_surface={} pending_handle={} pending_generation={} pending_target_checksum={} coordinator_pending={} authority_initial={} authority_queued={} oldest_authority_transaction={}",
+                        "sophia_live_session_quiescence schema=3 status=timed_out reason={} elapsed_msec={} authority_pending={} cpu_pending={} native_pending={} cancellation={} pending_transaction={} pending_surface={} pending_handle={} pending_generation={} pending_target_checksum={} coordinator_pending={} authority_initial={} authority_queued={} oldest_authority_transaction={} pending_control_count={}",
                         quiescence.reason,
                         quiescence.elapsed(now).as_millis(),
                         snapshot.pending_authority_batches,
@@ -1276,9 +1279,10 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                         usize::from(initial_authority_batch.is_some()),
                         pending_authority_batches.len(),
                         oldest_authority_transaction,
+                        snapshot.pending_controls,
                     );
                     return Err(format!(
-                        "session quiescence timed out: reason={} frontend_drained={} authority_pending={} cpu_pending={} native_pending={} pending_transaction={} pending_surface={} pending_handle={} pending_generation={} pending_target_checksum={} coordinator_pending={} oldest_authority_transaction={}",
+                        "session quiescence timed out: reason={} frontend_drained={} authority_pending={} cpu_pending={} native_pending={} pending_transaction={} pending_surface={} pending_handle={} pending_generation={} pending_target_checksum={} coordinator_pending={} oldest_authority_transaction={} pending_control_count={}",
                         quiescence.reason,
                         quiescence.frontend_authority_drained,
                         snapshot.pending_authority_batches,
@@ -1291,6 +1295,7 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                         pending_target_checksum,
                         snapshot.pending_coordinator_work,
                         oldest_authority_transaction,
+                        snapshot.pending_controls,
                     )
                     .into());
                 }

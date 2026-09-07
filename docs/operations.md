@@ -161,6 +161,11 @@ for typed causes that cleanup's contextual error may no longer carry. Missing
 or `unclassified` causes require further investigation; successful TTY recovery
 alone does not establish a successful session.
 
+Quiescence schema 3 records `pending_control_count` on completion and timeout.
+Successful shutdown requires that count to reach zero through acknowledgement
+processing; frontend EOF alone does not settle commands issued by final layout
+work. Queue, acknowledgement, and quiescence deadlines remain bounded.
+
 Resource observations continue every five seconds throughout an ordinary
 recorded session. Storage keeps four event segments of at most 15 MiB each,
 with separate bounded identity and marker journals. Automatic history retains

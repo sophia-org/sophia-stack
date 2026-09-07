@@ -438,7 +438,10 @@ initial and buffered authority batches, including nonmergeable removals and
 resource releases, still run in order before accepted coordinator work.
 Topology quarantine and bounded native-frame service retain their scheduling
 priority. Successful quiescence requires frontend drain, empty authority
-queues, settled issued layout/coordinator work, and settled CPU/native work.
+queues, settled issued layout/coordinator work, acknowledged controls, and
+settled CPU/native work. Final layout/removal processing can issue a control
+after frontend EOF; even an immediately generated acknowledgement must be
+consumed and accounted for before the owner leaves its service loop.
 A closed receiver is not polled again; the owner continues deadline-bounded
 service. Timeout remains a failure with emergency cleanup, never evidence of
 successful normal teardown.

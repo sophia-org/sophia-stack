@@ -59,6 +59,10 @@ Diagnose the forced-deadline control drain race captured in
 `/tmp/sophia-panel-probe-v5` (12 dispatched, 11 delivered, one pending).
 Normal-exit probe success does not waive this separate shutdown finding.
 
+The [control-quiescence investigation](../investigations/2ss985xn-quiescence-must-consume-acknowledgements-for-final-controls.md)
+records the reproduced missing acknowledgement boundary, Session repair, and
+isolated deadline-probe validation.
+
 
 
 ## t011

@@ -456,6 +456,9 @@ pub fn reduced_record(line: &str) -> Option<String> {
         let protocol_status = name == "sophia_live_session_protocol_error_tally"
             && key == "status"
             && matches!(value, "clean" | "compatibility_refusals");
+        let quiescence_status = name == "sophia_live_session_quiescence"
+            && key == "status"
+            && matches!(value, "frontend_drained" | "timed_out");
         let failure = key == "failure_code" && super::failure::approved_failure_code(value);
         let failure_phase = name == "sophia_session_failure"
             && key == "phase"
@@ -473,6 +476,7 @@ pub fn reduced_record(line: &str) -> Option<String> {
             || digest
             || fixed
             || protocol_status
+            || quiescence_status
             || failure
             || failure_phase
             || panic_site

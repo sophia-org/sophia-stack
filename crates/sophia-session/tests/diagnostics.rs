@@ -358,6 +358,8 @@ fn vt_failure_records_retain_the_boundary_and_safe_cause() {
         "sophia_live_renderer_handoff"
     );
     for record in [
+        "sophia_live_session_quiescence schema=3 status=complete pending_control_count=0",
+        "sophia_live_session_quiescence schema=3 status=timed_out pending_control_count=1",
         "sophia_live_session_vt schema=4 status=preparing",
         "sophia_live_input_epoch schema=1 reason=virtual_terminal epoch=3",
         "sophia_live_session_runtime_fatal schema=1 status=detected source=owner_loop action=bounded_cleanup",

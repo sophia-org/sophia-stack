@@ -31,7 +31,8 @@ use crate::session_keyboard::{
     VirtualTerminalChordAction, VirtualTerminalChordState,
 };
 use crate::session_shutdown::{
-    SessionLogoutDrainDecision, SessionLogoutDrainState, session_logout_drain_decision,
+    SessionLogoutDrainDecision, SessionLogoutDrainState, SessionQuiescence,
+    SessionQuiescenceDecision, SessionQuiescenceSnapshot, session_logout_drain_decision,
 };
 use crate::session_startup::{
     SessionStartupEvent, SessionStartupReadiness, reduce_session_startup,

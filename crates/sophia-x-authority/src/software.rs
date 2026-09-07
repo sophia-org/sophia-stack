@@ -325,7 +325,7 @@ impl XSoftwareBufferStore {
         source_origin: (i32, i32),
         mask_origin: (i32, i32),
         rect: Rect,
-        clip: &[Rect],
+        clip: Option<&[Rect]>,
         format: XRenderPictFormatKind,
     ) -> Option<XAuthorityCpuDrawResult> {
         let handle = self.allocate_handle();
@@ -354,7 +354,7 @@ impl XSoftwareBufferStore {
         op: u8,
         color: [u8; 4],
         rects: &[Rect],
-        clip: &[Rect],
+        clip: Option<&[Rect]>,
         format: XRenderPictFormatKind,
     ) -> Option<XAuthorityCpuDrawResult> {
         let handle = self.allocate_handle();

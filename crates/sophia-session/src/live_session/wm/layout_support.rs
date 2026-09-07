@@ -1,8 +1,30 @@
 impl PersistentLiveLayout {
+    /// Whether a policy-managed surface belongs in the scene.
+    ///
+    /// Mapping is the authority's fact; policy's projection is a cached view of
+    /// it that is not refreshed in the step carrying an unmap. Asking policy
+    /// alone therefore keeps a torn-down window compositing and taking pointer
+    /// hits until policy catches up, and keeps the popups it owns on screen
+    /// with it. Requiring the authority's mapping first means an unmapped
+    /// surface leaves the scene on the cycle that unmaps it.
+    ///
+    /// This is the same requirement the client-positioned path has always
+    /// placed on a popup's own mapping, applied to the managed surface too.
+    fn managed_scene_visible<E>(
+        &self,
+        surface: SurfaceId,
+        projected: impl FnOnce(SurfaceId) -> Result<bool, E>,
+    ) -> Result<bool, E> {
+        if !self.mapped_surfaces.contains(&surface) {
+            return Ok(false);
+        }
+        projected(surface)
+    }
+
     fn client_positioned_visible<E>(
         &self,
         surface: SurfaceId,
-        mut managed_visible: impl FnMut(SurfaceId) -> Result<bool, E>,
+        managed_visible: impl FnOnce(SurfaceId) -> Result<bool, E>,
     ) -> Result<bool, E> {
         let mut current = surface;
         // Panels and nested popups bypass WM placement. Follow their mapped
@@ -13,7 +35,7 @@ impl PersistentLiveLayout {
                 return Ok(false);
             }
             if !self.is_client_positioned(current) {
-                return managed_visible(current);
+                return self.managed_scene_visible(current, managed_visible);
             }
             if !self.client_positioned_mapped(current) {
                 return Ok(false);

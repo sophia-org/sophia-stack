@@ -201,7 +201,7 @@ impl XAuthorityRasterCommand {
             && data.len() >= required
             && semantics.gc.function == X_GX_COPY
             && semantics.gc.plane_mask & X_VISIBLE_PLANE_MASK == X_VISIBLE_PLANE_MASK
-            && semantics.gc.clip_rectangles.is_empty();
+            && semantics.gc.clip_rectangles.is_none();
         if !replayable {
             return Self::Unsupported(XRasterUnsupportedKind::PutImage);
         }
@@ -316,8 +316,12 @@ impl XAuthorityRasterCommand {
 }
 
 fn gc_bytes(gc: &XGraphicsContextValues) -> usize {
-    size_of::<XGraphicsContextValues>()
-        .saturating_add(gc.clip_rectangles.len().saturating_mul(size_of::<Rect>()))
+    size_of::<XGraphicsContextValues>().saturating_add(
+        gc.clip_rectangles
+            .as_ref()
+            .map_or(0, Vec::len)
+            .saturating_mul(size_of::<Rect>()),
+    )
 }
 
 fn translate_gc_clip(gc: &mut XGraphicsContextValues, x: i32, y: i32) {

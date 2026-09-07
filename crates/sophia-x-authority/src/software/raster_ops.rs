@@ -360,7 +360,7 @@ pub(super) fn put_image_pixels(
     };
     if gc.function == crate::X_GX_COPY
         && gc.plane_mask & mask == mask
-        && gc.clip_rectangles.is_empty()
+        && gc.clip_rectangles.is_none()
     {
         return copy_xrgb8888(buffer, rect, data);
     }
@@ -438,12 +438,12 @@ pub(super) fn clipped_bounds(size: Size, rect: Rect) -> Option<(usize, usize, us
 }
 
 pub(super) fn pixel_in_clip(x: usize, y: usize, gc: &XGraphicsContextValues) -> bool {
-    if gc.clip_rectangles.is_empty() {
+    if gc.clip_rectangles.is_none() {
         return true;
     }
     let x = i32::try_from(x).unwrap_or(i32::MAX);
     let y = i32::try_from(y).unwrap_or(i32::MAX);
-    gc.clip_rectangles.iter().any(|rect| {
+    gc.clip_rectangles.iter().flatten().any(|rect| {
         let left = rect.x.saturating_add(i32::from(gc.clip_x_origin));
         let top = rect.y.saturating_add(i32::from(gc.clip_y_origin));
         x >= left

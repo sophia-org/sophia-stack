@@ -201,6 +201,7 @@ fn decode_create_gc(
             16 => values.graphics_exposures = value != 0,
             17 => values.clip_x_origin = value as i16,
             18 => values.clip_y_origin = value as i16,
+            19 => values.clip_mask = (value != 0).then(|| XResourceId::new(u64::from(value), 1)),
             _ => {}
         }
     }
@@ -248,6 +249,7 @@ fn decode_change_gc(
             16 => values.graphics_exposures = value != 0,
             17 => values.clip_x_origin = value as i16,
             18 => values.clip_y_origin = value as i16,
+            19 => values.clip_mask = (value != 0).then(|| XResourceId::new(u64::from(value), 1)),
             _ => {}
         }
     }

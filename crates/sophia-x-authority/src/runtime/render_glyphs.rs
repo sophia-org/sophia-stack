@@ -379,7 +379,7 @@ impl XAuthorityRuntime {
                 ),
                 clipped_by,
                 rect,
-                &clip,
+                clip.as_deref(),
                 destination_record.format,
             ) else {
                 // The destination could not take this glyph. The ones

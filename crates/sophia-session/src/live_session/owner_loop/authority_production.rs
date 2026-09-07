@@ -81,12 +81,12 @@
                             }
                         })?
                     } else {
-                        match wm_session.as_ref() {
-                        Some(wm) => {
-                            wm.surface_visible_on_any_output(layer.surface, &outputs)?
-                        }
-                        None => true,
-                        }
+                        layout.managed_scene_visible(layer.surface, |surface| {
+                            match wm_session.as_ref() {
+                                Some(wm) => wm.surface_visible_on_any_output(surface, &outputs),
+                                None => Ok(true),
+                            }
+                        })?
                     };
                     if visible {
                         presentation_layout.push(layer.clone());

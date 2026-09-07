@@ -64,6 +64,16 @@ fn dispatch_core_property_request(
                 }
                 XWireRequest::ChangeProperty(change) => {
                     let transaction = context.transaction;
+                    // GTK rewrites its initial EWMH hints between hide and
+                    // show. An earlier map having published Engine state must
+                    // not turn that next-map hint into a fatal protocol error.
+                    // Pending and mapped surfaces remain authority-owned.
+                    let initial_net_wm_state = atoms.name(change.property)
+                        == Some(crate::X_ATOM_NAME_NET_WM_STATE)
+                        && runtime.window_map_state(context.namespace, change.window)
+                            == Ok(crate::XMapState::Unmapped)
+                        && runtime.window_policy_map_pending(context.namespace, change.window)
+                            == Ok(false);
                     let window_access = if change.window.local.raw() == u64::from(crate::X_SETUP_DEFAULT_ROOT) { Ok(()) } else { runtime.validate_window_access(context.namespace, change.window) };
                     let (output, metadata_candidates, response) = match window_access {
                         Err(error) => (
@@ -76,7 +86,11 @@ fn dispatch_core_property_request(
                             Vec::new(),
                             None,
                         ),
-                        Ok(()) => match properties.apply_change(context.namespace, change.clone()) {
+                        Ok(()) => match if initial_net_wm_state {
+                            properties.apply_initial_net_wm_state(context.namespace, change.clone(), atoms)
+                        } else {
+                            properties.apply_change(context.namespace, change.clone())
+                        } {
                             Ok(record) => {
                                 if let Some(Ok(constraints)) =
                                     decode_x_size_hints(&record, atoms, context.byte_order)

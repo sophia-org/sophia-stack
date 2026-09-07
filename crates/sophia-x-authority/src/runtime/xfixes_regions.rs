@@ -231,10 +231,11 @@ impl XAuthorityRuntime {
             .graphics_contexts
             .get(namespace, gc)
             .map_err(|_| XFixesSourceError::UnknownGraphicsContext)?;
-        if record.values.clip_rectangles.is_empty() {
-            return Err(XFixesSourceError::NoClip);
-        }
-        let rects = record.values.clip_rectangles.clone();
+        let rects = record
+            .values
+            .clip_rectangles
+            .clone()
+            .ok_or(XFixesSourceError::NoClip)?;
         self.create_xfixes_region(namespace, region, rects, generation)
             .map_err(|_| XFixesSourceError::IdInUse)
     }
@@ -257,10 +258,8 @@ impl XAuthorityRuntime {
         if record.generated.is_some() {
             return Err(XFixesSourceError::UnknownPicture);
         }
-        if record.clip_rects.is_empty() {
-            return Err(XFixesSourceError::NoClip);
-        }
-        self.create_xfixes_region(namespace, region, record.clip_rects.clone(), generation)
+        let rects = record.clip_rects.ok_or(XFixesSourceError::NoClip)?;
+        self.create_xfixes_region(namespace, region, rects, generation)
             .map_err(|_| XFixesSourceError::IdInUse)
     }
 

@@ -281,12 +281,17 @@ fn clipped_or_non_copy_put_image_is_not_retained_as_replayable() {
         (1, |gc: &mut XGraphicsContextValues| gc.plane_mask = 0x0000_00ff),
         // Clipping means the upload did not write every named pixel.
         (2, |gc: &mut XGraphicsContextValues| {
-            gc.clip_rectangles = vec![Rect {
+            gc.clip_rectangles = Some(vec![Rect {
                 x: 0,
                 y: 0,
                 width: 2,
                 height: 2,
-            }];
+            }]);
+        }),
+        // An explicitly empty clip must not become an unrestricted upload
+        // when the journal is replayed at a different density.
+        (3, |gc: &mut XGraphicsContextValues| {
+            gc.clip_rectangles = Some(Vec::new());
         }),
     ] {
         let window = XResourceId::new(0x230 + index, 1);

@@ -43,6 +43,9 @@ fn dispatch_core_resource_request(
                     drawable,
                 ));
             }
+            if let Some(mask) = values.clip_mask {
+                return Handled(core_gc_pixmap_clip_refusal(context, mask));
+            }
             if let Some(font) = values.font
                 && let Err(error) = runtime.validate_font_access(context.namespace, font)
             {
@@ -62,7 +65,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(gc.local.raw()).unwrap_or(0)))
+                        u32::try_from(gc.local.raw()).unwrap_or(0),
+                    ))
                 })
                 .into_iter()
                 .collect();
@@ -85,6 +89,9 @@ fn dispatch_core_resource_request(
                     gc,
                 ));
             }
+            if let Some(mask) = values.clip_mask {
+                return Handled(core_gc_pixmap_clip_refusal(context, mask));
+            }
             if value_mask & (1 << 14) != 0 {
                 let font = values.font.unwrap_or(XResourceId::new(0, 1));
                 if let Err(error) = runtime.validate_font_access(context.namespace, font) {
@@ -105,7 +112,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(gc.local.raw()).unwrap_or(0)))
+                        u32::try_from(gc.local.raw()).unwrap_or(0),
+                    ))
                 })
                 .into_iter()
                 .collect();
@@ -115,10 +123,17 @@ fn dispatch_core_resource_request(
                 metadata_candidates: Vec::new(),
             }
         }
-        XWireRequest::SetClipRectangles { gc, rectangles } => {
+        XWireRequest::SetClipRectangles {
+            gc,
+            clip_x_origin,
+            clip_y_origin,
+            rectangles,
+        } => {
             if let Err(error) = runtime.set_graphics_context_clip_rectangles(
                 context.namespace,
                 gc,
+                clip_x_origin,
+                clip_y_origin,
                 rectangles,
             ) {
                 return Handled(core_resource_validation_error(
@@ -194,7 +209,8 @@ fn dispatch_core_resource_request(
                     context.sequence,
                     context.major_opcode,
                     0,
-                    u32::try_from(window.local.raw()).unwrap_or(0)))]
+                    u32::try_from(window.local.raw()).unwrap_or(0),
+                ))]
             } else {
                 Vec::new()
             };
@@ -221,7 +237,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(font.local.raw()).unwrap_or(0)))],
+                        u32::try_from(font.local.raw()).unwrap_or(0),
+                    ))],
                 },
                 None => {
                     tracing::debug!(
@@ -305,7 +322,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(cursor.local.raw()).unwrap_or(0)))
+                        u32::try_from(cursor.local.raw()).unwrap_or(0),
+                    ))
                 })
                 .into_iter()
                 .collect();
@@ -331,7 +349,8 @@ fn dispatch_core_resource_request(
                     context.sequence,
                     context.major_opcode,
                     0,
-                    u32::try_from(source_font.local.raw()).unwrap_or(0)))]
+                    u32::try_from(source_font.local.raw()).unwrap_or(0),
+                ))]
             } else if let Some(mask_font) = mask_font {
                 if let Err(error) = runtime.validate_font_access(context.namespace, mask_font) {
                     vec![XClientOutput::Error(x_error_from_runtime(
@@ -339,7 +358,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(mask_font.local.raw()).unwrap_or(0)))]
+                        u32::try_from(mask_font.local.raw()).unwrap_or(0),
+                    ))]
                 } else {
                     match runtime.create_cursor(
                         context.namespace,
@@ -352,7 +372,8 @@ fn dispatch_core_resource_request(
                             context.sequence,
                             context.major_opcode,
                             0,
-                            u32::try_from(cursor.local.raw()).unwrap_or(0)))],
+                            u32::try_from(cursor.local.raw()).unwrap_or(0),
+                        ))],
                     }
                 }
             } else {
@@ -364,7 +385,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(cursor.local.raw()).unwrap_or(0)))],
+                        u32::try_from(cursor.local.raw()).unwrap_or(0),
+                    ))],
                 }
             };
             XDispatchResult {
@@ -381,7 +403,8 @@ fn dispatch_core_resource_request(
                     context.sequence,
                     context.major_opcode,
                     0,
-                    u32::try_from(cursor.local.raw()).unwrap_or(0)))],
+                    u32::try_from(cursor.local.raw()).unwrap_or(0),
+                ))],
             };
             XDispatchResult {
                 response: None,
@@ -397,7 +420,8 @@ fn dispatch_core_resource_request(
                     context.sequence,
                     context.major_opcode,
                     0,
-                    u32::try_from(cursor.local.raw()).unwrap_or(0)))],
+                    u32::try_from(cursor.local.raw()).unwrap_or(0),
+                ))],
             };
             XDispatchResult {
                 response: None,
@@ -439,24 +463,23 @@ fn dispatch_core_resource_request(
             if runtime.resource_id_in_use(pixmap) {
                 return Handled(core_resource_bad_id_choice(context, pixmap));
             }
-            let outputs = if let Err(error) =
-                runtime.validate_drawable_access(context.namespace, drawable)
-            {
-                return Handled(core_resource_validation_error(
-                    context,
-                    error,
-                    XErrorCode::BadDrawable,
-                    drawable,
-                ));
-            } else if width == 0 || height == 0 {
-                vec![XClientOutput::Error(crate::XClientError {
-                    code: XErrorCode::BadValue,
-                    sequence: context.sequence,
-                    resource_id: 0,
-                    minor_code: 0,
-                    major_code: context.major_opcode,
-                })]
-            } else if crate::x11_pixmap_format(depth).is_none() {
+            let outputs =
+                if let Err(error) = runtime.validate_drawable_access(context.namespace, drawable) {
+                    return Handled(core_resource_validation_error(
+                        context,
+                        error,
+                        XErrorCode::BadDrawable,
+                        drawable,
+                    ));
+                } else if width == 0 || height == 0 {
+                    vec![XClientOutput::Error(crate::XClientError {
+                        code: XErrorCode::BadValue,
+                        sequence: context.sequence,
+                        resource_id: 0,
+                        minor_code: 0,
+                        major_code: context.major_opcode,
+                    })]
+                } else if crate::x11_pixmap_format(depth).is_none() {
                     vec![XClientOutput::Error(crate::XClientError {
                         code: XErrorCode::BadValue,
                         sequence: context.sequence,
@@ -479,7 +502,8 @@ fn dispatch_core_resource_request(
                         context.sequence,
                         context.major_opcode,
                         0,
-                        u32::try_from(pixmap.local.raw()).unwrap_or(0)))]
+                        u32::try_from(pixmap.local.raw()).unwrap_or(0),
+                    ))]
                 } else {
                     Vec::new()
                 };
@@ -543,7 +567,8 @@ fn core_resource_validation_error(
                 context.sequence,
                 context.major_opcode,
                 0,
-                resource_id)
+                resource_id,
+            )
             .code
         }
     };
@@ -553,6 +578,20 @@ fn core_resource_validation_error(
             code,
             sequence: context.sequence,
             resource_id,
+            minor_code: 0,
+            major_code: context.major_opcode,
+        })],
+        metadata_candidates: Vec::new(),
+    }
+}
+
+fn core_gc_pixmap_clip_refusal(context: XDispatchContext, mask: XResourceId) -> XDispatchResult {
+    XDispatchResult {
+        response: None,
+        outputs: vec![XClientOutput::Error(crate::XClientError {
+            code: XErrorCode::BadImplementation,
+            sequence: context.sequence,
+            resource_id: u32::try_from(mask.local.raw()).unwrap_or(0),
             minor_code: 0,
             major_code: context.major_opcode,
         })],

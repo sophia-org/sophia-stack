@@ -353,6 +353,14 @@ without inventing an Engine owner. The live session keeps attached visibility
 tied to a mapped owner when one exists, and explicit unmap, property deletion,
 or owner loss cannot leave a stale popup in composition.
 
+Authority unmap takes precedence over a cached WM visibility projection,
+including when an attached popup resolves to a managed owner. The live backend
+also removes departed surfaces from pointer projections when the presentation
+layout changes. Native retirement intersects its retained frame with current
+eligibility, so an older frame cannot restore a dismissed target. This only
+removes targets; surviving windows retain their last-presented geometry until
+new pixels reach scanout.
+
 `_NET_WM_WINDOW_TYPE` is reduced at the same boundary because the external
 blind WM never receives application properties. The decoder honors the EWMH
 ordered ATOM list, skips unknown extension types, leaves `NORMAL` under policy,
@@ -365,8 +373,13 @@ as a protocol-neutral frontend control. X Authority materializes fullscreen,
 paired horizontal/vertical maximize, hidden/minimized, and ordinary/restore as
 `_NET_WM_STATE`; it also publishes ICCCM `WM_STATE` as Normal or Iconic. Both
 properties change as one bounded table operation. Selected `PropertyNotify`
-events are flushed before acknowledgement, and the application cannot mutate,
-delete, or delete-on-read these Engine-owned feedback properties afterward.
+events are flushed before acknowledgement. Mapped windows and pending policy
+admissions cannot replace these Engine-owned feedback properties. A withdrawn
+window may replace `_NET_WM_STATE` with initial hints for its next map, as GTK
+does when reusing a dialog. This namespace-checked write changes only the X
+property record; it does not commit Engine presentation state or bypass policy
+admission. ICCCM `WM_STATE` remains protected, as do deletion and delete-on-read
+of either feedback property.
 The live policy transaction waits for this acknowledgement and restores the
 last committed values if its candidate aborts.
 
@@ -744,6 +757,18 @@ a row-copy fast path for unrestricted GXcopy. XYBitmap selects GC foreground
 and background. Malformed or unreadable data never manufactures background
 pixels. `SOPHIA_X11_PIXEL_TRACE=1` enables bounded RGB counts/checksums at upload
 and CPU Present boundaries; normal sessions do not scan pixels for diagnostics.
+
+Core GC and RENDER picture clips distinguish an unrestricted clip from an
+explicitly empty region, which suppresses every pixel. Rectangle clips retain
+their signed origins; `ChangeGC(clip-mask=None)` and
+`ChangePicture(clip-mask=None)` restore unrestricted drawing. Omitted attributes
+preserve the previous clip. Invalid or unsupported picture attributes are
+validated before mutation. Nonzero pixmap clip masks remain explicitly
+unsupported. XFIXES region constructors copy the stored rectangles without
+folding in their origins, including an explicitly empty region. Raster replay
+preserves that distinction and cannot turn a clipped upload into an
+unrestricted one. The optional [GTK redraw probe](../tools/probes/README.md)
+checks dialog and menu pixels and dialog reuse with a real GTK3 client.
 
 A private `SOPHIA-PRESENT` extension remains as historical prototype evidence
 for the first explicit buffer-handoff reducer. It is not the forward path and

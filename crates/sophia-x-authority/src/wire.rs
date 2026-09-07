@@ -225,6 +225,8 @@ pub enum XWireRequest {
     },
     SetClipRectangles {
         gc: XResourceId,
+        clip_x_origin: i16,
+        clip_y_origin: i16,
         rectangles: Vec<Rect>,
     },
     FreeGraphicsContext {

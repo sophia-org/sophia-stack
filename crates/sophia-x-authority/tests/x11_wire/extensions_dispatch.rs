@@ -5107,10 +5107,8 @@ fn xfixes_builds_a_region_from_a_window_shape() {
 ///
 /// The clip origins describe how the graphics context *uses* its clip, not
 /// where the rectangles are, so folding them in here would apply them a second
-/// time if the region were installed as a clip again. Sophia cannot get that
-/// wrong yet for a duller reason: the core `SetClipRectangles` decoder
-/// discards the origins, so there is nothing stored to fold. That gap is why
-/// minor 20 stays refused, and it is why this test can only pin the copy.
+/// time if the region were installed as a clip again. Nonzero stored origins
+/// must therefore leave the extracted region unchanged.
 #[test]
 fn xfixes_copies_a_graphics_context_clip() {
     let gc = 0x0020_0810;
@@ -5145,7 +5143,9 @@ fn xfixes_copies_a_graphics_context_clip() {
         Some(XErrorCode::BadMatch)
     );
 
-    let clip = set_clip_rectangles_request(XfixesRegionFixture::ORDER, gc, &[(1, 2, 3, 4)]);
+    let mut clip = set_clip_rectangles_request(XfixesRegionFixture::ORDER, gc, &[(1, 2, 3, 4)]);
+    clip[8..10].copy_from_slice(&(-5_i16).to_le_bytes());
+    clip[10..12].copy_from_slice(&7_i16.to_le_bytes());
     assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&clip)), None);
     let from_gc = fixture.send(&xfixes_create_region_from_request(
         XfixesRegionFixture::ORDER,

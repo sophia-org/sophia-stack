@@ -593,6 +593,29 @@ impl XPropertyTable {
         namespace: NamespaceId,
         change: XPropertyChange,
     ) -> Result<XPropertyRecord, XPropertyError> {
+        self.apply_change_inner(namespace, change, false)
+    }
+
+    /// A withdrawn client may replace its next map's EWMH hints. This does
+    /// not alter committed presentation state or release property ownership.
+    pub(crate) fn apply_initial_net_wm_state(
+        &mut self,
+        namespace: NamespaceId,
+        change: XPropertyChange,
+        atoms: &XAtomTable,
+    ) -> Result<XPropertyRecord, XPropertyError> {
+        if atoms.name(change.property) != Some(X_ATOM_NAME_NET_WM_STATE) {
+            return Err(XPropertyError::AuthorityOwned);
+        }
+        self.apply_change_inner(namespace, change, true)
+    }
+
+    fn apply_change_inner(
+        &mut self,
+        namespace: NamespaceId,
+        change: XPropertyChange,
+        initial_net_wm_state: bool,
+    ) -> Result<XPropertyRecord, XPropertyError> {
         if !namespace.is_valid() {
             return Err(XPropertyError::InvalidNamespace);
         }
@@ -608,7 +631,7 @@ impl XPropertyTable {
         }
 
         let key = (namespace, change.window, change.property);
-        if self.engine_owned.contains(&key) {
+        if self.engine_owned.contains(&key) && !initial_net_wm_state {
             return Err(XPropertyError::AuthorityOwned);
         }
         let previous = self.records.get(&key);

@@ -1088,6 +1088,15 @@ impl LiveProductionVisualRuntime {
         self.presentation_order.clear();
         self.presentation_order
             .extend(layout.iter().map(|layer| layer.surface));
+        if order_changed {
+            // Input eligibility must not wait for the next accepted page flip.
+            // On the native path nothing republishes the projection until a
+            // frame retires, so a window unmapped now would keep answering the
+            // pointer for the whole interval until then -- unbounded if the
+            // flip stalls. Pruning here only ever removes what has left the
+            // layout; pixels still on screen keep routing until they do.
+            self.prune_input_projections_to_presentation_order();
+        }
         // Which head composites each surface. A scrolling layout puts columns
         // past the edge of their own display on purpose, and with a second
         // display beside it, "past the edge" and "inside the neighbour" are

@@ -285,7 +285,7 @@ Limits carried forward, each with a reason rather than as undifferentiated debt:
 - Pointer barriers (31, 32) and disconnect modes (33, 34) sit across the engine
   and session-authority boundaries by design.
 
-## t062
+## t063
 
 Deliver `XFixesSelectionNotify`. Minor 2 `SelectSelectionInput` is accepted and
 validated, and then dropped: ten measured requests with `event_mask=0x7` against
@@ -349,3 +349,20 @@ Completed infrastructure baseline: `sophia-session` owns production lifecycle,
 canonical developer/CI surface, `just` is optional human shorthand, canonical
 installed commands live under `sophia session`, and source-layout debt is an
 exact identity ledger.
+
+## t064
+
+The t061 popup audit found that both live pointer-projection constructors in
+`production_visual_runtime/projection.rs` set `input_region` to `None`. The
+authority transport and direct-layer hit test support SHAPE input regions, but
+that coverage does not establish live click-through. This corrects the earlier
+t024 evidence claim; it does not undo its wire or bounding-shape work.
+
+Preserve the protocol-neutral region through committed and retired input
+projections without giving the blind WM X11 shape data. Keep region coordinates
+consistent with the geometry actually presented, retain unmap/destroy guards,
+and distinguish unrestricted from explicitly empty input. The exit requires
+runtime tests using the real live projection and hit-test path, coverage for
+replacement, resize and stale retirement, and an installed Quickshell panel
+check that clicks pass through excluded portions. This is a candidate follow-up,
+not additional t061 implementation scope.

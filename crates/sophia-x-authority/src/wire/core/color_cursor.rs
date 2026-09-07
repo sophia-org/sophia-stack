@@ -174,6 +174,8 @@ fn decode_set_clip_rectangles(
         });
     }
     Ok(XWireRequest::SetClipRectangles {
+        clip_x_origin: context.byte_order.i16(&bytes[8..10]),
+        clip_y_origin: context.byte_order.i16(&bytes[10..12]),
         gc: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
         rectangles,
     })

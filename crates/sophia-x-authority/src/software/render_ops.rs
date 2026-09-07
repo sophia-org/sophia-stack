@@ -130,11 +130,12 @@ pub(crate) fn render_blend_pixel(op: u8, src: [u8; 4], dst: [u8; 4]) -> [u8; 4] 
 }
 
 /// Whether a destination point is inside the picture's clip list, already
-/// translated by its clip origin. An empty list clips nothing.
-fn render_point_in_clip(x: usize, y: usize, clip: &[Rect]) -> bool {
-    if clip.is_empty() {
+/// translated by its clip origin. None permits every point; an empty list
+/// permits none.
+fn render_point_in_clip(x: usize, y: usize, clip: Option<&[Rect]>) -> bool {
+    let Some(clip) = clip else {
         return true;
-    }
+    };
     let x = i32::try_from(x).unwrap_or(i32::MAX);
     let y = i32::try_from(y).unwrap_or(i32::MAX);
     clip.iter().any(|rect| {
@@ -152,7 +153,7 @@ pub(super) fn render_fill_rect(
     rect: Rect,
     op: u8,
     color: [u8; 4],
-    clip: &[Rect],
+    clip: Option<&[Rect]>,
     format: XRenderPictFormatKind,
 ) {
     let Some((left, top, right, bottom)) = clipped_bounds(buffer.size, rect) else {
@@ -463,7 +464,7 @@ pub(super) fn render_composite_rect(
     source_origin: (i32, i32),
     mask_origin: (i32, i32),
     rect: Rect,
-    clip: &[Rect],
+    clip: Option<&[Rect]>,
     format: XRenderPictFormatKind,
 ) {
     let Some((left, top, right, bottom)) = clipped_bounds(buffer.size, rect) else {
@@ -610,7 +611,7 @@ pub(super) fn mask_rect_to_shape(
             let Some(slot) = bytes.get_mut(offset..offset.saturating_add(4)) else {
                 continue;
             };
-            let inside = render_point_in_clip(x, y, shape);
+            let inside = render_point_in_clip(x, y, Some(shape));
             if inside {
                 slot[3] = 0xff;
             } else {

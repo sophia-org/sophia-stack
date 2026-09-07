@@ -337,10 +337,12 @@ impl XAuthorityRuntime {
         &mut self,
         namespace: NamespaceId,
         gc: crate::XResourceId,
+        clip_x_origin: i16,
+        clip_y_origin: i16,
         rectangles: Vec<Rect>,
     ) -> Result<(), XAuthorityRuntimeError> {
         self.graphics_contexts
-            .set_clip_rectangles(namespace, gc, rectangles)
+            .set_clip_rectangles(namespace, gc, clip_x_origin, clip_y_origin, rectangles)
             .map_err(Into::into)
     }
 

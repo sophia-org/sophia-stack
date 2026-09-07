@@ -510,6 +510,8 @@ fn decode_render(
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct XRenderPictureValueSet {
     pub repeat: Option<u32>,
+    /// CPClipMask=None removes a prior rectangle clip; omission preserves it.
+    pub clear_clip_mask: bool,
     pub clip_x_origin: Option<i16>,
     pub clip_y_origin: Option<i16>,
     pub component_alpha: Option<u32>,
@@ -547,8 +549,15 @@ fn decode_render_picture_values(
             0 => set.repeat = Some(value),
             // CPAlphaMap: None means no alpha map, which is the one value
             // this server implements.
-            1 | 6 => {
+            1 => {
                 if value != 0 {
+                    set.refused_attribute = true;
+                }
+            }
+            6 => {
+                if value == 0 {
+                    set.clear_clip_mask = true;
+                } else {
                     set.refused_attribute = true;
                 }
             }

@@ -82,7 +82,7 @@ impl XAuthorityRuntime {
             origin,
             mask_origin,
             visible,
-            &clip,
+            clip.as_deref(),
             destination_record.format,
         ) else {
             return Ok(XAuthorityResponsePacket::rejected(

@@ -785,6 +785,8 @@ fn x11_core_decoder_captures_create_gc_requests() {
     assert_eq!(
         clip,
         XWireRequest::SetClipRectangles {
+            clip_x_origin: 0,
+            clip_y_origin: 0,
             gc: XResourceId::new(0x220010, 1),
             rectangles: vec![Rect {
                 x: 2,

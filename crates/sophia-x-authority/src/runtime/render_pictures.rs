@@ -10,7 +10,7 @@ pub struct XRenderPictureRecord {
     pub drawable_is_window: bool,
     pub format: crate::XRenderPictFormatKind,
     pub repeat: crate::XRenderRepeat,
-    pub clip_rects: Vec<Rect>,
+    pub clip_rects: Option<Vec<Rect>>,
     pub clip_x_origin: i16,
     pub clip_y_origin: i16,
     pub component_alpha: bool,
@@ -62,11 +62,26 @@ impl XAuthorityRuntime {
         if values.refused_attribute {
             return Err(XRenderPictureError::RefusedAttribute);
         }
-        if let Some(repeat) = values.repeat {
-            // Pad and Reflect entered at 0.10, above what is advertised, so
-            // for this server they are values the protocol does not define.
-            record.repeat = crate::XRenderRepeat::from_wire(repeat)
-                .ok_or(XRenderPictureError::InvalidValue)?;
+        // Validate the entire write before changing any retained clip state.
+        let repeat = values
+            .repeat
+            .map(|value| {
+                crate::XRenderRepeat::from_wire(value).ok_or(XRenderPictureError::InvalidValue)
+            })
+            .transpose()?;
+        let component_alpha = values
+            .component_alpha
+            .map(|value| match value {
+                0 => Ok(false),
+                1 => Ok(true),
+                _ => Err(XRenderPictureError::InvalidValue),
+            })
+            .transpose()?;
+        if values.clear_clip_mask {
+            record.clip_rects = None;
+        }
+        if let Some(repeat) = repeat {
+            record.repeat = repeat;
         }
         if let Some(origin) = values.clip_x_origin {
             record.clip_x_origin = origin;
@@ -74,12 +89,8 @@ impl XAuthorityRuntime {
         if let Some(origin) = values.clip_y_origin {
             record.clip_y_origin = origin;
         }
-        if let Some(component_alpha) = values.component_alpha {
-            record.component_alpha = match component_alpha {
-                0 => false,
-                1 => true,
-                _ => return Err(XRenderPictureError::InvalidValue),
-            };
+        if let Some(component_alpha) = component_alpha {
+            record.component_alpha = component_alpha;
         }
         Ok(())
     }
@@ -93,10 +104,7 @@ impl XAuthorityRuntime {
         values: &crate::XRenderPictureValueSet,
         generation: u64,
     ) -> Result<(), XRenderPictureError> {
-        if self
-            .validate_drawable_access(namespace, drawable)
-            .is_err()
-        {
+        if self.validate_drawable_access(namespace, drawable).is_err() {
             return Err(XRenderPictureError::Drawable);
         }
         if self.resource_id_in_use(picture) {
@@ -121,7 +129,7 @@ impl XAuthorityRuntime {
             drawable_is_window,
             format,
             repeat: crate::XRenderRepeat::default(),
-            clip_rects: Vec::new(),
+            clip_rects: None,
             clip_x_origin: 0,
             clip_y_origin: 0,
             component_alpha: false,
@@ -146,14 +154,13 @@ impl XAuthorityRuntime {
         self.resources
             .lookup(namespace, picture, XResourceKind::Picture)
             .map_err(|_| XRenderPictureError::UnknownPicture)?;
-        let mut record = self
+        let record = self
             .render_pictures
-            .get(&picture)
-            .cloned()
+            .get_mut(&picture)
             .ok_or(XRenderPictureError::UnknownPicture)?;
-        Self::render_apply_picture_values(&mut record, values)?;
-        self.render_pictures.insert(picture, record);
-        Ok(())
+        // Validation precedes mutation, so changing attributes need not copy
+        // the retained rectangle list merely to support rollback on error.
+        Self::render_apply_picture_values(record, values)
     }
 
     pub(crate) fn render_set_picture_clip_rectangles(
@@ -173,7 +180,7 @@ impl XAuthorityRuntime {
             .ok_or(XRenderPictureError::UnknownPicture)?;
         record.clip_x_origin = clip_x_origin;
         record.clip_y_origin = clip_y_origin;
-        record.clip_rects = rectangles;
+        record.clip_rects = Some(rectangles);
         Ok(())
     }
 
@@ -203,7 +210,7 @@ impl XAuthorityRuntime {
                 drawable_is_window: false,
                 format: crate::XRenderPictFormatKind::Argb32,
                 repeat: crate::XRenderRepeat::Normal,
-                clip_rects: Vec::new(),
+                clip_rects: None,
                 clip_x_origin: 0,
                 clip_y_origin: 0,
                 component_alpha: false,
@@ -301,18 +308,20 @@ impl XAuthorityRuntime {
     }
 
     /// The picture's clip list translated into destination coordinates,
-    /// ready for the store's per-pixel check. Empty means unclipped.
-    fn render_translated_clip(record: &XRenderPictureRecord) -> Vec<Rect> {
-        record
-            .clip_rects
-            .iter()
-            .map(|rect| Rect {
-                x: rect.x.saturating_add(i32::from(record.clip_x_origin)),
-                y: rect.y.saturating_add(i32::from(record.clip_y_origin)),
-                width: rect.width,
-                height: rect.height,
-            })
-            .collect()
+    /// ready for the store's per-pixel check. None is unrestricted; an empty
+    /// region suppresses drawing.
+    fn render_translated_clip(record: &XRenderPictureRecord) -> Option<Vec<Rect>> {
+        record.clip_rects.as_ref().map(|rects| {
+            rects
+                .iter()
+                .map(|rect| Rect {
+                    x: rect.x.saturating_add(i32::from(record.clip_x_origin)),
+                    y: rect.y.saturating_add(i32::from(record.clip_y_origin)),
+                    width: rect.width,
+                    height: rect.height,
+                })
+                .collect()
+        })
     }
 
     /// The target size and, for a window, its generation -- the same split
@@ -392,9 +401,9 @@ impl XAuthorityRuntime {
         // Sampled before the destination is touched, so a picture composited
         // onto itself reads its original pixels throughout.
         let source_plane = self.render_source_plane(&source_record);
-        let mask_plane = mask_record.as_ref().map(|record| {
-            self.render_source_plane(record)
-        });
+        let mask_plane = mask_record
+            .as_ref()
+            .map(|record| self.render_source_plane(record));
         let component_alpha = mask_record
             .as_ref()
             .is_some_and(|record| record.component_alpha);
@@ -434,7 +443,7 @@ impl XAuthorityRuntime {
                 i32::from(mask_origin.1).saturating_add(clipped_by.1),
             ),
             rect,
-            &clip,
+            clip.as_deref(),
             destination_record.format,
         ) else {
             return Ok(XAuthorityResponsePacket::rejected(
@@ -498,7 +507,7 @@ impl XAuthorityRuntime {
             op,
             color,
             rectangles,
-            &clip,
+            clip.as_deref(),
             record.format,
         ) else {
             return Ok(XAuthorityResponsePacket::rejected(

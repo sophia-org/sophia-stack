@@ -47,6 +47,33 @@ impl LiveProductionVisualRuntime {
         }
     }
 
+    /// Drops input layers for surfaces that have left the presentation order.
+    ///
+    /// The published projection is a record of retired pixels, and on the
+    /// native path nothing rebuilds it until the next accepted page flip. A
+    /// window unmapped between two flips would therefore keep answering the
+    /// pointer until one arrives. This removes it on the cycle its layout
+    /// changed instead, and bumps the epoch so consumers holding a route see
+    /// the projection move.
+    ///
+    /// Removal only. Nothing is added, so this can never route input to pixels
+    /// that have not reached scanout.
+    pub(super) fn prune_input_projections_to_presentation_order(&mut self) {
+        let eligible: BTreeSet<SurfaceId> = self.presentation_order.iter().copied().collect();
+        for projection in &mut self.input_projections {
+            let before = projection.layers.len();
+            projection
+                .layers
+                .retain(|layer| eligible.contains(&layer.surface));
+            if projection.layers.len() != before {
+                projection.epoch = projection
+                    .epoch
+                    .checked_add(1)
+                    .expect("presented input epoch exhausted");
+            }
+        }
+    }
+
     /// Publishes the committed scene for runtimes whose output tick is also
     /// their presentation boundary (currently the non-native/headless path).
     pub(super) fn publish_committed_input_layers(&mut self) {
@@ -132,7 +159,11 @@ impl LiveProductionVisualRuntime {
                             self.descriptor_overlay_interactive,
                         );
                     (
-                        presented_input_layer_snapshots(presented, &self.surface_metadata),
+                        presented_input_layer_snapshots(
+                            presented,
+                            &self.surface_metadata,
+                            &self.presentation_order,
+                        ),
                         chrome_targets,
                         chrome_occlusion,
                         descriptor_targets,
@@ -390,19 +421,49 @@ fn input_layer_snapshots(
         .collect()
 }
 
+/// The layers a retired frame's pixels may route pointer input to.
+///
+/// Two conditions, both required. The surface's pixels must have reached
+/// scanout, which is what this projection is for -- input goes to what is
+/// actually on screen, never to something composed but not yet flipped. And
+/// the surface must still be in the presentation order the session last
+/// published, because a retired frame is a record of the past: a window
+/// unmapped this cycle keeps its pixels on screen until the next flip retires,
+/// and without this filter it keeps answering the pointer for that whole
+/// interval.
+///
+/// The filter only ever removes. Nothing absent from the retired frame is
+/// added, so this cannot route input to pixels a viewer cannot see. That
+/// direction is the one `committed_layer_snapshots` must never filter, and
+/// this is a different projection with the opposite obligation.
 fn presented_input_layer_snapshots(
     presented: &OutputFrameDamageSnapshot,
     metadata: &BTreeMap<SurfaceId, LiveSurfaceProjectionMetadata>,
+    presentation_order: &[SurfaceId],
 ) -> Vec<LayerSnapshot> {
+    // Membership is built once rather than scanned per surface: both sides are
+    // bounded by MAX_OUTPUT_FRAME_SURFACES (1024), so a linear scan per entry
+    // is a million comparisons on a full frame. Retirement is not the pointer
+    // path, but it is not the place to add that either.
+    let eligible: BTreeSet<SurfaceId> = presentation_order.iter().copied().collect();
     presented
         .surfaces
         .iter()
+        .filter(|state| eligible.contains(&state.surface))
+        // Ranks are assigned after filtering, so they stay contiguous and keep
+        // the retired frame's relative order. This matches the committed path,
+        // which also enumerates what survives its own filter.
         .enumerate()
         .map(|(index, state)| LayerSnapshot {
             translation: None,
-            // This projection describes what reaches scanout, not what answers
-            // the pointer; input routing reads the engine's own layers, which
-            // carry the region.
+            // NOTE: this is wrong and the comment that used to sit here said
+            // the opposite -- that input routing reads layers carrying the
+            // region. It does not: physical_input_phase.rs takes
+            // `runtime.input_layers()`, which is exactly this projection, so a
+            // shaped window's input region never reaches the hit test and
+            // SHAPE input shapes cannot take effect on this path. Left as it
+            // was rather than widened here, because carrying the region needs
+            // a source for it in the retired frame and that is its own change.
             input_region: None,
             surface: state.surface,
             authority_local_id: None,
@@ -434,9 +495,10 @@ fn layer_snapshot(
 ) -> LayerSnapshot {
     LayerSnapshot {
         translation: None,
-        // This projection describes what reaches scanout, not what answers
-        // the pointer; input routing reads the engine's own layers, which
-        // carry the region.
+        // Same correction as the presented constructor: these layers are what
+        // physical_input_phase.rs hands the hit test, so this projection does
+        // answer the pointer and dropping the region means SHAPE input shapes
+        // do not take effect through it.
         input_region: None,
         surface: state.surface,
         authority_local_id: None,
@@ -461,6 +523,11 @@ fn layer_snapshot(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/presented_input_eligibility.rs"
+    ));
 
     fn surface(index: u32, generation: u32) -> SurfaceId {
         SurfaceId::new(index, generation)
@@ -573,7 +640,7 @@ mod tests {
             ),
         ]);
 
-        let layers = presented_input_layer_snapshots(&presented, &metadata);
+        let layers = presented_input_layer_snapshots(&presented, &metadata, &[retired]);
 
         assert_eq!(layers.len(), 1);
         assert_eq!(layers[0].surface, retired);
@@ -620,7 +687,7 @@ mod tests {
             software_cursor: None,
         };
 
-        let layers = presented_input_layer_snapshots(&presented, &BTreeMap::new());
+        let layers = presented_input_layer_snapshots(&presented, &BTreeMap::new(), &[lower, upper]);
 
         assert_eq!(layers[0].stack_rank, 0);
         assert_eq!(layers[1].stack_rank, 1);

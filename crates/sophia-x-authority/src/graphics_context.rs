@@ -24,7 +24,10 @@ pub struct XGraphicsContextValues {
     pub graphics_exposures: bool,
     pub clip_x_origin: i16,
     pub clip_y_origin: i16,
-    pub clip_rectangles: Vec<Rect>,
+    /// None is unrestricted; an explicitly empty list suppresses all drawing.
+    pub clip_rectangles: Option<Vec<Rect>>,
+    /// A requested pixmap clip; unsupported values are rejected before storage.
+    pub clip_mask: Option<XResourceId>,
 }
 
 impl Default for XGraphicsContextValues {
@@ -40,7 +43,8 @@ impl Default for XGraphicsContextValues {
             graphics_exposures: true,
             clip_x_origin: 0,
             clip_y_origin: 0,
-            clip_rectangles: Vec::new(),
+            clip_rectangles: None,
+            clip_mask: None,
         }
     }
 }
@@ -74,6 +78,9 @@ impl XGraphicsContextTable {
             return Err(XAuthorityAccessError::InvalidNamespace);
         }
         if !id.is_valid() || !drawable.is_valid() {
+            return Err(XAuthorityAccessError::InvalidResource);
+        }
+        if values.clip_mask.is_some() {
             return Err(XAuthorityAccessError::InvalidResource);
         }
         if self.records.contains_key(&id) {
@@ -127,6 +134,12 @@ impl XGraphicsContextTable {
         if record.namespace != namespace {
             return Err(XAuthorityAccessError::CrossNamespaceDenied);
         }
+        if values.clip_mask.is_some() {
+            return Err(XAuthorityAccessError::InvalidResource);
+        }
+        if mask & (1 << 19) != 0 {
+            record.values.clip_rectangles = None;
+        }
         if mask & (1 << 0) != 0 {
             record.values.function = values.function;
         }
@@ -165,6 +178,8 @@ impl XGraphicsContextTable {
         &mut self,
         namespace: NamespaceId,
         id: XResourceId,
+        clip_x_origin: i16,
+        clip_y_origin: i16,
         rectangles: Vec<Rect>,
     ) -> Result<(), XAuthorityAccessError> {
         let record = self
@@ -174,7 +189,9 @@ impl XGraphicsContextTable {
         if record.namespace != namespace {
             return Err(XAuthorityAccessError::CrossNamespaceDenied);
         }
-        record.values.clip_rectangles = rectangles;
+        record.values.clip_x_origin = clip_x_origin;
+        record.values.clip_y_origin = clip_y_origin;
+        record.values.clip_rectangles = Some(rectangles);
         Ok(())
     }
 

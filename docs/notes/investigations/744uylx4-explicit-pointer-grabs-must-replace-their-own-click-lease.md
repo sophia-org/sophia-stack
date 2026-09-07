@@ -79,3 +79,18 @@ broader Brave usability gate.
   remain separate evidence rather than an assumed consequence of these grabs.
 - [Target-resolved input](../../target-resolved-input.md) owns the Engine and
   frontend lease contract.
+
+## 2026-09-07: new installed candidate
+
+The next live session is
+`00000001788785369819-028cfec4-8b74-46ef-93b3-6c529dea2ddc`, running release
+`4299e1cabb650cd481096f43ac8b5186d31ad4f1`. Its binary SHA-256 is
+`9b152ebc7919635afb086b288bc4bc1cd747d752c55c077e318690d18c659386`.
+The release contains `bed135ea` and subsequent XFIXES work. At the first health
+sample, recording was running with zero discarded records and storage errors.
+The user has confirmed login, but has not yet reported Brave interaction on this
+candidate; this is startup identification, not physical acceptance of the repair.
+
+The newer XFIXES selection-notification follow-up arrived with the same task ID.
+It is now t063 in the [parallel plan](../plans/queue-11-parallel-production-readiness.md#t063);
+t062 retains its original grab-repair acceptance identity.

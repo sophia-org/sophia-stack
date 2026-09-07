@@ -55,11 +55,12 @@ fn projected_gc(gc: &XGraphicsContextValues, density: u32) -> XGraphicsContextVa
         } else {
             i16::MAX
         });
-    projected.clip_rectangles = gc
-        .clip_rectangles
-        .iter()
-        .map(|rect| project_rect(*rect, density))
-        .collect();
+    projected.clip_rectangles = gc.clip_rectangles.as_ref().map(|rects| {
+        rects
+            .iter()
+            .map(|rect| project_rect(*rect, density))
+            .collect()
+    });
     projected
 }
 

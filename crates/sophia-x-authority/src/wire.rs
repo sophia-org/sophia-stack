@@ -491,6 +491,23 @@ pub enum XWireRequest {
     XfixesFetchRegion {
         region: XResourceId,
     },
+    /// `CreateRegionFromBitmap`, `FromGC`, `FromPicture` and `FromWindow`:
+    /// a region built from something the server already holds. Only the
+    /// window form carries a kind.
+    XfixesCreateRegionFrom {
+        minor_opcode: u8,
+        region: XResourceId,
+        source: XResourceId,
+        kind: u8,
+    },
+    XfixesExpandRegion {
+        source: XResourceId,
+        destination: XResourceId,
+        left: u16,
+        right: u16,
+        top: u16,
+        bottom: u16,
+    },
     /// An XFIXES minor this server does not implement, decoded so the refusal
     /// can name it.
     XfixesUnimplemented {

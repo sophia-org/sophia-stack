@@ -158,6 +158,58 @@ fn decode_xfixes(
                 })
             }
         }
+        minor @ (X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE
+        | X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE
+        | X_XFIXES_CREATE_REGION_FROM_PICTURE_MINOR_OPCODE) => {
+            require_exact_len(
+                X_XFIXES_MAJOR_OPCODE,
+                X_XFIXES_CREATE_REGION_FROM_DRAWABLE_REQ_LEN,
+                bytes.len(),
+            )?;
+            let region = context.byte_order.u32(&bytes[4..8]);
+            context.validate_new_resource_id(region)?;
+            Ok(XWireRequest::XfixesCreateRegionFrom {
+                minor_opcode: minor,
+                region: XResourceId::new(u64::from(region), 1),
+                source: XResourceId::new(u64::from(context.byte_order.u32(&bytes[8..12])), 1),
+                kind: 0,
+            })
+        }
+        X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE => {
+            require_exact_len(
+                X_XFIXES_MAJOR_OPCODE,
+                X_XFIXES_CREATE_REGION_FROM_WINDOW_REQ_LEN,
+                bytes.len(),
+            )?;
+            let region = context.byte_order.u32(&bytes[4..8]);
+            context.validate_new_resource_id(region)?;
+            Ok(XWireRequest::XfixesCreateRegionFrom {
+                minor_opcode: X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE,
+                region: XResourceId::new(u64::from(region), 1),
+                source: XResourceId::new(u64::from(context.byte_order.u32(&bytes[8..12])), 1),
+                kind: bytes[12],
+            })
+        }
+        // Minors 20, 21 and 22 install a region as a clip or a shape. They are
+        // deliberately left to the unimplemented arm below: a decoder here
+        // with no dispatcher behind it would carry the request past every
+        // family matcher and into the fallthrough, which panics. A minor is
+        // decoded only once something answers it.
+        X_XFIXES_EXPAND_REGION_MINOR_OPCODE => {
+            require_exact_len(
+                X_XFIXES_MAJOR_OPCODE,
+                X_XFIXES_EXPAND_REGION_REQ_LEN,
+                bytes.len(),
+            )?;
+            Ok(XWireRequest::XfixesExpandRegion {
+                source: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+                destination: XResourceId::new(u64::from(context.byte_order.u32(&bytes[8..12])), 1),
+                left: context.byte_order.u16(&bytes[12..14]),
+                right: context.byte_order.u16(&bytes[14..16]),
+                top: context.byte_order.u16(&bytes[16..18]),
+                bottom: context.byte_order.u16(&bytes[18..20]),
+            })
+        }
         // Decoded so the refusal names the request. XFIXES answers version
         // 6.0 and does not implement every minor behind it; a parse rejection
         // would tell a client only that the extension exists, which is the

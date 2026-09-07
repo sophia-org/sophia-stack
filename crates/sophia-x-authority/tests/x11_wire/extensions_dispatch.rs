@@ -3126,8 +3126,10 @@ fn xfixes_invert_translate_and_extents_answer_the_protocol() {
 #[test]
 fn xfixes_minors_without_an_implementation_are_refused_by_name() {
     let mut fixture = XfixesRegionFixture::new();
-    // Defined by version 6.0, not implemented here.
-    for minor in [6, 7, 8, 9, 20, 21, 22, 29, 32, 34] {
+    // Defined by version 6.0, not implemented here. Minors 6 to 9 have left
+    // this list; 20 to 22 install a region rather than build one and still
+    // await the clip and shape plumbing.
+    for minor in [20, 21, 22, 29, 32, 34] {
         let result = fixture.send(&xfixes_minor_request(XfixesRegionFixture::ORDER, minor));
         match result.outputs.as_slice() {
             [XClientOutput::Error(error)] => {
@@ -5040,4 +5042,379 @@ fn xfixes_query_version_answers_the_lower_of_the_two() {
     assert_eq!(ask(&mut fixture, 9, 0), (6, 0));
     // Equal majors take the lower minor.
     assert_eq!(ask(&mut fixture, 6, 0), (6, 0));
+}
+
+/// A region can be built from a window's shape, and Input is not one of the
+/// shapes it may be built from.
+#[test]
+fn xfixes_builds_a_region_from_a_window_shape() {
+    let window = 0x0020_0800;
+    let mut fixture = XfixesRegionFixture::new();
+    let create = create_window_request(XfixesRegionFixture::ORDER, window, 5, 7, 40, 30);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&create)), None);
+
+    // An unshaped window reports its own bounds.
+    let from_window = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        window,
+        X_XFIXES_WINDOW_REGION_BOUNDING,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&from_window), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::A),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 40,
+            height: 30,
+        }],
+        "an unshaped window's region is the window rectangle"
+    );
+
+    // XFIXES builds a region from the bounding or clip shape and no other.
+    // SHAPE has a third kind and this request does not accept it.
+    let input_kind = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        window,
+        2,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&input_kind),
+        Some(XErrorCode::BadValue)
+    );
+
+    // A window that does not exist is named before the kind is judged.
+    let unknown = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        0x0020_08ff,
+        2,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&unknown),
+        Some(XErrorCode::BadWindow),
+        "the missing window is reported before the bad kind"
+    );
+}
+
+/// A region built from a graphics context copies that context's clip
+/// rectangles as they are stored.
+///
+/// The clip origins describe how the graphics context *uses* its clip, not
+/// where the rectangles are, so folding them in here would apply them a second
+/// time if the region were installed as a clip again. Sophia cannot get that
+/// wrong yet for a duller reason: the core `SetClipRectangles` decoder
+/// discards the origins, so there is nothing stored to fold. That gap is why
+/// minor 20 stays refused, and it is why this test can only pin the copy.
+#[test]
+fn xfixes_copies_a_graphics_context_clip() {
+    let gc = 0x0020_0810;
+    let pixmap = 0x0020_0811;
+    let window = 0x0020_0812;
+    let mut fixture = XfixesRegionFixture::new();
+    let create_window = create_window_request(XfixesRegionFixture::ORDER, window, 0, 0, 32, 32);
+    assert_eq!(
+        XfixesRegionFixture::error_of(&fixture.send(&create_window)),
+        None
+    );
+    let create_pixmap =
+        create_pixmap_request(XfixesRegionFixture::ORDER, 24, pixmap, window, 32, 32);
+    assert_eq!(
+        XfixesRegionFixture::error_of(&fixture.send(&create_pixmap)),
+        None
+    );
+    let create_gc = create_gc_request(XfixesRegionFixture::ORDER, gc, pixmap);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&create_gc)), None);
+
+    // A graphics context with no clip has nothing to copy, which is not the
+    // same as the graphics context being absent.
+    let no_clip = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        gc,
+        0,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&no_clip),
+        Some(XErrorCode::BadMatch)
+    );
+
+    let clip = set_clip_rectangles_request(XfixesRegionFixture::ORDER, gc, &[(1, 2, 3, 4)]);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&clip)), None);
+    let from_gc = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        gc,
+        0,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&from_gc), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::A),
+        vec![Rect {
+            x: 1,
+            y: 2,
+            width: 3,
+            height: 4,
+        }],
+        "the stored clip rectangles arrive unmoved"
+    );
+
+    // An absent graphics context is named as such.
+    let unknown = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        0x0020_08fe,
+        0,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&unknown),
+        Some(XErrorCode::BadGraphicsContext)
+    );
+}
+
+/// Expanding grows every rectangle, and an empty source leaves the
+/// destination alone.
+#[test]
+fn xfixes_expands_a_region_and_leaves_an_empty_one_alone() {
+    let mut fixture = XfixesRegionFixture::new();
+    fixture.create(
+        XfixesRegionFixture::A,
+        &[Rect {
+            x: 10,
+            y: 10,
+            width: 4,
+            height: 4,
+        }],
+    );
+    fixture.create(XfixesRegionFixture::B, &[]);
+    fixture.create(
+        XfixesRegionFixture::OUT,
+        &[Rect {
+            x: 0,
+            y: 0,
+            width: 1,
+            height: 1,
+        }],
+    );
+
+    let expand = fixture.send(&xfixes_expand_region_request(
+        XfixesRegionFixture::ORDER,
+        XfixesRegionFixture::A,
+        XfixesRegionFixture::OUT,
+        1,
+        2,
+        3,
+        4,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&expand), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 9,
+            y: 7,
+            width: 7,
+            height: 11,
+        }]
+    );
+
+    // An empty source leaves the destination as it was, rather than emptying
+    // it -- the edge a reimplementation gets backwards.
+    let empty = fixture.send(&xfixes_expand_region_request(
+        XfixesRegionFixture::ORDER,
+        XfixesRegionFixture::B,
+        XfixesRegionFixture::OUT,
+        5,
+        5,
+        5,
+        5,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&empty), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: 9,
+            y: 7,
+            width: 7,
+            height: 11,
+        }],
+        "expanding nothing changes nothing"
+    );
+
+    // Rectangles that grow into each other merge. Expanding each one and
+    // stopping there would answer with two overlapping rectangles, which is
+    // not a region -- the result has to be unioned back into canonical form.
+    let pair = 0x0020_0303;
+    fixture.create(
+        pair,
+        &[
+            Rect {
+                x: 0,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+            Rect {
+                x: 10,
+                y: 0,
+                width: 4,
+                height: 4,
+            },
+        ],
+    );
+    let merged = fixture.send(&xfixes_expand_region_request(
+        XfixesRegionFixture::ORDER,
+        pair,
+        XfixesRegionFixture::OUT,
+        4,
+        4,
+        4,
+        4,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&merged), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::OUT),
+        vec![Rect {
+            x: -4,
+            y: -4,
+            width: 22,
+            height: 12,
+        }],
+        "two grown rectangles that meet become one"
+    );
+}
+
+/// Every XFIXES minor either fails to decode or is answered. None escapes to
+/// the fallthrough.
+///
+/// A decoder with no dispatcher behind it is worse than no decoder at all: the
+/// request decodes, misses every family matcher, and reaches
+/// `unreachable!("extension request escaped its family dispatcher")`, which
+/// takes the server down on input a client is free to send. That is not a
+/// refusal, it is a crash, and it is reachable from any unprivileged client.
+/// This sweep walks the whole minor range at each minor's real request length
+/// so the decode-then-dispatch path actually runs for every one of them.
+#[test]
+fn every_xfixes_minor_is_answered_rather_than_escaping_dispatch() {
+    // Minors whose decoders demand an exact length, sent at that length so
+    // decoding succeeds and dispatch is genuinely exercised.
+    let sized: &[(u8, usize)] = &[
+        (X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE, 12),
+        (X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE, 16),
+        (X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE, 12),
+        (X_XFIXES_CREATE_REGION_FROM_PICTURE_MINOR_OPCODE, 12),
+        (X_XFIXES_EXPAND_REGION_MINOR_OPCODE, 20),
+    ];
+
+    for minor in 0..=X_XFIXES_LAST_MINOR_OPCODE {
+        let length = sized
+            .iter()
+            .find(|(opcode, _)| *opcode == minor)
+            .map_or(4, |(_, length)| *length);
+        let mut bytes = vec![X_XFIXES_MAJOR_OPCODE, minor];
+        push_u16(&mut bytes, XfixesRegionFixture::ORDER, (length / 4) as u16);
+        bytes.resize(length, 0);
+
+        let mut fixture = XfixesRegionFixture::new();
+        let decoded = decode_x11_core_request(
+            context(XfixesRegionFixture::NS, 9000 + u64::from(minor), XfixesRegionFixture::ORDER),
+            &bytes,
+        );
+        let Ok(request) = decoded else {
+            // Refusing to decode is a fine answer; it becomes a wire error.
+            continue;
+        };
+        // The assertion is that this returns at all. If the minor decoded
+        // without a dispatcher, this call panics.
+        let result = dispatch_x11_wire_request(
+            dispatch_context(XfixesRegionFixture::NS, minor.into(), XfixesRegionFixture::ORDER, X_XFIXES_MAJOR_OPCODE),
+            request,
+            &mut fixture.runtime,
+            &mut fixture.atoms,
+            &mut fixture.properties,
+        );
+        assert!(
+            !result.outputs.is_empty() || minor == X_XFIXES_DESTROY_REGION_MINOR_OPCODE,
+            "minor {minor} produced no answer at all"
+        );
+    }
+}
+
+/// A region built from a depth-one bitmap is the bitmap's set bits.
+///
+/// This is minor 6, and it is the one a reimplementation is most likely to
+/// accept and quietly answer with an empty region -- the client then draws
+/// nothing and has no error to explain it.
+#[test]
+fn xfixes_builds_a_region_from_a_bitmaps_set_bits() {
+    let mask = 0x0020_0820;
+    let gc = 0x0020_0821;
+    let mut fixture = XfixesRegionFixture::new();
+    let create = create_pixmap_request(XfixesRegionFixture::ORDER, 1, mask, X_SETUP_DEFAULT_ROOT, 4, 2);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&create)), None);
+    let create_gc = create_gc_request(XfixesRegionFixture::ORDER, gc, mask);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&create_gc)), None);
+    // The two leftmost pixels of the first row, nothing on the second.
+    let data: Vec<u8> = vec![0b0000_0011, 0, 0, 0, 0, 0, 0, 0];
+    let put = put_image_request_at_depth(XfixesRegionFixture::ORDER, 1, mask, gc, 4, 2, &data);
+    assert_eq!(XfixesRegionFixture::error_of(&fixture.send(&put)), None);
+
+    let from_bitmap = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE,
+        XfixesRegionFixture::A,
+        mask,
+        0,
+    ));
+    assert_eq!(XfixesRegionFixture::error_of(&from_bitmap), None);
+    assert_eq!(
+        fixture.fetch(XfixesRegionFixture::A),
+        vec![Rect {
+            x: 0,
+            y: 0,
+            width: 2,
+            height: 1,
+        }],
+        "the set bits, and not an empty region"
+    );
+
+    // A pixmap that is not one bit deep does not describe a region.
+    let deep = 0x0020_0822;
+    let create_deep =
+        create_pixmap_request(XfixesRegionFixture::ORDER, 24, deep, X_SETUP_DEFAULT_ROOT, 4, 2);
+    assert_eq!(
+        XfixesRegionFixture::error_of(&fixture.send(&create_deep)),
+        None
+    );
+    let too_deep = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        deep,
+        0,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&too_deep),
+        Some(XErrorCode::BadMatch)
+    );
+
+    // And a pixmap that does not exist is a bad pixmap, not a bad match.
+    let absent = fixture.send(&xfixes_create_region_from_request(
+        XfixesRegionFixture::ORDER,
+        X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE,
+        XfixesRegionFixture::OUT,
+        0x0020_08fd,
+        0,
+    ));
+    assert_eq!(
+        XfixesRegionFixture::error_of(&absent),
+        Some(XErrorCode::BadPixmap)
+    );
 }

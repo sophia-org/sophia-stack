@@ -1461,3 +1461,42 @@ fn render_change_picture_request(
     }
     out
 }
+
+fn xfixes_create_region_from_request(
+    byte_order: XByteOrder,
+    minor_opcode: u8,
+    region: u32,
+    source: u32,
+    kind: u8,
+) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, minor_opcode];
+    let from_window = minor_opcode == X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE;
+    push_u16(&mut out, byte_order, if from_window { 4 } else { 3 });
+    push_u32(&mut out, byte_order, region);
+    push_u32(&mut out, byte_order, source);
+    if from_window {
+        out.push(kind);
+        out.extend_from_slice(&[0, 0, 0]);
+    }
+    out
+}
+
+#[allow(clippy::too_many_arguments)]
+fn xfixes_expand_region_request(
+    byte_order: XByteOrder,
+    source: u32,
+    destination: u32,
+    left: u16,
+    right: u16,
+    top: u16,
+    bottom: u16,
+) -> Vec<u8> {
+    let mut out = vec![X_XFIXES_MAJOR_OPCODE, X_XFIXES_EXPAND_REGION_MINOR_OPCODE];
+    push_u16(&mut out, byte_order, 5);
+    push_u32(&mut out, byte_order, source);
+    push_u32(&mut out, byte_order, destination);
+    for value in [left, right, top, bottom] {
+        push_u16(&mut out, byte_order, value);
+    }
+    out
+}

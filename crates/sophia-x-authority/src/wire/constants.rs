@@ -184,6 +184,12 @@ pub const X_XFIXES_SET_REGION_MINOR_OPCODE: u8 = 11;
 // The region-algebra minors. These are what a client uses to build a shape
 // out of pieces, and answering them is the difference between a region
 // resource a client can create and one it can compute with.
+/// The region constructors: a region built from something the server
+/// already holds rather than from rectangles the client sends.
+pub const X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE: u8 = 6;
+pub const X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE: u8 = 7;
+pub const X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE: u8 = 8;
+pub const X_XFIXES_CREATE_REGION_FROM_PICTURE_MINOR_OPCODE: u8 = 9;
 pub const X_XFIXES_COPY_REGION_MINOR_OPCODE: u8 = 12;
 pub const X_XFIXES_UNION_REGION_MINOR_OPCODE: u8 = 13;
 pub const X_XFIXES_INTERSECT_REGION_MINOR_OPCODE: u8 = 14;
@@ -194,6 +200,20 @@ pub const X_XFIXES_INVERT_REGION_MINOR_OPCODE: u8 = 16;
 pub const X_XFIXES_TRANSLATE_REGION_MINOR_OPCODE: u8 = 17;
 pub const X_XFIXES_REGION_EXTENTS_MINOR_OPCODE: u8 = 18;
 pub const X_XFIXES_FETCH_REGION_MINOR_OPCODE: u8 = 19;
+/// The region consumers: a region installed as some other object's clip or
+/// shape. A region of zero clears it.
+pub const X_XFIXES_SET_GC_CLIP_REGION_MINOR_OPCODE: u8 = 20;
+pub const X_XFIXES_SET_WINDOW_SHAPE_REGION_MINOR_OPCODE: u8 = 21;
+pub const X_XFIXES_SET_PICTURE_CLIP_REGION_MINOR_OPCODE: u8 = 22;
+/// Grow a region outward on each side. Version 3.
+pub const X_XFIXES_EXPAND_REGION_MINOR_OPCODE: u8 = 28;
+const X_XFIXES_CREATE_REGION_FROM_DRAWABLE_REQ_LEN: usize = 12;
+const X_XFIXES_CREATE_REGION_FROM_WINDOW_REQ_LEN: usize = 16;
+const X_XFIXES_EXPAND_REGION_REQ_LEN: usize = 20;
+/// The window regions XFIXES will build a region from. SHAPE's Input kind is
+/// deliberately not one of them, which is what Xorg does.
+pub const X_XFIXES_WINDOW_REGION_BOUNDING: u8 = 0;
+pub const X_XFIXES_WINDOW_REGION_CLIP: u8 = 1;
 /// The highest minor XFIXES 6.0 defines: `GetClientDisconnectMode`. A minor at or below
 /// this that is not implemented is declined; one above it is not a request
 /// this version has.

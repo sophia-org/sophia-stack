@@ -15,6 +15,8 @@ fn dispatch_xfixes_request(
             | XWireRequest::XfixesTranslateRegion { .. }
             | XWireRequest::XfixesRegionExtents { .. }
             | XWireRequest::XfixesFetchRegion { .. }
+            | XWireRequest::XfixesCreateRegionFrom { .. }
+            | XWireRequest::XfixesExpandRegion { .. }
             | XWireRequest::XfixesUnimplemented { .. }
     ) {
         return Unhandled(request);
@@ -207,6 +209,67 @@ fn dispatch_xfixes_request(
         // minor behind it, so a minor defined by that version and not
         // implemented says so, and one above it says the version does not
         // reach that far.
+        XWireRequest::XfixesCreateRegionFrom {
+            minor_opcode,
+            region,
+            source,
+            kind,
+        } => {
+            let outcome = match minor_opcode {
+                crate::X_XFIXES_CREATE_REGION_FROM_BITMAP_MINOR_OPCODE => runtime
+                    .create_xfixes_region_from_bitmap(
+                        context.namespace,
+                        region,
+                        source,
+                        u64::from(context.sequence),
+                    ),
+                crate::X_XFIXES_CREATE_REGION_FROM_WINDOW_MINOR_OPCODE => runtime
+                    .create_xfixes_region_from_window(
+                        context.namespace,
+                        region,
+                        source,
+                        kind,
+                        u64::from(context.sequence),
+                    ),
+                crate::X_XFIXES_CREATE_REGION_FROM_GC_MINOR_OPCODE => runtime
+                    .create_xfixes_region_from_gc(
+                        context.namespace,
+                        region,
+                        source,
+                        u64::from(context.sequence),
+                    ),
+                _ => runtime.create_xfixes_region_from_picture(
+                    context.namespace,
+                    region,
+                    source,
+                    u64::from(context.sequence),
+                ),
+            };
+            xfixes_source_result(context, outcome, minor_opcode, region, source, kind)
+        }
+        XWireRequest::XfixesExpandRegion {
+            source,
+            destination,
+            left,
+            right,
+            top,
+            bottom,
+        } => xfixes_source_result(
+            context,
+            runtime.expand_xfixes_region(
+                context.namespace,
+                source,
+                destination,
+                left,
+                right,
+                top,
+                bottom,
+            ),
+            crate::X_XFIXES_EXPAND_REGION_MINOR_OPCODE,
+            destination,
+            source,
+            0,
+        ),
         XWireRequest::XfixesUnimplemented { minor_opcode } => XDispatchResult {
             response: None,
             outputs: vec![XClientOutput::Error(crate::XClientError {
@@ -249,6 +312,76 @@ fn xfixes_region_result(
             })
             .into_iter()
             .collect(),
+        metadata_candidates: Vec::new(),
+    }
+}
+
+/// One region-source outcome as a dispatch result.
+///
+/// Each way of failing names the thing the client got wrong, and the error
+/// carries that resource rather than the region being created -- a client
+/// whose graphics context is gone wants to hear about the graphics context.
+#[allow(clippy::too_many_arguments)]
+fn xfixes_source_result(
+    context: XDispatchContext,
+    outcome: Result<(), crate::XFixesSourceError>,
+    minor_opcode: u8,
+    region: crate::XResourceId,
+    source: crate::XResourceId,
+    kind: u8,
+) -> XDispatchResult {
+    let output = outcome.err().map(|error| {
+        let (code, resource) = match error {
+            crate::XFixesSourceError::IdInUse => (
+                XErrorCode::BadIdChoice,
+                u32::try_from(region.local.raw()).unwrap_or(0),
+            ),
+            crate::XFixesSourceError::UnknownPixmap => (
+                XErrorCode::BadPixmap,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            // A mask that is not one bit deep cannot describe a region, which
+            // is a mismatch between the argument and the request.
+            crate::XFixesSourceError::NotABitmap => (
+                XErrorCode::BadMatch,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            crate::XFixesSourceError::UnknownWindow => (
+                XErrorCode::BadWindow,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            crate::XFixesSourceError::InvalidKind => (XErrorCode::BadValue, u32::from(kind)),
+            crate::XFixesSourceError::UnknownGraphicsContext => (
+                XErrorCode::BadGraphicsContext,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            // RENDER owns the picture error, and a client branches on it.
+            crate::XFixesSourceError::UnknownPicture => (
+                XErrorCode::RenderPicture,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            // The source exists and has nothing to copy, which the protocol
+            // reports apart from the source not existing at all.
+            crate::XFixesSourceError::NoClip => (
+                XErrorCode::BadMatch,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+            crate::XFixesSourceError::UnknownRegion => (
+                XErrorCode::BadWindow,
+                u32::try_from(source.local.raw()).unwrap_or(0),
+            ),
+        };
+        XClientOutput::Error(crate::XClientError {
+            code,
+            sequence: context.sequence,
+            resource_id: resource,
+            minor_code: u16::from(minor_opcode),
+            major_code: context.major_opcode,
+        })
+    });
+    XDispatchResult {
+        response: None,
+        outputs: output.into_iter().collect(),
         metadata_candidates: Vec::new(),
     }
 }

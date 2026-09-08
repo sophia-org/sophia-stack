@@ -834,7 +834,7 @@ fn route_input_events_with_launcher(
                     keyboard_coverage.observe_key(keycode, pressed);
                     let launcher_text=launcher.as_mut().map(|(capture,keyboard)|keyboard.observe(keycode,pressed,capture.active()));
 
-                    match virtual_terminal_chord.observe(keycode, pressed) {
+                    match virtual_terminal_chord.observe_at(keycode, pressed, event.time_msec) {
                     VirtualTerminalChordAction::Pass => {}
                     VirtualTerminalChordAction::Consume => continue,
                     VirtualTerminalChordAction::Activate(terminal) => {

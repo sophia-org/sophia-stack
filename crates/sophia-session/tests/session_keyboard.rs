@@ -106,6 +106,23 @@ fn desktop_shortcuts_do_not_activate_a_virtual_terminal_chord() {
 }
 
 #[test]
+fn a_lost_modifier_release_cannot_activate_a_late_function_key() {
+    let mut chord = VirtualTerminalChordState::default();
+    assert_eq!(
+        chord.observe_at(29, true, 1_000),
+        VirtualTerminalChordAction::Pass
+    );
+    assert_eq!(
+        chord.observe_at(56, true, 1_001),
+        VirtualTerminalChordAction::Pass
+    );
+    assert_eq!(
+        chord.observe_at(59, true, 7_000),
+        VirtualTerminalChordAction::Pass
+    );
+}
+
+#[test]
 fn active_vt_chord_exposes_modifier_keys_that_need_synthetic_release() {
     let mut chord = VirtualTerminalChordState::default();
     let _ = chord.observe(29, true);

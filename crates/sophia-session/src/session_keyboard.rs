@@ -10,6 +10,7 @@ const SHIFTED_PRINTABLE_KEYCODES: [u32; 21] = [
     41, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 26, 27, 43, 39, 40, 51, 52, 53,
 ];
 pub const SESSION_CLIENT_PRESSED_KEY_CAPACITY: usize = 256;
+const VIRTUAL_TERMINAL_CHORD_TIMEOUT_MSEC: u64 = 5_000;
 
 /// What one `record_routed` call did.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -278,6 +279,7 @@ pub struct VirtualTerminalChordState {
     right_alt: bool,
     function_keys_down: u16,
     consumed_function_keys: u16,
+    modifier_started_msec: Option<u64>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -289,11 +291,47 @@ pub enum VirtualTerminalChordAction {
 
 impl VirtualTerminalChordState {
     pub fn observe(&mut self, keycode: u32, pressed: bool) -> VirtualTerminalChordAction {
+        self.observe_at(keycode, pressed, 0)
+    }
+
+    /// Observes a physical key while bounding how long a modifier chord may
+    /// remain armed.  Input loss must not turn a later, unrelated F-key press
+    /// into a terminal switch; a real chord is expected to complete promptly.
+    pub fn observe_at(
+        &mut self,
+        keycode: u32,
+        pressed: bool,
+        time_msec: u64,
+    ) -> VirtualTerminalChordAction {
+        if self.control()
+            && self.modifier_started_msec.is_some_and(|started| {
+                time_msec.saturating_sub(started) > VIRTUAL_TERMINAL_CHORD_TIMEOUT_MSEC
+            })
+        {
+            self.left_control = false;
+            self.right_control = false;
+            self.left_alt = false;
+            self.right_alt = false;
+            self.consumed_function_keys = 0;
+            self.modifier_started_msec = None;
+        }
         match keycode {
-            EVDEV_KEY_LEFTCTRL => self.left_control = pressed,
-            EVDEV_KEY_RIGHTCTRL => self.right_control = pressed,
-            EVDEV_KEY_LEFTALT => self.left_alt = pressed,
-            EVDEV_KEY_RIGHTALT => self.right_alt = pressed,
+            EVDEV_KEY_LEFTCTRL => {
+                self.left_control = pressed;
+                self.update_modifier_lifetime(pressed, time_msec);
+            }
+            EVDEV_KEY_RIGHTCTRL => {
+                self.right_control = pressed;
+                self.update_modifier_lifetime(pressed, time_msec);
+            }
+            EVDEV_KEY_LEFTALT => {
+                self.left_alt = pressed;
+                self.update_modifier_lifetime(pressed, time_msec);
+            }
+            EVDEV_KEY_RIGHTALT => {
+                self.right_alt = pressed;
+                self.update_modifier_lifetime(pressed, time_msec);
+            }
             _ => {
                 let Some(terminal) = virtual_terminal_for_evdev_key(keycode) else {
                     return VirtualTerminalChordAction::Pass;
@@ -325,6 +363,14 @@ impl VirtualTerminalChordState {
             }
         }
         VirtualTerminalChordAction::Pass
+    }
+
+    fn update_modifier_lifetime(&mut self, pressed: bool, time_msec: u64) {
+        if pressed {
+            self.modifier_started_msec.get_or_insert(time_msec);
+        } else if !self.control() {
+            self.modifier_started_msec = None;
+        }
     }
 
     pub const fn pressed_modifier_keycodes(self) -> [Option<u32>; 4] {

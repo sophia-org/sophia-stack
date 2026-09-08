@@ -109,6 +109,50 @@ progress. Do not disable the watchdog or advertise unsupported GPU capabilities
 to hide the failure. For the border, correlate focus/chrome counts and exact
 presentations before changing frame colours, animation policy, or damage.
 
+## Border recurrence on 2026-09-07
+
+On installed `a44d1e16`, the user reports border flicker while typing on
+Monkeytype in Brave, while moving the mouse in Brave, and occasionally in
+Kitty. This recurrence is distinct from the newly measured
+[GBM import failure](uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md).
+
+The live recorder now retains chrome counts. A recent sample contains 1082
+chrome-set records; examples at uptime 310368506 through 310372479 alternate
+between zero and one focused frame while retaining three frames and three
+eligible surfaces. Source inspection found that `run_cpu_repaint` overwrites
+`self.focused_surface` with `raised_surface`, although ordinary production
+accepts focus separately from that optional stacking override. The next
+regression checks whether repaint preparation incorrectly clears chrome focus
+when no stacking override is requested. These records establish chrome-state
+changes, not the duration or appearance of every physical flicker.
+
+After relaunching Brave with its media device aligned to renderD128, the user
+reported that flicker stopped. This happened on the unchanged installed build.
+It limits attribution of the visible symptom: the repaint focus regression is
+independent source evidence, not proof that every observed flicker had that
+cause. The cadence caller raises a client-positioned popup when one exists,
+otherwise the focused surface; it does not pass a generic layout override.
+A frameless raised popup is the concrete case in which assigning stacking to
+chrome focus can remove the focused frame.
+
+The candidate now passes stacking and focus separately through ordinary and
+forced repaints. Startup passes no focus; topology retains the current chrome
+focus; cadence passes the seat's focus independently of the raised popup.
+The regression calls real display-list preparation and verifies that a popup
+or another framed window can be raised without taking focus, that raising still
+changes stack order, and that explicit absent focus clears the frame. Mutating
+focus back to the raise, bypassing chrome normalization, or dropping the raise
+makes the regression fail. All 30 backend library tests passed.
+
+The combined `cargo xtask check` passed outside the restricted tool sandbox,
+including archive verification and buffer-age equivalence. The first restricted
+run failed when an unrelated CLI socket fixture received EPERM. The installed
+session remains the original build; physical acceptance of this source repair
+has not occurred.
+
+The repair and its installed acceptance belong to the existing t066 redraw
+work; task status remains in [todo.md](../../../todo.md).
+
 ## Connections
 
 - [t003](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t003)

@@ -5,6 +5,19 @@ impl From<crate::XAuthorityTransportError> for X11SetupSocketError {
     }
 }
 
+/// The backing size of a DRI3 buffer whose client declared none.
+///
+/// `fstat` reads metadata only: nothing is mapped and the file offset the client
+/// still shares is untouched. A size that is unreadable, negative, zero or wider
+/// than the wire field yields `None`, leaving the declared zero to normal
+/// rejection.
+#[cfg(unix)]
+fn dri3_buffer_size_from_descriptor(fd: impl std::os::fd::AsFd) -> Option<u32> {
+    u32::try_from(rustix::fs::fstat(fd).ok()?.st_size)
+        .ok()
+        .filter(|size| *size != 0)
+}
+
 #[cfg(unix)]
 pub fn read_x11_setup_request(
     stream: &mut UnixStream,

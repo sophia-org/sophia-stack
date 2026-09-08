@@ -273,6 +273,7 @@
             let forced = runtime.run_cpu_repaint(
                 &mut scene,
                 focused,
+                focused,
                 LiveProductionCursorPresentation::HardwarePlane,
                 &outputs,
                 native,

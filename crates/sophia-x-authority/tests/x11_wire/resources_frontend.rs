@@ -826,6 +826,177 @@ fn x_server_frontend_assigns_batched_scm_rights_to_fd_bearing_requests() {
 
 #[cfg(unix)]
 #[test]
+fn declared_zero_dri3_buffer_size_is_taken_from_the_descriptor_and_still_bounded() {
+    use std::fs::OpenOptions;
+    use std::io::{IoSlice, Read, Seek, SeekFrom, Write};
+    use std::mem::MaybeUninit;
+    use std::net::Shutdown;
+    use std::os::fd::AsFd;
+    use std::thread;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    // A tiled ARGB buffer: its rows need stride * height bytes, and its
+    // allocation is larger than that.
+    const WIDTH: u16 = 640;
+    const HEIGHT: u16 = 360;
+    const STRIDE: u16 = 3072;
+    const DEPTH: u8 = 32;
+    const ROW_BYTES: u32 = STRIDE as u32 * HEIGHT as u32;
+    const ALLOCATION: u32 = 1_572_864;
+    const PIXMAP: u32 = 0x220811;
+    // The descriptor is sent with a non-zero offset, which resolving the size
+    // must leave exactly where it was.
+    const OFFSET: u64 = 17;
+
+    fn unique(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "sophia-x-dri3-size-{tag}-{}-{}",
+            std::process::id(),
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    fn get_geometry_request(drawable: u32) -> Vec<u8> {
+        let mut out = vec![0u8; 8];
+        out[0] = 14;
+        out[2..4].copy_from_slice(&2u16.to_le_bytes());
+        out[4..8].copy_from_slice(&drawable.to_le_bytes());
+        out
+    }
+
+    // Drives one import over a real socket with a real SCM_RIGHTS descriptor.
+    // An admitted import is proven by querying the pixmap back, not by the
+    // absence of an error.
+    fn import(declared_size: u32, backing_bytes: u64, expected_admitted: bool, tag: &str) {
+        let socket = unique(&format!("{tag}.sock"));
+        let config = XServerFrontendConfig::new(&socket, NamespaceId::from_raw(823)).unwrap();
+        let mut frontend = XServerFrontend::bind(config).unwrap();
+        let server = thread::spawn(move || frontend.serve_next());
+
+        wait_for_socket(&socket);
+        let mut stream = connect_x_socket(&socket);
+        stream
+            .write_all(&setup_request(XByteOrder::LittleEndian, 11, 0, b"", b""))
+            .unwrap();
+        read_setup_success(&mut stream, XByteOrder::LittleEndian);
+
+        let backing_path = unique(&format!("{tag}.buffer"));
+        let mut backing = OpenOptions::new()
+            .create(true)
+            .truncate(true)
+            .read(true)
+            .write(true)
+            .open(&backing_path)
+            .unwrap();
+        backing.set_len(backing_bytes).unwrap();
+        backing.seek(SeekFrom::Start(OFFSET)).unwrap();
+
+        let mut requests = dri3_pixmap_from_buffer_request(
+            XByteOrder::LittleEndian,
+            PIXMAP,
+            X_SETUP_DEFAULT_ROOT,
+            declared_size,
+            WIDTH,
+            HEIGHT,
+            STRIDE,
+            DEPTH,
+            32,
+        );
+        if expected_admitted {
+            requests.extend_from_slice(&get_geometry_request(PIXMAP));
+        }
+
+        let borrowed = [backing.as_fd()];
+        let mut space = [MaybeUninit::uninit();
+            rustix::cmsg_space!(ScmRights(sophia_protocol::DMA_BUF_MAX_PLANES))];
+        let mut ancillary = rustix::net::SendAncillaryBuffer::new(&mut space);
+        assert!(ancillary.push(rustix::net::SendAncillaryMessage::ScmRights(&borrowed)));
+        let sent = rustix::net::sendmsg(
+            &stream,
+            &[IoSlice::new(&requests)],
+            &mut ancillary,
+            rustix::net::SendFlags::empty(),
+        )
+        .unwrap();
+        assert_eq!(sent, requests.len());
+        stream.shutdown(Shutdown::Write).unwrap();
+
+        let mut answer = Vec::new();
+        stream.read_to_end(&mut answer).unwrap();
+        server.join().unwrap().unwrap();
+
+        assert_eq!(
+            answer.len() % 32,
+            0,
+            "{tag}: answer must be whole 32-byte records, got {} bytes",
+            answer.len(),
+        );
+        let records = answer.chunks_exact(32).collect::<Vec<_>>();
+        let errors = records
+            .iter()
+            .filter(|record| record[0] == 0)
+            .map(|record| record[1])
+            .collect::<Vec<_>>();
+        let replies = records
+            .iter()
+            .filter(|record| record[0] == 1)
+            .collect::<Vec<_>>();
+
+        if expected_admitted {
+            assert_eq!(errors, Vec::<u8>::new(), "{tag}: import must be admitted");
+            assert_eq!(replies.len(), 1, "{tag}: the pixmap must answer a query");
+            let reply = replies[0];
+            assert_eq!(reply[1], DEPTH, "{tag}: queried depth");
+            assert_eq!(
+                u16::from_le_bytes([reply[16], reply[17]]),
+                WIDTH,
+                "{tag}: queried width",
+            );
+            assert_eq!(
+                u16::from_le_bytes([reply[18], reply[19]]),
+                HEIGHT,
+                "{tag}: queried height",
+            );
+        } else {
+            assert_eq!(
+                errors,
+                vec![XErrorCode::BadWindow.wire_code()],
+                "{tag}: import must be refused",
+            );
+            assert!(
+                replies.is_empty(),
+                "{tag}: a refused import answers nothing"
+            );
+        }
+
+        assert_eq!(
+            backing.stream_position().unwrap(),
+            OFFSET,
+            "{tag}: resolving the size must not move the offset shared with the client",
+        );
+
+        std::fs::remove_file(socket).unwrap();
+        std::fs::remove_file(backing_path).unwrap();
+    }
+
+    // A zero declared size is answered by the descriptor.
+    import(0, u64::from(ALLOCATION), true, "zero-ok");
+    // The bound still holds against the descriptor's own size.
+    import(0, u64::from(ROW_BYTES) - 1, false, "zero-short");
+    // A descriptor that reports no size leaves the zero standing.
+    import(0, 0, false, "zero-empty");
+    // An explicit claim is taken as given, and an undersized one is refused
+    // even though the descriptor would have covered the rows.
+    import(ROW_BYTES - 1, u64::from(ALLOCATION), false, "nonzero-short");
+    // An explicit adequate claim is unaffected.
+    import(ALLOCATION, u64::from(ALLOCATION), true, "nonzero-ok");
+}
+
+#[cfg(unix)]
+#[test]
 fn x_server_frontend_binds_an_owner_only_socket_and_preserves_regular_files() {
     use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};

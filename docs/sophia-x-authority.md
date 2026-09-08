@@ -837,6 +837,15 @@ modifier-bearing `PixmapFromBuffers`, `FenceFromFD`, supported-modifier queries,
 Present `Pixmap`/`SelectInput`/`QueryCapabilities`, and the bounded XFIXES region
 lifecycle required by Mesa are implemented.
 
+For compatibility with Chromium's VA-exported images, a zero `PixmapFromBuffer`
+size is resolved from the received FD's kernel-reported length before pure
+request dispatch. This is a frontend compatibility rule, not permission to omit
+buffer bounds. If that length is unavailable, zero or unrepresentable, normal
+validation rejects the request. Explicit nonzero sizes remain unchanged;
+descriptor, geometry, stride and namespace checks still apply. Measuring the FD
+does not map its pixels or change its file offset, and renderer import remains
+responsible for accepting the native buffer.
+
 An immediately satisfied Present `NotifyMSC` is serialized with the requesting
 connection's output and carries that request's sequence. A later reply cannot
 overtake it. Other subscribers receive asynchronous events stamped with their

@@ -659,6 +659,18 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             received_fds.len()
                         )));
                     }
+                    // A zero declared size leaves the size to the descriptor,
+                    // which is what Chromium's VA-API exports send. Resolving it
+                    // before the pure dispatch keeps every bound there applied to
+                    // a real size; an unanswerable descriptor keeps the zero.
+                    if let crate::XWireRequest::Dri3PixmapFromBuffer { size_bytes, .. } =
+                        &mut request
+                        && *size_bytes == 0
+                        && let Some(fd) = received_fds.first()
+                        && let Some(size) = dri3_buffer_size_from_descriptor(fd)
+                    {
+                        *size_bytes = size;
+                    }
                     let event_selection = x11_core_event_selection_update(&request);
                     let dri3_open = matches!(&request, crate::XWireRequest::Dri3Open { .. });
                     let xid_request = match &request {

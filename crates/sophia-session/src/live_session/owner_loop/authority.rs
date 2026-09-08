@@ -786,6 +786,7 @@
                         match runtime.run_ordinary_cpu_repaint(
                             &mut scene,
                             raised_surface,
+                            focus.focused_surface(seat),
                             LiveProductionCursorPresentation::HardwarePlane,
                             &outputs,
                             native_scanout,

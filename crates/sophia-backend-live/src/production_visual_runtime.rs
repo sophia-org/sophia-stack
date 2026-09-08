@@ -555,6 +555,23 @@ impl LiveProductionVisualRuntime {
         }
     }
 
+    /// Resolves a repaint's chrome focus and prepares its display list.
+    ///
+    /// `raised_surface` orders the stack; `focused_surface` is the focus. They
+    /// are independent: a raise never becomes the focus, framed or not.
+    fn prepare_repaint(
+        &mut self,
+        committed: &[CommittedSurfaceState],
+        raised_surface: Option<SurfaceId>,
+        focused_surface: Option<SurfaceId>,
+    ) -> Result<CompositorDisplayList, CompositorDisplayListError> {
+        let focus = self.chrome_focus(focused_surface, &self.chrome_surfaces);
+        self.focused_surface = focus;
+        let presentation_order =
+            raised_presentation_order(&self.presentation_order, raised_surface);
+        self.display_list(committed, &presentation_order)
+    }
+
     pub fn run_cpu_production_cycle(
         &mut self,
         request: LiveProductionCycleRequest<'_>,
@@ -1242,6 +1259,7 @@ impl LiveProductionVisualRuntime {
         &mut self,
         scene: &mut LiveProductionCpuScene,
         raised_surface: Option<SurfaceId>,
+        focused_surface: Option<SurfaceId>,
         cursor_presentation: LiveProductionCursorPresentation,
         output_descriptors: &[sophia_engine::HeadlessOutput],
         native_scanout: &mut LiveProductionNativeScanout,
@@ -1252,6 +1270,7 @@ impl LiveProductionVisualRuntime {
         Ok(Some(self.run_cpu_repaint(
             scene,
             raised_surface,
+            focused_surface,
             cursor_presentation,
             output_descriptors,
             native_scanout,
@@ -1262,15 +1281,13 @@ impl LiveProductionVisualRuntime {
         &mut self,
         scene: &mut LiveProductionCpuScene,
         raised_surface: Option<SurfaceId>,
+        focused_surface: Option<SurfaceId>,
         cursor_presentation: LiveProductionCursorPresentation,
         output_descriptors: &[sophia_engine::HeadlessOutput],
         native_scanout: &mut LiveProductionNativeScanout,
     ) -> Result<LiveProductionCpuSubmission, Box<dyn std::error::Error>> {
         let committed = self.production.committed_surfaces().to_vec();
-        self.focused_surface = raised_surface;
-        let presentation_order =
-            raised_presentation_order(&self.presentation_order, raised_surface);
-        let display_list = self.display_list(&committed, &presentation_order)?;
+        let display_list = self.prepare_repaint(&committed, raised_surface, focused_surface)?;
         let output = output_descriptors
             .first()
             .copied()

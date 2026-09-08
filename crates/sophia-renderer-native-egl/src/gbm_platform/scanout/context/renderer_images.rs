@@ -233,7 +233,22 @@ where
         {
             return Err(NativeGbmScanoutBufferExportDetail::RendererImageStoreFull);
         }
-        let buffer = self.render_renderer_image_snapshot(image_id, frame)?;
+        let layout = (frame.format, frame.modifier);
+        let buffer = if self.transferred_layouts.contains(&layout) {
+            // A successful layout chooses an attempt order, never authorizes
+            // another buffer. Every capture still imports its actual FDs.
+            self.transfer_renderer_image(
+                image_id, frame, NativeGbmScanoutBufferExportDetail::DmaBufImportFailed,
+            ).or_else(|_| self.render_renderer_image_snapshot(image_id, frame, false))?
+        } else {
+            match self.render_renderer_image_snapshot(image_id, frame, false) {
+                Ok(buffer) => buffer,
+                Err(detail) if image_import_failure(detail) => {
+                    self.transfer_renderer_image(image_id, frame, detail)?
+                }
+                Err(detail) => return Err(detail),
+            }
+        };
         if buffer.format() != frame.format {
             return Err(NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor);
         }

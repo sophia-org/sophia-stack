@@ -68,6 +68,10 @@ The [first capability checkpoint](../milestones/f24uuvwu-measured-dri3-import-ca
 records measured DRI3 negotiation and exact legacy exports, its retained
 validation, and the transfer and physical-acceptance limits.
 
+The [cross-device capture checkpoint](../milestones/j11gjkh1-generic-cross-device-image-capture-and-worker-recovery.md)
+records submitted-buffer transfer, worker and inventory lifetime repairs,
+offscreen pixel evidence, and the remaining frontend migration boundary.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

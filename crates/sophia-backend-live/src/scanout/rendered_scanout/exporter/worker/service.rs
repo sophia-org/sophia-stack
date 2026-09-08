@@ -40,15 +40,24 @@ impl WorkerOutputState {
     }
 }
 
-pub(super) fn run_worker<D>(device: io::Result<D>, command_receiver: Receiver<WorkerCommand>)
-where
+pub(super) fn run_worker<D>(
+    device: io::Result<D>,
+    import_devices: Vec<std::os::fd::OwnedFd>,
+    command_receiver: Receiver<WorkerCommand>,
+) where
     D: AsFd + Send + 'static,
 {
     let report = NativeGbmRenderedScanoutContext::from_backend_device_result(device);
     let context_status = report.status;
     let mut context = report.context;
+    if let Some(context) = context.as_mut() {
+        context
+            .set_image_import_devices(import_devices)
+            .expect("worker validates the immutable import-device inventory before spawn");
+    }
     let mut outputs = BTreeMap::<LiveRendererWorkerOutputKey, WorkerOutputState>::new();
     let mut next_lease_id = 1_u64;
+    let mut reported_transfers = 0_u64;
 
     while let Ok(command) = command_receiver.recv() {
         match command {
@@ -128,6 +137,27 @@ where
                         request_id.0,
                         worker_outcome_name(&outcome),
                     );
+                }
+                if let Some(context) = context.as_ref() {
+                    let transfer = context.image_transfer_stats();
+                    let completed = transfer.captures.saturating_add(transfer.failures);
+                    if completed != reported_transfers
+                        && (completed <= 4 || completed.is_power_of_two())
+                    {
+                        tracing::info!(
+                            "sophia_renderer_transfer schema=1 output={} capture_count={} attempt_count={} failure_count={} devices={} bridge_bytes={} max_capture_usec={} source_failure={:?} destination_failure={:?}",
+                            output.raw(),
+                            transfer.captures,
+                            transfer.attempts,
+                            transfer.failures,
+                            transfer.device_initializations,
+                            transfer.bridge_bytes,
+                            transfer.max_capture_duration.as_micros(),
+                            transfer.last_source_failure,
+                            transfer.last_destination_failure,
+                        );
+                    }
+                    reported_transfers = completed;
                 }
                 let persistent_render_stats = context.as_ref().map_or_else(
                     LiveNativePersistentRenderStats::default,

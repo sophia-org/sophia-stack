@@ -8,6 +8,8 @@ mod native_page_flip;
 mod native_primary_plane;
 #[cfg(feature = "libdrm-events")]
 mod native_scanout;
+#[cfg(feature = "drm-hotplug")]
+mod render_inventory;
 mod sysfs_discovery;
 #[cfg(feature = "drm-hotplug")]
 mod topology_monitor;
@@ -22,6 +24,8 @@ pub use native_page_flip::*;
 pub use native_primary_plane::*;
 #[cfg(feature = "libdrm-events")]
 pub use native_scanout::*;
+#[cfg(feature = "drm-hotplug")]
+pub use render_inventory::*;
 pub use sysfs_discovery::*;
 #[cfg(feature = "drm-hotplug")]
 pub use topology_monitor::*;

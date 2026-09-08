@@ -1033,7 +1033,7 @@
     if let Some(monitor) = output_topology_monitor.as_ref() {
         let stats = monitor.stats();
         crate::session_println!(
-            "sophia_live_output_topology_monitor schema=1 source=kernel status=complete observed={} coalesced={} delivered={}",
+            "sophia_live_output_topology_monitor schema=1 source=kernel_and_udev status=complete observed={} coalesced={} delivered={}",
             stats.observed, stats.coalesced, stats.delivered,
         );
     }

@@ -66,6 +66,9 @@ pub struct NativeGbmRenderedScanoutContext<T: std::os::fd::AsFd> {
     import_cache_capacity: usize,
     renderer_images: std::collections::BTreeMap<NativeRendererImageId, NativeRendererImage>,
     renderer_image_bytes: u64,
+    import_devices: Option<Vec<NativeImageImportDevice>>,
+    transfer_stats: NativeImageTransferStats,
+    transferred_layouts: std::collections::BTreeSet<(u32, u64)>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -230,6 +233,9 @@ where
             import_cache_capacity,
             renderer_images: std::collections::BTreeMap::new(),
             renderer_image_bytes: 0,
+            import_devices: None,
+            transfer_stats: NativeImageTransferStats::default(),
+            transferred_layouts: std::collections::BTreeSet::new(),
             buffer_age_supported,
             next_target_generation: 1,
             last_render_buffer_age: None,
@@ -588,121 +594,6 @@ where
     }
 
 
-    fn render_renderer_image_snapshot(
-        &mut self,
-        image_id: NativeRendererImageId,
-        source: NativeMultiPlaneDmaBufFrame<'_>,
-    ) -> Result<NativeGbmOwnedScanoutBuffer, NativeGbmScanoutBufferExportDetail> {
-        let format = match source.format {
-            0x3432_5258 => gbm::Format::Xrgb8888,
-            0x3432_5241 => gbm::Format::Argb8888,
-            _ => return Err(NativeGbmScanoutBufferExportDetail::InvalidTarget),
-        };
-        self.egl
-            .bind_api(khronos_egl::OPENGL_API)
-            .map_err(|_| NativeGbmScanoutBufferExportDetail::EglBindApiFailed)?;
-        let layer = NativeCompositionLayer::DmaBuf(NativeDmaBufCompositionLayer {
-            image_id,
-            frame: source,
-            target: NativeCompositionRect {
-                x: 0,
-                y: 0,
-                width: i32::try_from(source.width).unwrap_or(i32::MAX),
-                height: i32::try_from(source.height).unwrap_or(i32::MAX),
-            },
-            clip: None,
-            alpha: 1.0,
-            sampling: crate::NativeCompositionSampling::ExactNearest,
-        });
-        let layers = [layer];
-        let frame = NativeCompositionFrame {
-            width: source.width,
-            height: source.height,
-            layers: &layers,
-            trace: None,
-            repaint: None,
-        };
-        let mut last_detail = NativeGbmScanoutBufferExportDetail::EglConfigUnavailable;
-        for candidate in rendered_scanout_candidates(&[])
-            .into_iter()
-            .filter(|candidate| candidate.format == format)
-        {
-            let Some(config) = choose_scanout_config_for_format(
-                &self.egl,
-                self.display,
-                candidate.config_attributes,
-                candidate.format,
-            ) else {
-                continue;
-            };
-            let (mut target, surface, _) = match self.create_render_target(RenderTargetSpec {
-                width: source.width,
-                height: source.height,
-                config,
-                candidate,
-            }) {
-                Ok(created) => created,
-                Err(detail) => {
-                    last_detail = preferred_scanout_failure_detail(last_detail, detail);
-                    continue;
-                }
-            };
-            self.stats.dmabuf_target_creations =
-                self.stats.dmabuf_target_creations.saturating_add(1);
-            let mut import_cache = NativeDmaBufImportCache::with_capacity_and_stats(
-                1,
-                NativeDmaBufImportCacheStats::default(),
-            );
-            let empty_images = std::collections::BTreeMap::new();
-            let rendered = render_native_target_composition(
-                &self.egl,
-                self.display,
-                &mut target,
-                surface.clone(),
-                &mut import_cache,
-                &empty_images,
-                frame,
-                false,
-                true,
-                            self.buffer_age_supported,
-            );
-            let generation = self.allocate_target_generation();
-            let persistent = PersistentCompositionTarget {
-                target,
-                surface,
-                import_cache,
-                preferred_modifiers: Vec::new(),
-                generation,
-            };
-            match rendered {
-                Ok((buffer, _)) if is_supported_rendered_scanout_candidate_buffer(&buffer) => {
-                    self.destroy_renderer_image_capture_target(persistent);
-                    return Ok(buffer);
-                }
-                Ok(_) => {
-                    last_detail = NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor;
-                }
-                Err(detail) => {
-                    last_detail = preferred_scanout_failure_detail(last_detail, detail);
-                }
-            }
-            self.destroy_renderer_image_capture_target(persistent);
-        }
-        Err(last_detail)
-    }
-
-
-    fn destroy_renderer_image_capture_target(
-        &mut self,
-        target: PersistentCompositionTarget,
-    ) {
-        // Capture uses a one-entry temporary import cache for the client
-        // source. Do not merge it into the persistent output-import ledger.
-        let output_import_stats = self.stats.import_cache;
-        self.destroy_persistent_composition_target(target);
-        self.stats.import_cache = output_import_stats;
-    }
-
     fn create_render_target(
         &mut self,
         spec: RenderTargetSpec,
@@ -741,6 +632,8 @@ where
 }
 include!("context/render_once.rs");
 include!("context/renderer_images.rs");
+include!("context/image_capture.rs");
+include!("context/image_transfer.rs");
 impl<T> NativeGbmRenderedScanoutContext<T>
 where
     T: std::os::fd::AsFd,
@@ -803,6 +696,11 @@ where
                 }
             }
         }
+        // Target imports are gone; release retained buffer surfaces while their
+        // EGL display and its dynamically loaded entry points still exist.
+        self.renderer_images.clear();
+        self.renderer_image_bytes = 0;
+        self.import_devices.take();
         let _ = self.egl.terminate(self.display);
         trace_native_lifecycle("egl_display_terminated");
     }

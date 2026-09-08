@@ -7,7 +7,11 @@ use std::thread::JoinHandle;
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
+mod events;
+use events::{TopologyEventSource, topology_event_requires_rescan};
+
 const DRM_TOPOLOGY_MONITOR_POLL_MSEC: i64 = 50;
+const DRM_TOPOLOGY_MONITOR_BATCH_MAX_EVENTS: usize = 256;
 
 fn saturating_increment(counter: &AtomicU64) {
     let _ = counter.fetch_update(Ordering::AcqRel, Ordering::Acquire, |value| {
@@ -27,6 +31,9 @@ pub struct LiveDrmTopologyMonitorStats {
     pub delivered: u64,
 }
 
+/// Kernel revocation and processed udev changes share one bounded notice stream.
+/// Device admission and reassignment require a running udev service; opening
+/// its monitor socket alone does not establish that the service delivers events.
 pub struct LiveDrmTopologyMonitor {
     ready: Receiver<()>,
     health: Receiver<Result<(), String>>,
@@ -52,16 +59,23 @@ impl LiveDrmTopologyMonitor {
         let worker_observed = Arc::clone(&observed);
         let worker_coalesced = Arc::clone(&coalesced);
         let worker = std::thread::spawn(move || {
-            // Hotplug is a kernel authority event. The userspace `udev`
-            // multicast group is only a daemon rebroadcast and can be absent
-            // even while the persisted udev database remains readable.
-            let monitor = udev::MonitorBuilder::new_kernel()
-                .and_then(|builder| builder.match_subsystem("drm"))
-                .and_then(udev::MonitorBuilder::listen);
-            let monitor = match monitor {
-                Ok(monitor) => {
+            let monitors = (|| -> io::Result<_> {
+                let kernel = udev::MonitorBuilder::new_kernel()
+                    .and_then(|builder| builder.match_subsystem("drm"))
+                    .and_then(udev::MonitorBuilder::listen)
+                    .map_err(|error| io::Error::other(format!("kernel DRM monitor: {error}")))?;
+                let processed = udev::MonitorBuilder::new()
+                    .and_then(|builder| builder.match_subsystem("drm"))
+                    .and_then(udev::MonitorBuilder::listen)
+                    .map_err(|error| {
+                        io::Error::other(format!("processed udev DRM monitor: {error}"))
+                    })?;
+                Ok((kernel, processed))
+            })();
+            let (kernel, processed) = match monitors {
+                Ok(monitors) => {
                     let _ = startup_sender.send(Ok(()));
-                    monitor
+                    monitors
                 }
                 Err(error) => {
                     let _ = startup_sender.send(Err(error.to_string()));
@@ -69,7 +83,8 @@ impl LiveDrmTopologyMonitor {
                 }
             };
             let result = run_drm_topology_monitor(
-                monitor,
+                kernel,
+                processed,
                 notice_sender,
                 &worker_stop,
                 &worker_sequence,
@@ -151,7 +166,8 @@ impl Drop for LiveDrmTopologyMonitor {
 }
 
 fn run_drm_topology_monitor(
-    monitor: udev::MonitorSocket,
+    kernel: udev::MonitorSocket,
+    processed: udev::MonitorSocket,
     sender: SyncSender<()>,
     stop: &AtomicBool,
     latest_sequence: &AtomicU64,
@@ -163,40 +179,71 @@ fn run_drm_topology_monitor(
         tv_nsec: DRM_TOPOLOGY_MONITOR_POLL_MSEC * 1_000_000,
     };
     while !stop.load(Ordering::Acquire) {
-        let mut fds = [PollFd::new(&monitor, PollFlags::IN)];
+        let mut fds = [
+            PollFd::new(&kernel, PollFlags::IN),
+            PollFd::new(&processed, PollFlags::IN),
+        ];
         poll(&mut fds, Some(&timeout)).map_err(|error| error.to_string())?;
-        for event in monitor.iter() {
-            if event.event_type() != udev::EventType::Change
-                || event.property_value("HOTPLUG") != Some(OsStr::new("1"))
-            {
-                continue;
-            }
-            let mut current = latest_sequence.load(Ordering::Acquire);
-            loop {
-                let next = current
-                    .checked_add(1)
-                    .ok_or("DRM topology notice sequence exhausted")?;
-                match latest_sequence.compare_exchange_weak(
-                    current,
-                    next,
-                    Ordering::AcqRel,
-                    Ordering::Acquire,
+        if fds.iter().any(|fd| {
+            fd.revents()
+                .intersects(PollFlags::ERR | PollFlags::HUP | PollFlags::NVAL)
+        }) {
+            return Err("DRM topology monitor socket failed".to_owned());
+        }
+        for (source, monitor) in [
+            (TopologyEventSource::Kernel, &kernel),
+            (TopologyEventSource::Processed, &processed),
+        ] {
+            for event in monitor.iter().take(DRM_TOPOLOGY_MONITOR_BATCH_MAX_EVENTS) {
+                if !topology_event_requires_rescan(
+                    source,
+                    event.event_type(),
+                    event.sysname(),
+                    event.property_value("HOTPLUG") == Some(OsStr::new("1")),
                 ) {
-                    Ok(_) => break,
-                    Err(observed_current) => current = observed_current,
+                    continue;
                 }
-            }
-            saturating_increment(observed);
-            match sender.try_send(()) {
-                Ok(()) => {}
-                Err(TrySendError::Full(())) => {
-                    saturating_increment(coalesced);
+                // A processed event can carry new seat facts even when its
+                // kernel event was already delivered. Sequence numbers are local.
+                if !publish_topology_notice(&sender, latest_sequence, observed, coalesced)? {
+                    return Ok(());
                 }
-                Err(TrySendError::Disconnected(())) => return Ok(()),
             }
         }
     }
     Ok(())
+}
+
+fn publish_topology_notice(
+    sender: &SyncSender<()>,
+    latest_sequence: &AtomicU64,
+    observed: &AtomicU64,
+    coalesced: &AtomicU64,
+) -> Result<bool, String> {
+    let mut current = latest_sequence.load(Ordering::Acquire);
+    loop {
+        let next = current
+            .checked_add(1)
+            .ok_or("DRM topology notice sequence exhausted")?;
+        match latest_sequence.compare_exchange_weak(
+            current,
+            next,
+            Ordering::AcqRel,
+            Ordering::Acquire,
+        ) {
+            Ok(_) => break,
+            Err(observed_current) => current = observed_current,
+        }
+    }
+    saturating_increment(observed);
+    match sender.try_send(()) {
+        Ok(()) => Ok(true),
+        Err(TrySendError::Full(())) => {
+            saturating_increment(coalesced);
+            Ok(true)
+        }
+        Err(TrySendError::Disconnected(())) => Ok(false),
+    }
 }
 
 mod tests;

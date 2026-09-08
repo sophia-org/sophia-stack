@@ -213,14 +213,25 @@ where
     where
         R::Device: Send + 'static,
     {
+        self.enable_worker_with_image_import_devices(Vec::new())
+    }
+
+    pub fn enable_worker_with_image_import_devices(
+        &mut self,
+        import_devices: Vec<std::os::fd::OwnedFd>,
+    ) -> std::io::Result<()>
+    where
+        R::Device: Send + 'static,
+    {
         if self.worker.is_some() {
             return Ok(());
         }
         self.context_open_attempts = self.context_open_attempts.saturating_add(1);
-        self.worker = Some(NativeGbmRendererWorker::spawn(
+        let core = NativeGbmRendererWorkerCore::spawn_with_image_import_devices(
             self.discovery.open_render_device(),
-            self.output,
-        )?);
+            import_devices,
+        )?;
+        self.worker = Some(core.attach(self.output));
         self.context = None;
         self.context_status = None;
         Ok(())

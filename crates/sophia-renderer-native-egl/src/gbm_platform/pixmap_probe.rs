@@ -37,7 +37,8 @@ impl NativePixmapImportProbe {
         frame: NativeMultiPlaneDmaBufFrame<'_>,
     ) -> Result<Self, NativePixmapImportProbeError> {
         use NativePixmapImportProbeError as E;
-        if !frame.is_valid() || frame.width > 64 || frame.height > 64 {
+        // Bound diagnostic readback to 16 MiB while admitting full-HD pixel proofs.
+        if !frame.is_valid() || frame.width > 2048 || frame.height > 2048 {
             return Err(E::InvalidDescriptor);
         }
         let device = gbm::Device::new(device).map_err(|_| E::Platform)?;

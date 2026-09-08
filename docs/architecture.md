@@ -858,6 +858,41 @@ reset clears native residency while the backend's still-live buffer lease
 allows a bounded re-import. Neither the X frontend nor the WM can observe or
 control the cache.
 
+An import refused by the output device can use a bounded renderer transfer.
+Backend discovery admits at most sixteen initialized DRM devices from the
+actual seat, including devices without connected heads, and passes independently
+owned render FDs to each native worker. Paths, executable names and vendor
+heuristics do not enter Engine. Each worker initializes auxiliary contexts only
+when needed and retains them until its native owner is destroyed.
+
+The renderer tries direct capture first. A device that can sample the submitted
+descriptor may render it into an explicitly linear XR24/AR24 bridge; the output
+device then captures that bridge into its own immutable image. Both imports
+validate the actual FDs. A bounded set of previously transferred layouts changes
+attempt order on later images without granting authority or caching buffer
+validity. The temporary bridge remains alive through destination submission;
+GPU access uses DMA-BUF implicit synchronization. No image enters the retained
+store until destination capture succeeds and the existing image budget admits
+it. Repaints of the same immutable identity do not repeat the transfer.
+
+The session subscribes to topology events before its initial device snapshot.
+Kernel removal/unbind notices revoke device inventory; processed udev notices
+reconcile additions and seat assignments after database initialization. These
+notices use the existing native-owner suspension and reconstruction path, even
+when connected-head geometry is unchanged. An uninitialized device is never
+admitted through the default seat. Running udev is required for processed
+admission updates; opening its monitor socket does not prove daemon delivery.
+On teardown, consumer imports and retained buffers precede EGL display
+termination. Reliable worker shutdown cannot be lost to a full command queue;
+it does not provide cancellation of a blocked kernel driver call.
+
+This transfer applies only to buffers submitted to Sophia and readable by an
+admitted device. It cannot repair a client-internal import before submission.
+The frontend's original DRI3 provider and pixmap allocator remain tied to their
+construction device: loss of that device can refuse new exports/opens rather
+than transparently migrate clients to another GPU. Native worker reconstruction
+must not be reported as replacement of those frontend resources.
+
 Renderer maintenance remains worker-owned. Shutdown cache clearing uses a
 bounded request/acknowledgement and returns the updated resource counters
 before the owner emits completion evidence. A stream in which every client

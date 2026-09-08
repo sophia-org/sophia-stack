@@ -373,6 +373,12 @@ pub(crate) fn run_persistent_xterm_session(
             sophia_protocol::OutputHeadMapping::Fit
         }
     };
+    // Subscribe before inventory discovery so a device change during startup
+    // remains queued for authoritative reconstruction in the owner loop.
+    let output_topology_monitor = config
+        .native_scanout
+        .then(sophia_backend_live::LiveDrmTopologyMonitor::open)
+        .transpose()?;
     let mut native_scanout = seat_controller
         .as_ref()
         .map(|controller| {
@@ -1059,6 +1065,7 @@ pub(crate) fn run_persistent_xterm_session(
             initial_head_mapping,
         },
         SessionLoopStartup {
+            output_topology_monitor,
             xauthority: xauthority.path(),
             protocol_router,
             input_proof_result: input_proof_result.as_ref(),

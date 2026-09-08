@@ -54,6 +54,7 @@ fn worker_channel() -> (SyncSender<WorkerCommand>, std::thread::JoinHandle<()>) 
     let thread = std::thread::spawn(move || {
         run_worker::<std::fs::File>(
             Err(std::io::Error::other("no render device in this test")),
+            Vec::new(),
             command_receiver,
         )
     });

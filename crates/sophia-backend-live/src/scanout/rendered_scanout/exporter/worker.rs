@@ -139,10 +139,26 @@ impl NativeGbmRendererWorkerCore {
     where
         D: AsFd + Send + 'static,
     {
+        Self::spawn_with_image_import_devices(device, Vec::new())
+    }
+
+    pub fn spawn_with_image_import_devices<D>(
+        device: io::Result<D>,
+        import_devices: Vec<std::os::fd::OwnedFd>,
+    ) -> io::Result<Arc<Self>>
+    where
+        D: AsFd + Send + 'static,
+    {
+        if import_devices.len() > sophia_renderer_live::NATIVE_IMAGE_IMPORT_DEVICE_CAPACITY {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "renderer import device capacity exceeded",
+            ));
+        }
         let (command_sender, command_receiver) = sync_channel(WORKER_COMMAND_CAPACITY);
         let thread = thread::Builder::new()
             .name("sophia-render-gpu".to_owned())
-            .spawn(move || run_worker(device, command_receiver))?;
+            .spawn(move || run_worker(device, import_devices, command_receiver))?;
         Ok(Arc::new(Self {
             command_sender,
             thread: std::sync::Mutex::new(Some(thread)),
@@ -188,7 +204,7 @@ impl NativeGbmRendererWorkerCore {
 
 impl Drop for NativeGbmRendererWorkerCore {
     fn drop(&mut self) {
-        let _ = self.command_sender.try_send(WorkerCommand::Shutdown);
+        let _ = self.command_sender.send(WorkerCommand::Shutdown);
         if let Ok(mut thread) = self.thread.lock()
             && let Some(thread) = thread.take()
         {

@@ -583,6 +583,19 @@ impl<T> NativeGbmRenderedScanoutContext<T>
 where
     T: AsFd,
 {
+    pub fn set_image_import_devices(
+        &mut self,
+        devices: Vec<std::os::fd::OwnedFd>,
+    ) -> Result<(), LiveRendererScanoutBufferExportDetail> {
+        self.inner
+            .set_image_import_devices(devices)
+            .map_err(reduced_native_owned_scanout_buffer_export_detail)
+    }
+
+    pub fn image_transfer_stats(&self) -> sophia_renderer_native_egl::NativeImageTransferStats {
+        self.inner.image_transfer_stats()
+    }
+
     pub fn persistent_render_stats(&self) -> LiveNativePersistentRenderStats {
         let stats = self.inner.persistent_render_stats();
         LiveNativePersistentRenderStats {

@@ -32,6 +32,7 @@ struct SessionLoopResources<'a> {
 }
 
 struct SessionLoopStartup<'a> {
+    output_topology_monitor: Option<sophia_backend_live::LiveDrmTopologyMonitor>,
     xauthority: &'a std::path::Path,
     protocol_router: XServerFrontendProtocolRouter,
     input_proof_result: Option<&'a LiveInputProofResult>,
@@ -276,6 +277,7 @@ fn run_session_loop_inner(
         initial_head_mapping,
     } = resources;
     let SessionLoopStartup {
+        mut output_topology_monitor,
         xauthority,
         protocol_router,
         input_proof_result,
@@ -314,10 +316,6 @@ fn run_session_loop_inner(
         initial_output_publication_generation,
     )?;
     let mut physical_output_topology_replaced = false;
-    let mut output_topology_monitor = native_scanout
-        .is_some()
-        .then(sophia_backend_live::LiveDrmTopologyMonitor::open)
-        .transpose()?;
     let mut output_topology_retry_at: Option<Instant> = None;
     let mut deferred_output_topology_notice: Option<
         sophia_backend_live::LiveDrmTopologyRescanNotice,

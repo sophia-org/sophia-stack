@@ -53,6 +53,11 @@ pub use drm::{
 };
 #[cfg(feature = "drm-hotplug")]
 pub use drm::{LiveDrmTopologyMonitor, LiveDrmTopologyMonitorStats, LiveDrmTopologyRescanNotice};
+#[cfg(feature = "drm-hotplug")]
+pub use drm::{
+    LiveRenderDevice, LiveRenderDeviceIdentitySnapshot, LiveRenderDeviceInventoryError,
+    discover_seat_render_devices,
+};
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 pub use presentation::*;
 pub use production_cpu_cycle::*;

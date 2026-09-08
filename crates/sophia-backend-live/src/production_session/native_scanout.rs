@@ -86,6 +86,8 @@ mod persistent_native_scanout {
                 crate::RealAtomicScanoutRenderDeviceDiscovery,
             >,
         >,
+        /// Seat-admitted render nodes retained for this native owner's lifetime.
+        image_import_devices: Vec<std::fs::File>,
         /// Primary presentation and last-head ownership for mirror generations.
         output_lifecycles: BTreeMap<OutputId, LiveProductionMirrorGroupLifecycle>,
         /// Engine-owned prepare/submit/flip barrier for the active generation
@@ -574,11 +576,26 @@ mod persistent_native_scanout {
             grouping: &crate::NativeMirrorGrouping,
             mapping: sophia_protocol::OutputHeadMapping,
         ) -> Result<Self, Box<dyn std::error::Error>> {
-            Self::new_with_selection(
+            let mut scanout = Self::new_with_selection(
                 crate::select_real_atomic_scanout_cards_with_seat(opener),
                 grouping,
                 mapping,
-            )
+            )?;
+            #[cfg(feature = "drm-hotplug")]
+            let image_import_devices = match crate::discover_seat_render_devices(opener.name()) {
+                Ok(devices) => devices.into_iter().map(|device| device.file).collect(),
+                Err(reason) => {
+                    tracing::warn!(
+                        ?reason,
+                        "renderer image import device inventory unavailable"
+                    );
+                    Vec::new()
+                }
+            };
+            #[cfg(not(feature = "drm-hotplug"))]
+            let image_import_devices = Vec::new();
+            scanout.image_import_devices = image_import_devices;
+            Ok(scanout)
         }
 
         /// Builds the native owner with one already-resolved compositor cursor.
@@ -910,6 +927,7 @@ mod persistent_native_scanout {
                 callback_queue_saturated: 0,
                 nonzero_exports: 0,
                 exporters,
+                image_import_devices: Vec::new(),
                 output_lifecycles,
                 output_cohorts: BTreeMap::new(),
                 deferred_mirror_generations: BTreeMap::new(),
@@ -3150,10 +3168,12 @@ mod persistent_native_scanout {
                 let group = self.heads[index].group;
                 if self.groups[group].renderer_core.is_none() {
                     let discovery = self.groups[group].session.render_device_discovery()?;
-                    self.groups[group].renderer_core =
-                        Some(crate::NativeGbmRendererWorkerCore::spawn(
+                    self.groups[group].renderer_core = Some(
+                        crate::NativeGbmRendererWorkerCore::spawn_with_image_import_devices(
                             crate::RenderDeviceDiscoveryBackend::open_render_device(&discovery),
-                        )?);
+                            self.image_import_device_fds()?,
+                        )?,
+                    );
                 }
                 let core = self.groups[group]
                     .renderer_core
@@ -3162,9 +3182,18 @@ mod persistent_native_scanout {
                     .clone();
                 self.exporters[index].attach_shared_worker(&core);
             } else {
-                self.exporters[index].enable_worker()?;
+                let image_import_devices = self.image_import_device_fds()?;
+                self.exporters[index]
+                    .enable_worker_with_image_import_devices(image_import_devices)?;
             }
             Ok(())
+        }
+
+        fn image_import_device_fds(&self) -> std::io::Result<Vec<std::os::fd::OwnedFd>> {
+            self.image_import_devices
+                .iter()
+                .map(|device| rustix::io::fcntl_dupfd_cloexec(device, 0).map_err(Into::into))
+                .collect()
         }
 
         pub fn enable_renderer_workers(&mut self) -> Result<usize, Box<dyn std::error::Error>> {

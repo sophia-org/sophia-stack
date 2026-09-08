@@ -837,6 +837,13 @@ modifier-bearing `PixmapFromBuffers`, `FenceFromFD`, supported-modifier queries,
 Present `Pixmap`/`SelectInput`/`QueryCapabilities`, and the bounded XFIXES region
 lifecycle required by Mesa are implemented.
 
+The backend revalidates the retained device and selected render node around
+each DRI3 open using filesystem device, inode, device number and physical sysfs
+identity. A replaced node or ambiguous sibling is a named refusal, never an
+ordinal fallback. Rebuilding native renderer workers does not migrate this
+frontend provider, its capability snapshot or its pixmap allocator to another
+GPU; replacing the original GPU requires a coordinated frontend generation.
+
 `GetSupportedModifiers` returns a bounded, immutable snapshot of explicit
 format/modifier pairs measured on the native EGL import devices when the
 frontend is constructed. The render-device provider and snapshot are latched

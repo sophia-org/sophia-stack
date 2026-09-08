@@ -61,6 +61,7 @@ enum LiveSeatCommand {
 
 #[derive(Clone)]
 pub struct LiveSeatDeviceOpener {
+    name: String,
     commands: Sender<LiveSeatCommand>,
 }
 
@@ -77,6 +78,10 @@ struct LiveSeatLease {
 }
 
 impl LiveSeatDeviceOpener {
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
     pub fn open(&self, path: &Path) -> Result<LiveSeatDevice, String> {
         let (reply_tx, reply_rx) = mpsc::sync_channel(1);
         self.commands
@@ -158,6 +163,7 @@ impl LiveSeatController {
 
     pub fn device_opener(&self) -> LiveSeatDeviceOpener {
         LiveSeatDeviceOpener {
+            name: self.name.clone(),
             commands: self.commands.clone(),
         }
     }

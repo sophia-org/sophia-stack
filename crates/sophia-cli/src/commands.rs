@@ -1,5 +1,6 @@
 #[cfg(feature = "native-session")]
 mod backend;
+mod client_launch;
 mod config;
 pub(crate) mod diagnostics;
 mod help;
@@ -51,6 +52,9 @@ mod prelude {
 }
 
 pub(crate) fn run(args: &[String], verbose: bool) -> Result<(), Box<dyn std::error::Error>> {
+    if client_launch::try_run(args)? {
+        return Ok(());
+    }
     if args.first().is_some_and(|arg| arg == "msg") {
         std::process::exit(msg::run(&args[1..]));
     }

@@ -489,6 +489,60 @@ tools/check_sophia_native_chrome_verifier.sh
 
 ## Application catalogs
 
+### Client launch adapters
+
+`sophia client-launch` adapts a registered client's command line before replacing
+itself with that client. The Chromium adapter queries the current local X display
+using its MIT cookie, opens the default DRI3 device, and resolves its DRM render
+node by kernel identity. It verifies the reopened node before supplying
+`--render-node-override`. Discovery has a one-second deadline; missing authority,
+DRI3, device evidence, or ambiguous device identity refuses the launch. It does
+not select a GPU by enumeration order or vendor name.
+
+```sh
+sophia client-launch --adapter=chromium --argv-style=direct -- /path/to/brave
+sophia client-launch --adapter=chromium --argv-style=wrapper -- brave-origin --
+```
+
+`wrapper` is for Go-style launchers that **consume** their first `--` before
+executing the browser. Launcher options precede that separator; browser options
+follow it. The adapter inserts its switch before any browser-owned `--`, preserves
+explicit `--render-node-override=PATH` and `--hardware-video-device-path=PATH`, and
+refuses conflicting physical-device selections. The switches require `=PATH`;
+duplicates and empty values are refused. Paths and arguments are passed directly
+to `exec`, without a shell. Discovery descriptors close before exec, which
+preserves the launch PID and process group.
+
+Add `--check-only` before the command separator to report the selected render
+node and adaptation status without launching anything. Diagnostics omit browser
+arguments, URLs and authentication data. Device verification applies at launch;
+the adapter cannot preserve a device through later hot-unplug or redirect a
+browser instance that was already running.
+
+Register the helper as the application's executable to use it from both a
+desktop-profile binding and a registered catalog entry. For example, replacing
+the existing Brave registration (adjust absolute paths for the installation):
+
+```kdl
+application "brave-origin" id=5 executable="/usr/local/bin/sophia" {
+    arg "client-launch"
+    arg "--adapter=chromium"
+    arg "--argv-style=wrapper"
+    arg "--"
+    arg "/home/you/.local/bin/brave-origin"
+    arg "--"
+}
+```
+
+Add `application "brave-origin"` to the selected `application-catalog` to expose
+that registration there. Install a binary supporting the helper **before**
+activating this recipe. It preserves the wrapper's normal update behavior.
+Unregistered desktop entries and arbitrary terminal commands retain their own
+launch recipes. This adapter belongs to the CLI; Engine, the renderer, the blind
+WM and the X11 contract contain no Chromium-specific device policy.
+
+### Catalog selection
+
 Core `session` blocks may define named `application-catalog` records with an
 explicit `launch-policy="trusted-host"`, approved absolute source directories,
 registered application names and an optional terminal adapter. Desktop profiles

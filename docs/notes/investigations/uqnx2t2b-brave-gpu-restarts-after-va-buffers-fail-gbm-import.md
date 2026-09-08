@@ -2,7 +2,7 @@
 id: uqnx2t2b
 date: 2026-09-07
 kind: investigation
-status: investigating
+status: awaiting-physical-acceptance
 tags: [investigation, rendering, x11]
 ---
 # Brave GPU restarts after VA buffers fail GBM import
@@ -320,8 +320,61 @@ Acceptance requires a fresh GPU-enabled Brave process, successful imports
 through the formerly failing interaction, and no crash-driven software
 fallback. Preserve the exact configuration and evidence. The local override
 has passed the captured interaction. The subsequent GLX candidate passes its
-private pixel gate; normal launch without graphics-selection flags and broader
-daily-use acceptance remain open.
+private pixel gate; normal launch without manual graphics-selection flags and
+broader daily-use acceptance remain open. An automatically derived flag from the
+launch adapter below is part of the intended normal launch configuration.
+
+## Client launch alignment, 2026-09-08
+
+The accepted implementation boundary is a CLI client adapter, not a browser fork
+or Chromium policy in Engine. Matching Chromium sources show independent device
+selection: X11 GBM opens the DRI3 device, while VA initialization receives the
+preliminary GPU identity before later graphics-context identification. Both
+`render-node-override` and `hardware-video-device-path` propagate to the GPU
+process. The earlier captured descriptor/device failure and successful override
+establish device alignment as the concrete intervention; they do not identify
+the exporter in every subsequent uninstrumented crash.
+
+`sophia client-launch --adapter=chromium` derives the override through an
+authenticated local DRI3 Open(root,0), with a one-second launch deadline. Kernel
+device numbers, sysfs physical-device identity, and reopened device-node identity
+replace enumeration guesses. Explicit device switches are preserved and
+validated; conflicts refuse rather than silently rewriting the user's choice.
+The Go launcher and browser remain unchanged. See the
+[client launch configuration](../../configuration.md#client-launch-adapters)
+for direct and separator-consuming wrapper recipes.
+
+The registered Brave recipe is prepared separately from the active user config:
+the installed binary must support this command before the recipe takes effect.
+Physical acceptance still requires a fresh browser launched through the normal
+binding, an accelerated GPU process, video playback with no repeated GBM import
+failure or GPU restart, and no white frames. Playing video after crash-driven
+software fallback does not meet that gate.
+
+Validation on the candidate based on `c5ce11c0f10798c4290baf3f1eb23b10bb81fc82`:
+
+- `cargo xtask check`: 2,745 tests passed, zero compiler/Clippy warnings,
+  all 20 archived proofs reverified, and buffer-age pixel equivalence proved.
+- Nine argument tests, eight device-identity tests and five private socket
+  tests cover separator handling, explicit overrides, two same-vendor physical
+  identities, node renumbering, inode replacement, unrelated disappearing nodes,
+  MIT-cookie selection, malformed DRI3 replies and bounded failure in normal and
+  check-only modes.
+- Four private hardware tests passed with each AMD render node advertised in
+  turn. They verify the actual helper reports the server's chosen device,
+  preserves matching explicit selections, refuses the other GPU, and execs a
+  fixture with the same PID and exact arguments without discovery FD leaks.
+  These tests do not launch Brave or interact with the live session.
+- The prepared core configuration validates with digest
+  `b74c43bad36cb75ce7a173f499f05f8e9921174116bcdcece99fe266d57c119c`.
+  It replaces registered application 5's recipe and adds that registration to
+  the installed catalog. The active user configuration remains unchanged.
+
+The source snapshot, binary digest, device identities, final gate and private
+hardware logs, and prepared configuration/patch are archived under
+`~/.local/state/sophia/development-evidence/t068-client-launch-20260908/attempt-001/`.
+`manifest.json` binds the uncommitted candidate to exact source bytes. The helper
+was not installed and no browser was launched or restarted during this work.
 
 ## Connections
 

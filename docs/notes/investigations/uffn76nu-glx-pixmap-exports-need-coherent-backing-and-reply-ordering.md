@@ -102,3 +102,36 @@ Installed acceptance requires a normal Brave launch without `--use-angle` or
 `--render-node-override`, visible video, and evidence that the GPU process
 remained accelerated. No installation or restart was performed. No source test
 closes that physical gate or t068 in [todo.md](../../../todo.md).
+
+## Installed check, 2026-09-08
+
+Session `00000001788861152422-e538780c-053d-4669-ab6c-4bd4c2501400`
+records installed commit `c5ce11c0f10798c4290baf3f1eb23b10bb81fc82`.
+The user launched Brave through Super+B and reported YouTube playing. Browser
+PID 11117 names X11 with no graphics-selection override in its process title.
+However, GPU PID 13689 carries `--use-gl=disabled` and holds no DRM descriptors.
+Visible playback therefore does not satisfy accelerated acceptance.
+
+Both processes send stderr to `/dev/null`; `~/brave-debug.log` predates this
+session. Neither that old log nor current process state establishes the error
+that caused fallback. Graphics-only process evidence was captured in
+`/tmp/sophia-brave-c5-live-gpu.json`; this is a temporary observation artifact.
+A fresh launch with stderr logging is needed before diagnosing the failed path.
+Brave's process titles separate arguments with spaces rather than NUL bytes;
+the first exact-argument query missed flags and was corrected before this finding.
+
+The user then relaunched through the Go launcher's argument boundary:
+`brave-origin -no-update -- --enable-logging=stderr --v=1`.
+The fresh `~/brave-debug-new.log` records three null `gbm_bo_import` results in
+GPU PIDs 27535, 28176 and 28439, each followed by shared-image allocation failure,
+lost context and exit 8704. Replacement GPU PID 28550 carries
+`--use-gl=disabled` and holds no DRM descriptors. No `vaInitialize failed` or
+X11 EGL-pixmap binding error was observed in this capture.
+
+This reproduces the earlier GBM-failure signature before the repaired GLX
+pixmap path can qualify playback. The fresh log omits the descriptor and importing
+device, so it does not independently prove the old cross-device pairing.
+The earlier instrumented capture and successful device-aligned comparison are
+in the [owning investigation](uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md).
+Portable media-device alignment remains unresolved; the GLX repair did not
+implement it. YouTube playback in this run is software fallback, not acceptance.

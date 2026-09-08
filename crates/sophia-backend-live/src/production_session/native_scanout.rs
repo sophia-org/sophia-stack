@@ -951,6 +951,29 @@ mod persistent_native_scanout {
                 .try_clone_file()
         }
 
+        /// Queries the fixed device inventory before frontend construction.
+        /// Connector changes within these groups cannot broaden this intersection.
+        pub fn dma_buf_import_formats(
+            &self,
+        ) -> Result<Vec<LiveDmaBufImportFormat>, LiveDmaBufCapabilityError> {
+            if self.groups.is_empty() {
+                return Err(LiveDmaBufCapabilityError::DeviceUnavailable);
+            }
+            let devices = self
+                .groups
+                .iter()
+                .map(|group| {
+                    let device = group
+                        .session
+                        .card()
+                        .try_clone_file()
+                        .map_err(|_| LiveDmaBufCapabilityError::DeviceUnavailable)?;
+                    query_dma_buf_import_formats(device)
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(common_dma_buf_import_formats(&devices))
+        }
+
         /// The desktop's logical outputs, one per `OutputId`.
         ///
         /// Heads are per connector and a mirror group has several sharing one

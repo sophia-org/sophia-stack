@@ -64,6 +64,10 @@ Neither standard server feedback nor server-side transfer can intercept that
 client-internal failure. This task must not claim to fix that path through server
 capabilities; retain it under `t068` with the source evidence and explicit limits.
 
+The [first capability checkpoint](../milestones/f24uuvwu-measured-dri3-import-capabilities-and-exact-legacy-exports.md)
+records measured DRI3 negotiation and exact legacy exports, its retained
+validation, and the transfer and physical-acceptance limits.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

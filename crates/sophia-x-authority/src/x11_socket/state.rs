@@ -10,7 +10,7 @@ pub struct X11CoreSocketServerState {
     pixmap_progress: Arc<(Mutex<()>, Condvar)>,
     clients: Arc<Mutex<X11CoreClientLeaseState>>,
     next_transaction_id: Arc<AtomicU64>,
-    render_device_provider: Option<Arc<dyn XServerFrontendRenderDeviceProvider>>,
+    render_device_provider: Arc<std::sync::OnceLock<Arc<dyn XServerFrontendRenderDeviceProvider>>>,
     pixmap_allocator: Option<Arc<dyn XServerFrontendPixmapAllocator>>,
 }
 
@@ -33,7 +33,7 @@ impl core::fmt::Debug for X11CoreSocketServerState {
             )
             .field(
                 "has_render_device_provider",
-                &self.render_device_provider.is_some(),
+                &self.has_render_device_provider(),
             )
             .field("has_pixmap_allocator", &self.pixmap_allocator.is_some())
             .finish()
@@ -66,7 +66,7 @@ impl Default for X11CoreSocketServerState {
                 client_leases: Default::default(),
             })),
             next_transaction_id: Arc::new(AtomicU64::new(1)),
-            render_device_provider: None,
+            render_device_provider: Default::default(),
             pixmap_allocator: None,
         }
     }
@@ -89,19 +89,27 @@ impl X11CoreSocketServerState {
     }
 
     pub fn with_render_device_provider(
-        mut self,
+        self,
         provider: Arc<dyn XServerFrontendRenderDeviceProvider>,
     ) -> Self {
-        self.render_device_provider = Some(provider);
+        let formats = provider.dma_buf_import_formats();
+        // Every clone shares the first provider and its inventory.
+        if let Ok(mut runtime) = self.runtime.lock()
+            && self.render_device_provider.set(provider).is_ok()
+        {
+            runtime.set_dma_buf_import_formats(formats);
+        }
         self
     }
 
     fn with_optional_render_device_provider(
-        mut self,
+        self,
         provider: Option<Arc<dyn XServerFrontendRenderDeviceProvider>>,
     ) -> Self {
-        self.render_device_provider = provider;
-        self
+        match provider {
+            Some(provider) => self.with_render_device_provider(provider),
+            None => self,
+        }
     }
 
     /// Grants a client one more block of resource identifiers.
@@ -123,13 +131,13 @@ impl X11CoreSocketServerState {
 
     fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError> {
         self.render_device_provider
-            .as_ref()
+            .get()
             .ok_or(XServerFrontendRenderDeviceError::Unavailable)?
             .open_render_device_fd()
     }
 
     fn has_render_device_provider(&self) -> bool {
-        self.render_device_provider.is_some()
+        self.render_device_provider.get().is_some()
     }
 
     pub fn with_pixmap_allocator(

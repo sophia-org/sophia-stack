@@ -837,6 +837,23 @@ modifier-bearing `PixmapFromBuffers`, `FenceFromFD`, supported-modifier queries,
 Present `Pixmap`/`SelectInput`/`QueryCapabilities`, and the bounded XFIXES region
 lifecycle required by Mesa are implemented.
 
+`GetSupportedModifiers` returns a bounded, immutable snapshot of explicit
+format/modifier pairs measured on the native EGL import devices when the
+frontend is constructed. The render-device provider and snapshot are latched
+together and shared across connection-state clones. Queries perform no GPU
+discovery. An unavailable or unmeasured format answers an empty list; neither
+linear support nor an implicit modifier is invented. External-texture-only
+formats are excluded because the native renderer samples ordinary 2D textures.
+With multiple output devices, the snapshot contains only linear layouts
+measured on every device; equal tiled modifier numbers alone do not establish
+cross-device compatibility. These are import capabilities, not allocation or
+scanout guarantees. Renderer import still validates each submitted descriptor.
+
+Legacy `BufferFromPixmap` exports require one plane, offset zero and a stride
+representable by the protocol's 16-bit field. A nonzero offset or oversized
+stride is refused with `BadPixmap`, rather than silently changing the layout.
+Modifier-bearing `BuffersFromPixmap` preserves those layouts exactly.
+
 For compatibility with Chromium's VA-exported images, a zero `PixmapFromBuffer`
 size is resolved from the received FD's kernel-reported length before pure
 request dispatch. This is a frontend compatibility rule, not permission to omit

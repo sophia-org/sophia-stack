@@ -165,9 +165,14 @@ fn shared_pixmap_error(
 
 pub(super) struct LiveXRenderDeviceProvider {
     pub(super) device: std::fs::File,
+    pub(super) import_formats: Vec<sophia_x_authority::XServerFrontendDmaBufImportFormat>,
 }
 
 impl XServerFrontendRenderDeviceProvider for LiveXRenderDeviceProvider {
+    fn dma_buf_import_formats(&self) -> Vec<sophia_x_authority::XServerFrontendDmaBufImportFormat> {
+        self.import_formats.clone()
+    }
+
     fn open_render_device_fd(
         &self,
     ) -> Result<std::os::fd::OwnedFd, XServerFrontendRenderDeviceError> {

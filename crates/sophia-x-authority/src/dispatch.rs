@@ -37,7 +37,6 @@ include!("dispatch/extensions/render.rs");
 include!("dispatch/extensions/shape.rs");
 include!("dispatch/extensions/xkb.rs");
 
-const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 /// The GLX extensions Sophia offers.
 ///
 /// The ES profiles are here because a client that translates to OpenGL ES --

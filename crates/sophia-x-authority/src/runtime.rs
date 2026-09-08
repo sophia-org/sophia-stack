@@ -30,6 +30,7 @@ include!("runtime/drawing.rs");
 include!("runtime/graphics_contexts.rs");
 include!("runtime/drawing/image_ops.rs");
 include!("runtime/render_resources.rs");
+include!("runtime/dmabuf_capabilities.rs");
 include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
 include!("runtime/pixmap_publication.rs");
@@ -220,6 +221,7 @@ pub struct XAuthorityRuntime {
     /// `QueryExtensionsString` are answered once per client, so a value that
     /// moved would leave clients holding configurations no longer honoured.
     pixmap_textures_supported: bool,
+    dma_buf_import_formats: Option<BTreeMap<u32, Vec<u64>>>,
     xkb_keymap: crate::XkbKeymapSnapshot,
     input_authority: Arc<Mutex<crate::XInputAuthorityState>>,
 }
@@ -277,6 +279,7 @@ impl Default for XAuthorityRuntime {
             input_focus: Default::default(),
             defer_policy_maps: false,
             pixmap_textures_supported: false,
+            dma_buf_import_formats: None,
             xkb_keymap: crate::XkbKeymapSnapshot::new(&crate::XkbRmlvoConfig::default())
                 .expect("the deterministic default XKB keymap must compile"),
             input_authority: Arc::new(Mutex::new(crate::XInputAuthorityState::default())),

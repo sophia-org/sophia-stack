@@ -38,7 +38,10 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
     assert!(!socket.exists(), "test display is occupied");
     let config = XServerFrontendConfig::new(&socket, NamespaceId::from_raw(991))
         .unwrap()
-        .with_render_device_provider(Arc::new(LiveXRenderDeviceProvider { device: device() }))
+        .with_render_device_provider(Arc::new(LiveXRenderDeviceProvider {
+            device: device(),
+            import_formats: Vec::new(),
+        }))
         .with_pixmap_allocator(provider);
     let mut frontend = XServerFrontend::bind(config).unwrap();
     let stop = Arc::new(AtomicBool::new(false));

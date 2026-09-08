@@ -1,4 +1,6 @@
 mod config;
+mod dmabuf_capabilities;
+pub use dmabuf_capabilities::*;
 mod pixmap_probe;
 pub use pixmap_probe::*;
 mod scanout;

@@ -759,7 +759,7 @@ fn dri3_open_rejects_nondefault_provider() {
 }
 
 #[test]
-fn dri3_get_supported_modifiers_reports_linear_and_implicit_screen_layouts() {
+fn dri3_get_supported_modifiers_without_measurements_reports_no_explicit_layouts() {
     let namespace = NamespaceId::from_raw(45);
     let request = decode_x11_core_request(
         context(namespace, 529, XByteOrder::LittleEndian),
@@ -790,15 +790,10 @@ fn dri3_get_supported_modifiers_reports_linear_and_implicit_screen_layouts() {
         &mut properties,
     );
     let encoded = result.encoded_outputs(XByteOrder::LittleEndian);
-    assert_eq!(encoded[0].len(), 48);
-    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][4..8]), 4);
+    assert_eq!(encoded[0].len(), 32);
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][4..8]), 0);
     assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][8..12]), 0);
-    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][12..16]), 2);
-    assert_eq!(read_u64(XByteOrder::LittleEndian, &encoded[0][32..40]), 0);
-    assert_eq!(
-        read_u64(XByteOrder::LittleEndian, &encoded[0][40..48]),
-        0x00ff_ffff_ffff_ffff
-    );
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][12..16]), 0);
 
     let argb = dispatch_x11_wire_request(
         dispatch_context(namespace, 10, XByteOrder::LittleEndian, X_DRI3_MAJOR_OPCODE),
@@ -1272,6 +1267,106 @@ fn the_single_plane_recovery_reports_the_same_buffer() {
     assert_eq!((*width, *height, *stride), (64, 48, 256));
     assert_eq!(*size_bytes, 256 * 48);
     assert_eq!((*depth, *bits_per_pixel), (24, 32));
+}
+
+#[test]
+fn legacy_dri3_exports_preserve_exact_layout_or_refuse() {
+    for (stride, offset, legacy_admitted) in [
+        (256, 0, true),
+        (u32::from(u16::MAX), 0, true),
+        (u32::from(u16::MAX) + 1, 0, false),
+        (256, 4096, false),
+    ] {
+        let namespace = NamespaceId::from_raw(45);
+        let raw_pixmap = 0x220803;
+        let pixmap = XResourceId::new(u64::from(raw_pixmap), 1);
+        let mut runtime = XAuthorityRuntime::new();
+        let imported = dispatch_dri3(
+            &mut runtime,
+            namespace,
+            &dri3_pixmap_from_buffers_request(
+                XByteOrder::LittleEndian,
+                raw_pixmap,
+                X_SETUP_DEFAULT_ROOT,
+                1,
+                64,
+                48,
+                [stride, 0, 0, 0],
+                [offset, 0, 0, 0],
+                32,
+                32,
+                9,
+            ),
+        );
+        assert!(imported.is_empty(), "stride={stride} offset={offset}");
+        // Descriptor stand-ins exercise protocol metadata, not GPU importability.
+        runtime
+            .attach_dri3_plane_fds(namespace, pixmap, vec![test_plane_descriptor()])
+            .unwrap();
+
+        let legacy = dispatch_dri3(
+            &mut runtime,
+            namespace,
+            &dri3_buffer_from_pixmap_request(XByteOrder::LittleEndian, raw_pixmap),
+        );
+        assert_eq!(legacy.len(), 1);
+        let encoded = encode_x_client_output(XByteOrder::LittleEndian, legacy[0].clone());
+        assert_eq!(encoded.len(), X_CLIENT_OUTPUT_RECORD_LEN);
+        if legacy_admitted {
+            assert_eq!(encoded[0], 1);
+            assert_eq!(encoded[1], 1);
+            assert_eq!(
+                read_u32(XByteOrder::LittleEndian, &encoded[8..12]),
+                stride * 48
+            );
+            assert_eq!(read_u16(XByteOrder::LittleEndian, &encoded[12..14]), 64);
+            assert_eq!(read_u16(XByteOrder::LittleEndian, &encoded[14..16]), 48);
+            assert_eq!(
+                u32::from(read_u16(XByteOrder::LittleEndian, &encoded[16..18])),
+                stride
+            );
+            assert_eq!(&encoded[18..20], &[32, 32]);
+        } else {
+            let XClientOutput::Error(error) = &legacy[0] else {
+                panic!("legacy reply cannot represent stride={stride} offset={offset}");
+            };
+            assert_eq!(encoded[0], 0);
+            assert_eq!(encoded[1], XErrorCode::BadPixmap.wire_code());
+            assert_eq!(error.resource_id, raw_pixmap);
+            assert_eq!(error.major_code, X_DRI3_MAJOR_OPCODE);
+            assert_eq!(
+                error.minor_code,
+                u16::from(X_DRI3_BUFFER_FROM_PIXMAP_MINOR_OPCODE)
+            );
+        }
+
+        // Legacy refusal leaves the exact modern export available.
+        let modern = dispatch_dri3(
+            &mut runtime,
+            namespace,
+            &dri3_buffers_from_pixmap_request(XByteOrder::LittleEndian, raw_pixmap),
+        );
+        assert_eq!(modern.len(), 1);
+        let XClientOutput::Reply(XClientReply::Dri3BuffersFromPixmap {
+            width,
+            height,
+            modifier,
+            depth,
+            bits_per_pixel,
+            strides,
+            offsets,
+            ..
+        }) = &modern[0]
+        else {
+            panic!("modern export must retain stride={stride} offset={offset}");
+        };
+        assert_eq!(
+            (*width, *height, *modifier, *depth, *bits_per_pixel),
+            (64, 48, 9, 32, 32)
+        );
+        assert_eq!(strides, &[stride]);
+        assert_eq!(offsets, &[offset]);
+    }
 }
 
 #[test]

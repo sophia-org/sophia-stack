@@ -15,6 +15,8 @@ mod api;
 mod cursor_transaction_owner;
 mod dependency;
 mod direct_scanout_cost;
+#[cfg(feature = "gbm-probe")]
+mod dma_buf_capabilities;
 mod drm;
 mod hardware_validation;
 mod input;
@@ -43,6 +45,8 @@ pub use api::*;
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 pub use cursor_transaction_owner::*;
 pub use direct_scanout_cost::*;
+#[cfg(feature = "gbm-probe")]
+pub use dma_buf_capabilities::common_dma_buf_import_formats;
 pub use drm::{
     LiveDrmSysfsDiscovery, LiveDrmSysfsDiscoveryConfig, LiveSysfsConnectorRecord,
     SysfsDrmKmsOutputBackend, discover_native_connector_records,
@@ -67,6 +71,10 @@ pub use seat::*;
 pub use sophia_renderer_live::LivePresentationDisconnectReport;
 #[cfg(feature = "gbm-probe")]
 pub use sophia_renderer_live::allocate_shared_buffer;
+#[cfg(feature = "gbm-probe")]
+pub use sophia_renderer_live::{
+    LiveDmaBufCapabilityError, LiveDmaBufImportFormat, query_dma_buf_import_formats,
+};
 pub use sophia_renderer_live::{LiveSharedBufferAllocation, LiveSharedBufferError};
 #[cfg(feature = "gbm-probe")]
 pub use sophia_renderer_live::{

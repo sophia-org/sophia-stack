@@ -109,8 +109,20 @@ impl core::fmt::Display for XServerFrontendRenderDeviceError {
 
 impl std::error::Error for XServerFrontendRenderDeviceError {}
 
+/// Cached explicit import layouts measured on the provider's fixed device.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XServerFrontendDmaBufImportFormat {
+    pub format: u32,
+    pub modifiers: Vec<u64>,
+}
+
 pub trait XServerFrontendRenderDeviceProvider: Send + Sync + 'static {
     fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError>;
+
+    /// Returns cached measurements; this callback must not perform GPU work.
+    fn dma_buf_import_formats(&self) -> Vec<XServerFrontendDmaBufImportFormat> {
+        Vec::new()
+    }
 }
 
 /// The extent and depth a pixmap needs backing at, and the identity to stamp it

@@ -618,9 +618,25 @@ pub(crate) fn run_persistent_xterm_session(
     if !config.software_client_rendering
         && let Some(native_scanout) = native_scanout.as_ref()
     {
+        let import_formats = match native_scanout.dma_buf_import_formats() {
+            Ok(formats) => formats
+                .into_iter()
+                .map(
+                    |row| sophia_x_authority::XServerFrontendDmaBufImportFormat {
+                        format: row.format,
+                        modifiers: row.modifiers,
+                    },
+                )
+                .collect(),
+            Err(reason) => {
+                tracing::warn!(?reason, "explicit DMA-BUF import capabilities unavailable");
+                Vec::new()
+            }
+        };
         frontend_config =
             frontend_config.with_render_device_provider(Arc::new(LiveXRenderDeviceProvider {
                 device: native_scanout.clone_render_device_file()?,
+                import_formats,
             }));
         #[cfg(feature = "native-session")]
         {

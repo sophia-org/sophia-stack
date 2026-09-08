@@ -216,23 +216,30 @@ fn dispatch_dri3_request(
                     let outputs = match runtime
                         .dri3_pixmap_buffers(context.namespace, pixmap)
                     {
-                        // The single-plane reply cannot describe a multi-planar
-                        // buffer: it carries one stride and one descriptor. Say
-                        // so rather than answering with the first plane and
-                        // letting the client render a fraction of the image.
-                        Ok((descriptor, _)) if descriptor.plane_count == 1 => {
+                        // Legacy replies carry no offset and only a 16-bit stride.
+                        Ok((descriptor, _)) if descriptor.plane_count == 1
+                            && descriptor.planes[0].is_some_and(|plane|
+                                plane.offset == 0 && u16::try_from(plane.stride).is_ok()) => {
                             let stride = descriptor.planes[0].map_or(0, |plane| plane.stride);
                             let height = u16::try_from(descriptor.size.height).unwrap_or(0);
                             vec![XClientOutput::Reply(XClientReply::Dri3BufferFromPixmap {
                                 sequence: context.sequence,
-                                size_bytes: stride.saturating_mul(u32::from(height)),
+                                size_bytes: stride * u32::from(height),
                                 width: u16::try_from(descriptor.size.width).unwrap_or(0),
                                 height,
-                                stride: u16::try_from(stride).unwrap_or(u16::MAX),
+                                stride: u16::try_from(stride).expect("legacy stride was checked"),
                                 depth: crate::dri3_depth_of(descriptor.format),
                                 bits_per_pixel: 32,
                             })]
                         }
+                        Ok((descriptor, _)) if descriptor.plane_count == 1 =>
+                            vec![XClientOutput::Error(crate::XClientError {
+                                code: XErrorCode::BadPixmap,
+                                sequence: context.sequence,
+                                resource_id: u32::try_from(pixmap.local.raw()).unwrap_or(0),
+                                minor_code: u16::from(crate::X_DRI3_BUFFER_FROM_PIXMAP_MINOR_OPCODE),
+                                major_code: context.major_opcode,
+                            })],
                         Ok(_) => vec![XClientOutput::Error(crate::XClientError {
                             code: XErrorCode::BadMatch,
                             sequence: context.sequence,
@@ -278,6 +285,13 @@ fn dispatch_dri3_request(
                     depth,
                     bits_per_pixel,
                 } => {
+                    let screen_modifiers = match (depth, bits_per_pixel) {
+                        (24, 32) => runtime.dma_buf_import_modifiers(
+                            sophia_protocol::DRM_FORMAT_XRGB8888).to_vec(),
+                        (32, 32) => runtime.dma_buf_import_modifiers(
+                            sophia_protocol::DRM_FORMAT_ARGB8888).to_vec(),
+                        _ => Vec::new(),
+                    };
                     let outputs = if !matches!((depth, bits_per_pixel), (24 | 32, 32)) {
                         vec![XClientOutput::Error(crate::XClientError {
                             code: XErrorCode::BadValue,
@@ -292,7 +306,7 @@ fn dispatch_dri3_request(
                                 XClientReply::Dri3GetSupportedModifiers {
                                     sequence: context.sequence,
                                     window_modifiers: Vec::new(),
-                                    screen_modifiers: vec![0, DRM_FORMAT_MOD_INVALID],
+                                    screen_modifiers,
                                 },
                             )],
                             Err(error) => vec![XClientOutput::Error(x_error_from_runtime(
@@ -307,7 +321,7 @@ fn dispatch_dri3_request(
                             XClientReply::Dri3GetSupportedModifiers {
                                 sequence: context.sequence,
                                 window_modifiers: Vec::new(),
-                                screen_modifiers: vec![0, DRM_FORMAT_MOD_INVALID],
+                                screen_modifiers,
                             },
                         )]
                     };

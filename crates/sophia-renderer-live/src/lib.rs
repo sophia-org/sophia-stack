@@ -14,6 +14,12 @@ pub use sophia_protocol::{BufferSource, Size};
 pub use sophia_renderer_native_egl::{
     NativeCompositionDamageRect, NativeCompositionRepaintTable, NativeFrameTargetSetId,
 };
+#[cfg(feature = "gbm-probe")]
+pub use sophia_renderer_native_egl::{
+    NativeDmaBufCapabilityError as LiveDmaBufCapabilityError,
+    NativeDmaBufImportFormat as LiveDmaBufImportFormat,
+    query_native_dmabuf_import_formats as query_dma_buf_import_formats,
+};
 
 mod buffer_registry;
 mod cpu_buffer_registry;

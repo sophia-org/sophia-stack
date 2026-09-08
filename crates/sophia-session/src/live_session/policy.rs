@@ -586,8 +586,9 @@ fn execute_committed_session_actions(
         // and every later press queues behind it in silence.
         *launch_admission_started_at = None;
         crate::session_eprintln!(
-            "sophia_session_app schema=2 status=failed source=action transaction={} reason=surface_withdrawn",
+            "sophia_session_app schema=2 status=failed source=action transaction={} application={} reason=surface_withdrawn",
             admission.intent.transaction.raw(),
+            admission.intent.application.raw(),
         );
     } else if launch_admission_started_at
         .is_some_and(|started| {
@@ -597,8 +598,9 @@ fn execute_committed_session_actions(
     {
         *launch_admission_started_at = None;
         crate::session_eprintln!(
-            "sophia_session_app schema=2 status=failed source=action transaction={} reason=admission_timeout",
+            "sophia_session_app schema=2 status=failed source=action transaction={} application={} reason=admission_timeout",
             admission.intent.transaction.raw(),
+            admission.intent.application.raw(),
         );
     }
 
@@ -621,8 +623,9 @@ fn execute_committed_session_actions(
                 children.len(),
             ) {
                 SessionLaunchQueueOutcome::Queued { depth } => crate::session_println!(
-                    "sophia_session_app schema=2 status=queued source=action transaction={} depth={depth}",
+                    "sophia_session_app schema=2 status=queued source=action transaction={} application={} depth={depth}",
                     transaction.raw(),
+                    application.raw(),
                 ),
                 SessionLaunchQueueOutcome::RejectedCapacity => crate::session_eprintln!(
                     "sophia_session_app schema=2 status=rejected source=action transaction={} reason=capacity",

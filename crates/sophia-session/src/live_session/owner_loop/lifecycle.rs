@@ -479,8 +479,9 @@
                     {
                         launch_admission_started_at = None;
                         crate::session_eprintln!(
-                            "sophia_session_app schema=2 status=failed id={id} source=action transaction={} reason=exit_before_admission exit_status={status}",
+                            "sophia_session_app schema=2 status=failed id={id} source=action transaction={} application={} reason=exit_before_admission exit_status={status}",
                             admission.intent.transaction.raw(),
+                            admission.intent.application.raw(),
                         );
                     }
                     secondary_children.remove(secondary_index);

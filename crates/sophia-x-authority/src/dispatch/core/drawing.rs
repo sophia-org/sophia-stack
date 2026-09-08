@@ -27,30 +27,25 @@ fn dispatch_core_drawing_request(
             rectangles,
         } => {
             let transaction = context.transaction;
-            if runtime
-                .validate_pixmap_access(context.namespace, drawable)
-                .is_ok()
-            {
-                return Handled(XDispatchResult {
-                    response: Some(XAuthorityResponsePacket::accepted(transaction)),
-                    outputs: Vec::new(),
-                    metadata_candidates: Vec::new(),
-                });
-            }
+            let values = match core_draw_gc(context, runtime, drawable, gc) {
+                Ok(values) => values,
+                Err((error, code, resource)) => {
+                    return Handled(core_draw_validation_error(
+                        context, transaction, error, code, resource,
+                    ));
+                }
+            };
             let mut damage = Region::empty();
             for rectangle in rectangles {
                 damage.push(rectangle);
             }
-            let response = match runtime.graphics_context_values(context.namespace, gc) {
-                Ok(values) => runtime.apply_core_draw_with_gc(
-                    transaction,
-                    context.namespace,
-                    drawable,
-                    damage,
-                    &values,
-                ),
-                Err(error) => XAuthorityResponsePacket::rejected(transaction, error),
-            };
+            let response = runtime.apply_core_draw_with_gc(
+                transaction,
+                context.namespace,
+                drawable,
+                damage,
+                &values,
+            );
             let outputs = if let XAuthorityResponseOutcome::Rejected(error) = response.outcome {
                 vec![XClientOutput::Error(x_error_from_runtime(
                     error,
@@ -73,47 +68,14 @@ fn dispatch_core_drawing_request(
             rectangles,
         } => {
             let transaction = context.transaction;
-            if let Err(error) = runtime.validate_drawable_access(context.namespace, drawable) {
-                return Handled(core_draw_validation_error(
-                    context,
-                    transaction,
-                    error,
-                    XErrorCode::BadDrawable,
-                    drawable,
-                ));
-            }
-            let (gc_depth, values) =
-                match runtime.graphics_context_depth_and_values(context.namespace, gc) {
-                    Ok(record) => record,
-                    Err(error) => {
-                        return Handled(core_draw_validation_error(
-                            context,
-                            transaction,
-                            error,
-                            XErrorCode::BadGraphicsContext,
-                            gc,
-                        ));
-                    }
-                };
-            if runtime.drawable_depth(context.namespace, drawable) != Ok(gc_depth) {
-                return Handled(core_draw_validation_error(
-                    context,
-                    transaction,
-                    XAuthorityRuntimeError::InvalidSurface,
-                    XErrorCode::BadMatch,
-                    drawable,
-                ));
-            }
-            if runtime
-                .validate_pixmap_access(context.namespace, drawable)
-                .is_ok()
-            {
-                return Handled(XDispatchResult {
-                    response: Some(XAuthorityResponsePacket::accepted(transaction)),
-                    outputs: Vec::new(),
-                    metadata_candidates: Vec::new(),
-                });
-            }
+            let values = match core_draw_gc(context, runtime, drawable, gc) {
+                Ok(values) => values,
+                Err((error, code, resource)) => {
+                    return Handled(core_draw_validation_error(
+                        context, transaction, error, code, resource,
+                    ));
+                }
+            };
             let response = runtime.apply_rectangle_draw(
                 transaction,
                 context.namespace,
@@ -235,27 +197,21 @@ fn dispatch_core_drawing_request(
             points,
         } => {
             let transaction = context.transaction;
-            if points.len() < 2
-                || runtime
-                    .validate_pixmap_access(context.namespace, drawable)
-                    .is_ok()
-            {
-                return Handled(XDispatchResult {
-                    response: Some(XAuthorityResponsePacket::accepted(transaction)),
-                    outputs: Vec::new(),
-                    metadata_candidates: Vec::new(),
-                });
-            }
-            let response = match runtime.graphics_context_values(context.namespace, gc) {
-                Ok(values) => runtime.apply_line_draw(
-                    transaction,
-                    context.namespace,
-                    drawable,
-                    &points,
-                    &values,
-                ),
-                Err(error) => XAuthorityResponsePacket::rejected(transaction, error),
+            let values = match core_draw_gc(context, runtime, drawable, gc) {
+                Ok(values) => values,
+                Err((error, code, resource)) => {
+                    return Handled(core_draw_validation_error(
+                        context, transaction, error, code, resource,
+                    ));
+                }
             };
+            let response = runtime.apply_line_draw(
+                transaction,
+                context.namespace,
+                drawable,
+                &points,
+                &values,
+            );
             let outputs = if let XAuthorityResponseOutcome::Rejected(error) = response.outcome {
                 vec![XClientOutput::Error(x_error_from_runtime(
                     error,
@@ -558,4 +514,26 @@ fn core_draw_validation_error(
         })],
         metadata_candidates: Vec::new(),
     }
+}
+
+fn core_draw_gc(
+    context: XDispatchContext,
+    runtime: &XAuthorityRuntime,
+    drawable: XResourceId,
+    gc: XResourceId,
+) -> Result<crate::XGraphicsContextValues, (XAuthorityRuntimeError, XErrorCode, XResourceId)> {
+    runtime
+        .validate_drawable_access(context.namespace, drawable)
+        .map_err(|error| (error, XErrorCode::BadDrawable, drawable))?;
+    let (depth, values) = runtime
+        .graphics_context_depth_and_values(context.namespace, gc)
+        .map_err(|error| (error, XErrorCode::BadGraphicsContext, gc))?;
+    if runtime.drawable_depth(context.namespace, drawable) != Ok(depth) {
+        return Err((
+            XAuthorityRuntimeError::InvalidSurface,
+            XErrorCode::BadMatch,
+            drawable,
+        ));
+    }
+    Ok(values)
 }

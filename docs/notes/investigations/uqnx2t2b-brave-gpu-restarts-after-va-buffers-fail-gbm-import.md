@@ -221,11 +221,92 @@ The combined candidate, based on `a44d1e163ceb`, passes `cargo xtask check`,
 including workspace tests, clippy, archive verification and host buffer-age
 equivalence. The gate also includes the separate repaint-focus repair recorded
 in the [border investigation](h0vxis10-brave-gpu-watchdog-repeats-during-live-use.md).
-Installed video acceptance remains pending; socket admission does not prove
-that Chromium subsequently displays the imported image.
+Socket admission does not prove that Chromium subsequently displays the
+imported image.
 
 Evidence is retained under
 `~/.local/state/sophia/development-evidence/t068-gbm-import-20260907/attempt-003/`.
+
+## Playback observation on the installed repair
+
+The user reported video playing in session
+`00000001788830790138-53ca7f8e-e19c-4b19-8ede-698643da2576`, whose manifest
+identifies commit `559b3907e5e2290ad1c47deb0f6a77567e3b1db1`.
+However, the subsequent process inspection found GPU process 30652 running
+with `--use-gl=disabled`. Browser process 26216 had no diagnostic logging or
+render-node override flags, and stderr pointed to `/dev/null`. No new diagnostic
+wrapper log existed. Playback is therefore confirmed, but accelerated playback
+through the repaired import path is not. This observation does not establish
+why that process uses disabled GL. A fresh diagnostic launch with the previously
+successful device alignment is still needed to accept the GPU path.
+
+## Accelerated playback still fails at EGL binding
+
+The user restarted with the render-node override and again reported white
+video. In `brave-TVVaImZk.log`, GPU process 2368 records 64 successful GBM
+imports on renderD128 with the GFX11 modifier, no GBM failures and no GPU
+exits. The old PixmapFromBuffer rejection is absent. Instead, 1483 failures
+occur at `native_pixmap_egl_x11_binding.cc:205`, followed by the same GL
+representation and shared-image errors. DRI3 admission now succeeds; the
+remaining failure is initialization of the EGL pixmap binding.
+
+That initializer either fails to select an RGBA8 pixmap config with texture
+binding or fails to create its pixmap surface. Its single diagnostic does not
+distinguish the two. Sophia offers GLX drawable mask `0x5` (windows and
+pbuffers), no GLX pixmap constructors and no texture-from-pixmap extension.
+The matching ANGLE revision `7df613367a1d4ca9aea9ece344d4580d32d132a9`
+derives its GLX-backed EGL pixmap and binding support from those capabilities.
+Brave maps Mesa GLX libraries and no external EGL library, consistent with
+that backend; the browser's EGL vendor/backend was not directly queried.
+
+A private connection to the same display confirms three GLX configurations,
+all with drawable mask `0x5`. Separately, system Mesa EGL initializes there,
+advertises DMA-BUF import and modifier import, and supplies a matching RGBA
+pixmap config. These are different client implementations; the Mesa query is
+not a query of Brave's EGL display.
+
+The next controlled candidate adds `--use-angle=gl-egl` to the existing
+render-node override. Matching Chromium source selects ANGLE's EGL device
+backend for this flag; ANGLE's EGL backend forwards native DMA-BUF import
+support. This could bypass the GLX pixmap fallback. It remains untested in
+Brave and does not justify advertising unimplemented GLX capabilities.
+
+## Reference code for the remaining interop work
+
+Inspected local yserver commit `a1e33aa8176c65b418c1b6bef4c11f4598d5c2cc`.
+Its current implementation includes GLX pixmap resource tracking,
+texture-from-pixmap configuration attributes, capability-gated extension
+advertisement, and modifier-aware DRI3 export. Useful references are
+`crates/yserver-core/src/core_loop/process_request.rs` (GLX dispatch/configs),
+`crates/yserver/src/kms/vk/target.rs` (export allocation), and
+`crates/yserver/src/kms/vk/dri3.rs` (export metadata and sync-file operations).
+The original design notes differ from current code; they are not proof of
+implemented behavior.
+
+`crates/yserver/tests/glx_tfp_export.rs` has concrete red-to-green pixel
+liveness assertions and a backend lifetime test that retains an export across
+FreePixmap and removes its registry entry after GLX release. Those tests are
+ignored by default, require Vulkan, and can skip on unavailable setup. They
+were read, not run. They do not prove the complete GLX wire path or concurrent
+GL/Vulkan fence ordering. Adapt their assertions into Sophia's own tests rather
+than treating their existence as acceptance evidence.
+
+Also inspected local wayland-rs commit
+`0813584ea50379bd22e95dc1e0b50f02a4b36ca2`. This is Smithay's protocol-library
+repository, not the Smithay compositor toolkit. `wayland-egl` wraps client-side
+`wl_egl_window` ownership; it supplies no reusable DMA-BUF importer for this
+X11 failure. `wayland-backend/src/rs/socket.rs` is useful for owned received
+FDs, close-on-exec reception and separate byte/FD accounting on partial sends.
+`wayland-protocols/src/wp.rs` documents acquire/release timeline semantics;
+the referenced protocol XML submodule is empty in this checkout, so its full
+contracts were not inspected here.
+
+Both repositories use MIT licenses; copied substantial code must retain the
+respective notices. GLX/XID validation belongs in Sophia's X authority, buffer
+storage and synchronization in its renderer/Engine, and neither in the WM.
+No reference source was copied into production. Test native EGL selection
+first; use yserver as an implementation reference if Sophia needs to support
+the GLX pixmap fallback without browser-specific flags.
 
 ## Acceptance and architectural boundary
 
@@ -237,8 +318,10 @@ namespace and sandbox boundaries intact.
 
 Acceptance requires a fresh GPU-enabled Brave process, successful imports
 through the formerly failing interaction, and no crash-driven software
-fallback. Preserve the exact configuration and evidence. The local override has passed the captured interaction; persistent launch
-integration and broader daily-use acceptance remain open.
+fallback. Preserve the exact configuration and evidence. The local override
+has passed the captured interaction. The subsequent GLX candidate passes its
+private pixel gate; normal launch without graphics-selection flags and broader
+daily-use acceptance remain open.
 
 ## Connections
 
@@ -246,3 +329,6 @@ integration and broader daily-use acceptance remain open.
 [delayed-publication investigation](vwo9wmie-window-switches-reveal-delayed-visual-updates.md)
 concerns Sophia frame scheduling. A browser GPU crash is a separate failure;
 neither diagnosis establishes the other.
+
+The subsequent [GLX pixmap export investigation](uffn76nu-glx-pixmap-exports-need-coherent-backing-and-reply-ordering.md)
+records the configuration, pixel-publication and retained-storage repair.

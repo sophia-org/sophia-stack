@@ -458,11 +458,8 @@ pub(super) fn apply_raster_function(
     destination: u32,
     gc: &XGraphicsContextValues,
 ) -> u32 {
-    let source = source & 0x00ff_ffff;
-    let destination = destination & 0x00ff_ffff;
-    let result = raster_function(source, destination, gc.function) & 0x00ff_ffff;
-    let mask = gc.plane_mask & 0x00ff_ffff;
-    ((result & mask) | (destination & !mask)) & 0x00ff_ffff
+    let result = raster_function(source, destination, gc.function);
+    (result & gc.plane_mask) | (destination & !gc.plane_mask)
 }
 
 fn raster_function(source: u32, destination: u32, function: u8) -> u32 {

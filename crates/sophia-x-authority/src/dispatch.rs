@@ -51,6 +51,21 @@ const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 /// created by the client's driver and recorded here, so the profile it asks for
 /// is the client's business and any profile it can create, Sophia can record.
 const GLX_EXTENSIONS: &str = "GLX_EXT_libglvnd GLX_ARB_create_context GLX_ARB_create_context_profile GLX_ARB_framebuffer_sRGB GLX_EXT_framebuffer_sRGB GLX_EXT_create_context_es_profile GLX_EXT_create_context_es2_profile";
+/// The same list plus texture-from-pixmap, where a provider backs it.
+///
+/// A client that derives EGL configurations from GLX consults this string as
+/// well as the per-configuration bits: it emits a bind-capable configuration
+/// only when both agree, so the string and the attributes are advertised from
+/// the one capability.
+const GLX_EXTENSIONS_WITH_PIXMAP_TEXTURES: &str = "GLX_EXT_libglvnd GLX_ARB_create_context GLX_ARB_create_context_profile GLX_ARB_framebuffer_sRGB GLX_EXT_framebuffer_sRGB GLX_EXT_create_context_es_profile GLX_EXT_create_context_es2_profile GLX_EXT_texture_from_pixmap";
+
+const fn glx_extensions(pixmap_textures: bool) -> &'static str {
+    if pixmap_textures {
+        GLX_EXTENSIONS_WITH_PIXMAP_TEXTURES
+    } else {
+        GLX_EXTENSIONS
+    }
+}
 
 fn glx_visual_configs() -> Vec<[u32; 18]> {
     vec![
@@ -101,20 +116,21 @@ fn glx_visual_configs() -> Vec<[u32; 18]> {
 ///
 /// The row is the single source: a drawable's depth and the depth advertised here
 /// are the same conversion, read from the same place.
-fn glx_fb_config(config: crate::XGlxFbConfig) -> Vec<(u32, u32)> {
+fn glx_fb_config(config: crate::XGlxFbConfig, pixmap_textures: bool) -> Vec<(u32, u32)> {
     let crate::XGlxFbConfig {
         id,
         visual,
         alpha,
         srgb,
+        stencil,
     } = config;
-    vec![
+    let mut attributes = vec![
         (crate::X_GLX_FBCONFIG_ID_ATTRIBUTE, id),
         (crate::X_GLX_VISUAL_ID_ATTRIBUTE, visual),
         (crate::X_GLX_X_RENDERABLE_ATTRIBUTE, 1),
         (
             crate::X_GLX_DRAWABLE_TYPE_ATTRIBUTE,
-            crate::X_GLX_DRAWABLE_TYPE_MASK,
+            crate::x_glx_drawable_type_mask(pixmap_textures),
         ),
         (
             crate::X_GLX_RENDER_TYPE_ATTRIBUTE,
@@ -137,7 +153,7 @@ fn glx_fb_config(config: crate::XGlxFbConfig) -> Vec<(u32, u32)> {
         (crate::X_GLX_BLUE_SIZE_ATTRIBUTE, 8),
         (crate::X_GLX_ALPHA_SIZE_ATTRIBUTE, alpha),
         (crate::X_GLX_DEPTH_SIZE_ATTRIBUTE, 24),
-        (crate::X_GLX_STENCIL_SIZE_ATTRIBUTE, 0),
+        (crate::X_GLX_STENCIL_SIZE_ATTRIBUTE, stencil),
         (crate::X_GLX_ACCUM_RED_SIZE_ATTRIBUTE, 0),
         (crate::X_GLX_ACCUM_GREEN_SIZE_ATTRIBUTE, 0),
         (crate::X_GLX_ACCUM_BLUE_SIZE_ATTRIBUTE, 0),
@@ -170,14 +186,41 @@ fn glx_fb_config(config: crate::XGlxFbConfig) -> Vec<(u32, u32)> {
             crate::X_GLX_MAX_PBUFFER_PIXELS_ATTRIBUTE,
             crate::X_GLX_MAX_PBUFFER_PIXELS,
         ),
-    ]
+    ];
+    // Appended for the same reason as the maxima above: a reader that indexes
+    // the reply keeps its offsets, and a server without pixmap textures emits
+    // exactly the rows and attributes it always did.
+    if pixmap_textures {
+        attributes.extend([
+            (
+                crate::X_GLX_BIND_TO_TEXTURE_RGB_ATTRIBUTE,
+                u32::from(config.bind_to_texture_rgb()),
+            ),
+            (
+                crate::X_GLX_BIND_TO_TEXTURE_RGBA_ATTRIBUTE,
+                u32::from(config.bind_to_texture_rgba()),
+            ),
+            // Advertised even though it is false: a driver comparing these for
+            // equality reads an absent attribute differently from a false one.
+            (
+                crate::X_GLX_BIND_TO_MIPMAP_TEXTURE_ATTRIBUTE,
+                u32::from(config.bind_to_mipmap_texture()),
+            ),
+            (
+                crate::X_GLX_BIND_TO_TEXTURE_TARGETS_ATTRIBUTE,
+                crate::X_GLX_TEXTURE_TARGETS_ALL,
+            ),
+            (crate::X_GLX_Y_INVERTED_ATTRIBUTE, 1),
+        ]);
+    }
+    attributes
 }
 
-fn glx_fb_configs() -> Vec<Vec<(u32, u32)>> {
-    crate::X_GLX_FB_CONFIGS
+fn glx_fb_configs(pixmap_textures: bool) -> Vec<Vec<(u32, u32)>> {
+    crate::x_glx_fb_configs(pixmap_textures)
         .iter()
         .copied()
-        .map(glx_fb_config)
+        .map(|config| glx_fb_config(config, pixmap_textures))
         .collect()
 }
 
@@ -665,7 +708,7 @@ fn extension_query_result(name: &str) -> XExtensionQueryResult {
             present: true,
             major_opcode: crate::X_GLX_MAJOR_OPCODE,
             first_event: crate::X_GLX_FIRST_EVENT,
-            first_error: 0,
+            first_error: crate::X_GLX_FIRST_ERROR,
         },
         crate::X_SYNC_EXTENSION_NAME => XExtensionQueryResult {
             present: true,

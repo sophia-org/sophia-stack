@@ -342,7 +342,7 @@ impl XAuthorityRuntime {
                 Some(window.generation),
             ))
         } else {
-            let size = if let Some(retained) = self.retained_render_pixmaps.get(&record.drawable) {
+            let size = if let Some(retained) = self.retained_pixmap_backings.get(&record.drawable) {
                 if retained.namespace != namespace {
                     return None;
                 }

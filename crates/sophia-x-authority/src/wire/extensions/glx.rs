@@ -158,6 +158,58 @@ fn decode_glx(context: XWireClientContext, bytes: &[u8]) -> Result<XWireRequest,
                 largest,
             })
         }
+        X_GLX_CREATE_PIXMAP_MINOR_OPCODE => {
+            require_len(X_GLX_MAJOR_OPCODE, 24, bytes.len())?;
+            // Pairs, not words, as everywhere else in this extension.
+            let count = context.byte_order.u32(&bytes[20..24]) as usize;
+            require_exact_len(
+                X_GLX_MAJOR_OPCODE,
+                24usize.saturating_add(count.saturating_mul(8)),
+                bytes.len(),
+            )?;
+            let glx_pixmap = context.byte_order.u32(&bytes[16..20]);
+            context.validate_new_resource_id(glx_pixmap)?;
+            // Reduce the attribute list here so the request stays a passive
+            // record, as CreatePbuffer does. Only the texture target changes
+            // what the server must decide; the rest belong to the binding.
+            let (mut target, mut format, mut mipmap) = (None, None, None);
+            for pair in bytes[24..].chunks_exact(8) {
+                let value = context.byte_order.u32(&pair[4..8]);
+                match context.byte_order.u32(&pair[0..4]) {
+                    X_GLX_TEXTURE_TARGET_ATTRIBUTE => target = Some(value),
+                    X_GLX_TEXTURE_FORMAT_ATTRIBUTE => format = Some(value),
+                    X_GLX_MIPMAP_TEXTURE_ATTRIBUTE => mipmap = Some(value != 0),
+                    _ => {}
+                }
+            }
+            Ok(XWireRequest::GlxCreatePixmap {
+                screen: context.byte_order.u32(&bytes[4..8]),
+                fbconfig: context.byte_order.u32(&bytes[8..12]),
+                pixmap: id(12),
+                glx_pixmap: XResourceId::new(u64::from(glx_pixmap), 1),
+                target,
+                format,
+                mipmap,
+            })
+        }
+        X_GLX_CREATE_GLX_PIXMAP_MINOR_OPCODE => {
+            require_exact_len(X_GLX_MAJOR_OPCODE, 20, bytes.len())?;
+            let glx_pixmap = context.byte_order.u32(&bytes[16..20]);
+            context.validate_new_resource_id(glx_pixmap)?;
+            Ok(XWireRequest::GlxCreateGlxPixmap {
+                screen: context.byte_order.u32(&bytes[4..8]),
+                visual: context.byte_order.u32(&bytes[8..12]),
+                pixmap: id(12),
+                glx_pixmap: XResourceId::new(u64::from(glx_pixmap), 1),
+            })
+        }
+        minor @ (X_GLX_DESTROY_PIXMAP_MINOR_OPCODE | X_GLX_DESTROY_GLX_PIXMAP_MINOR_OPCODE) => {
+            require_exact_len(X_GLX_MAJOR_OPCODE, 8, bytes.len())?;
+            Ok(XWireRequest::GlxDestroyPixmap {
+                minor_opcode: minor,
+                glx_pixmap: id(4),
+            })
+        }
         X_GLX_DESTROY_PBUFFER_MINOR_OPCODE => {
             require_exact_len(X_GLX_MAJOR_OPCODE, 8, bytes.len())?;
             Ok(XWireRequest::GlxDestroyPbuffer { pbuffer: id(4) })

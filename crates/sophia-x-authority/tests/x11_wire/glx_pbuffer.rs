@@ -494,30 +494,45 @@ fn glx_advertises_only_the_drawable_types_it_implements() {
         .expect("the catalog states which drawable types it supports")
         .1;
 
-    // Window and pbuffer, both implemented. Pixmap is not promised.
+    // Window and pbuffer always. Pixmap only where a provider backs it, and no
+    // provider is configured here.
     assert_eq!(drawable_type & 0x1, 0x1, "window drawables are implemented");
     assert_eq!(drawable_type & 0x4, 0x4, "pbuffer drawables are implemented");
     assert_eq!(
         drawable_type & 0x2,
         0,
-        "GLX pixmaps are not implemented, so they must not be advertised"
+        "GLX pixmaps are unbacked here, so they must not be advertised"
     );
 
-    // And the requests behind the withdrawn bit really are absent, so the bit
-    // cannot be restored without them.
-    for minor in [13u8, 15, 22, 23] {
-        let request = vec![X_GLX_MAJOR_OPCODE, minor, 1, 0];
-        assert!(
-            matches!(
-                decode_x11_core_request(
-                    context(namespace, 1, XByteOrder::LittleEndian),
-                    &request
-                ),
-                Err(XWireParseError::UnknownOpcode(_))
-            ),
-            "GLX minor {minor} is advertised nowhere and implemented nowhere"
-        );
-    }
+    // And the constructors behind the withdrawn bit refuse, so the bit cannot
+    // be honoured without the capability that advertises it.
+    let mut runtime = XAuthorityRuntime::new();
+    let mut atoms = XAtomTable::new();
+    let mut properties = XPropertyTable::new();
+    assert!(!runtime.pixmap_textures_supported());
+    let refusal = dispatch_x11_wire_request(
+        dispatch_context(namespace, 7, XByteOrder::LittleEndian, X_GLX_MAJOR_OPCODE),
+        XWireRequest::GlxCreatePixmap {
+            screen: 0,
+            fbconfig: 2,
+            pixmap: XResourceId::new(0x420_001, 1),
+            glx_pixmap: XResourceId::new(0x420_002, 1),
+            target: None,
+            format: None,
+            mipmap: None,
+        },
+        &mut runtime,
+        &mut atoms,
+        &mut properties,
+    );
+    assert!(
+        matches!(
+            refusal.outputs.as_slice(),
+            [XClientOutput::Error(error)] if error.code == XErrorCode::GlxBadFbConfig
+        ),
+        "an unbacked GLX pixmap must be refused, answered {:?}",
+        refusal.outputs,
+    );
 }
 
 /// A GL client imports its own buffers against the pbuffer it just created.
@@ -694,4 +709,85 @@ fn glx_advertises_the_es_profiles_a_translating_client_needs() {
             "{profile} must be advertised; got {value:?}",
         );
     }
+}
+
+fn glx_fb_config_reply(pixmap_textures: bool) -> Vec<Vec<(u32, u32)>> {
+    let namespace = NamespaceId::from_raw(91);
+    let mut runtime = XAuthorityRuntime::new();
+    let mut atoms = XAtomTable::new();
+    let mut properties = XPropertyTable::new();
+    runtime.set_pixmap_textures_supported(pixmap_textures);
+    let result = dispatch_x11_wire_request(
+        dispatch_context(namespace, 1, XByteOrder::LittleEndian, X_GLX_MAJOR_OPCODE),
+        XWireRequest::GlxGetFbConfigs { screen: 0 },
+        &mut runtime,
+        &mut atoms,
+        &mut properties,
+    );
+    match result.outputs.as_slice() {
+        [XClientOutput::Reply(XClientReply::GlxFbConfigs { configs, .. })] => configs.clone(),
+        other => panic!("GetFBConfigs answered {other:?}"),
+    }
+}
+
+fn attribute(config: &[(u32, u32)], attribute: u32) -> Option<u32> {
+    config
+        .iter()
+        .find(|(name, _)| *name == attribute)
+        .map(|(_, value)| *value)
+}
+
+/// Without a provider that backs them, the catalog is exactly what it was.
+#[test]
+fn pixmap_texture_capability_off_answers_the_original_three_rows() {
+    let configs = glx_fb_config_reply(false);
+    assert_eq!(configs.len(), X_GLX_BASE_FB_CONFIG_COUNT);
+    for (index, config) in configs.iter().enumerate() {
+        let id = u32::try_from(index).unwrap() + 1;
+        assert_eq!(attribute(config, X_GLX_FBCONFIG_ID_ATTRIBUTE), Some(id));
+        assert_eq!(
+            attribute(config, X_GLX_DRAWABLE_TYPE_ATTRIBUTE),
+            Some(X_GLX_DRAWABLE_TYPE_MASK),
+            "config {id} must not claim pixmap drawables",
+        );
+        assert_eq!(attribute(config, X_GLX_STENCIL_SIZE_ATTRIBUTE), Some(0));
+        assert_eq!(
+            attribute(config, X_GLX_BIND_TO_TEXTURE_RGBA_ATTRIBUTE),
+            None,
+            "config {id} must not advertise bind-to-texture",
+        );
+    }
+}
+
+/// With one, the original rows keep their identifiers and gain the pixmap bit,
+/// and the stencil rows a deriving client needs appear behind them.
+#[test]
+fn pixmap_texture_capability_on_adds_stencil_rows_and_bind_attributes() {
+    let configs = glx_fb_config_reply(true);
+    assert_eq!(configs.len(), X_GLX_FB_CONFIGS.len());
+    for (index, config) in configs.iter().enumerate() {
+        let id = u32::try_from(index).unwrap() + 1;
+        assert_eq!(attribute(config, X_GLX_FBCONFIG_ID_ATTRIBUTE), Some(id));
+        assert_eq!(
+            attribute(config, X_GLX_DRAWABLE_TYPE_ATTRIBUTE),
+            Some(X_GLX_DRAWABLE_TYPE_MASK_WITH_PIXMAPS),
+        );
+        assert_eq!(
+            attribute(config, X_GLX_BIND_TO_TEXTURE_TARGETS_ATTRIBUTE),
+            Some(X_GLX_TEXTURE_TARGETS_ALL),
+        );
+    }
+    // The whole point of the stencil rows: a client asking for RGBA8 with
+    // depth 24 and stencil 8 must find one, or it refuses to initialise.
+    let rgba_depth_stencil = configs.iter().filter(|config| {
+        attribute(config, X_GLX_ALPHA_SIZE_ATTRIBUTE) == Some(8)
+            && attribute(config, X_GLX_DEPTH_SIZE_ATTRIBUTE) == Some(24)
+            && attribute(config, X_GLX_STENCIL_SIZE_ATTRIBUTE) == Some(8)
+            && attribute(config, X_GLX_BIND_TO_TEXTURE_RGBA_ATTRIBUTE) == Some(1)
+            && attribute(config, X_GLX_DOUBLEBUFFER_ATTRIBUTE) == Some(1)
+    });
+    assert!(
+        rgba_depth_stencil.count() > 0,
+        "no row answers RGBA8 + depth24 + stencil8 + bind-to-texture",
+    );
 }

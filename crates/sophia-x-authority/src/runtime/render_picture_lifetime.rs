@@ -1,11 +1,20 @@
-/// A pixmap whose XID was freed while RENDER pictures still reference it.
-/// The private storage key is never registered as a wire resource. All those
-/// pictures keep one mutable backing, independent of subsequent XID reuse.
+/// A pixmap whose XID was freed while something still references it.
+///
+/// The private storage key is never registered as a wire resource, so every
+/// referent keeps one backing regardless of what later takes the XID.
+///
+/// The counts are separate but the backing is ONE. Two independent lifetimes
+/// would drop it while the other kind still held it, so nothing is released
+/// until both reach zero.
 #[derive(Debug)]
-struct XRetainedRenderPixmap {
+struct XRetainedPixmapBacking {
     namespace: NamespaceId,
     pixmap: XPixmapRecord,
     pictures: usize,
+    glx_pixmaps: usize,
+    /// The renderer registration this backing owes a release for, once no
+    /// referent remains.
+    release_handle: Option<sophia_protocol::BufferHandle>,
     // Keep the underlying allocations alive even after the public pixmap and
     // its renderer registration disappear. RENDER currently uses CPU pixels;
     // retaining FDs does not add GPU sampling to that software path.
@@ -13,19 +22,37 @@ struct XRetainedRenderPixmap {
     _dri3: Option<XDri3PixmapRecord>,
 }
 
+impl XRetainedPixmapBacking {
+    const fn referents(&self) -> usize {
+        self.pictures + self.glx_pixmaps
+    }
+}
+
 impl XAuthorityRuntime {
-    fn render_retain_freed_pixmap(
+    /// Retains a freed pixmap's backing while any referent survives.
+    ///
+    /// Answers whether it retained, because a pixmap still referenced must not
+    /// have its renderer registration released yet.
+    fn retain_freed_pixmap(
         &mut self,
         namespace: NamespaceId,
         pixmap: crate::XResourceId,
-    ) -> Result<(), XAuthorityRuntimeError> {
+        release_handle: Option<sophia_protocol::BufferHandle>,
+    ) -> Result<bool, XAuthorityRuntimeError> {
         let pictures = self
             .render_pictures
             .values()
             .filter(|record| !record.drawable_is_window && record.drawable == pixmap)
             .count();
-        if pictures == 0 {
-            return Ok(());
+        let glx_pixmaps = self
+            .glx_drawables
+            .values()
+            .filter(|record| {
+                matches!(record.backing, XGlxDrawableBacking::Pixmap { pixmap: backing, .. } if backing == pixmap)
+            })
+            .count();
+        if pictures + glx_pixmaps == 0 && !self.pixmap_export_holds_backing(pixmap) {
+            return Ok(false);
         }
         let metadata = *self
             .pixmaps
@@ -39,17 +66,26 @@ impl XAuthorityRuntime {
                 .next_render_backing
                 .checked_add(1)
                 .ok_or(XAuthorityRuntimeError::InvalidResource)?;
-            if !self.resource_id_in_use(key) && !self.retained_render_pixmaps.contains_key(&key) {
+            if !self.resource_id_in_use(key) && !self.retained_pixmap_backings.contains_key(&key) {
                 break key;
             }
         };
         self.software_buffers.rekey_pixmap(pixmap, backing);
-        self.retained_render_pixmaps.insert(
+        self.rekey_pixmap_publication(pixmap, backing);
+        if pictures + glx_pixmaps == 0
+            && let Some(handle) = self.pixmap_export_handles.get(&backing)
+            && let Some(state) = self.pixmap_publications.get_mut(handle)
+        {
+            state.retired = true;
+        }
+        self.retained_pixmap_backings.insert(
             backing,
-            XRetainedRenderPixmap {
+            XRetainedPixmapBacking {
                 namespace,
                 pixmap: metadata,
                 pictures,
+                glx_pixmaps,
+                release_handle,
                 _shm: self.shm_pixmaps.remove(&pixmap),
                 _dri3: self.dri3_pixmaps.remove(&pixmap),
             },
@@ -59,7 +95,87 @@ impl XAuthorityRuntime {
                 record.drawable = backing;
             }
         }
-        Ok(())
+        for record in self.glx_drawables.values_mut() {
+            if let XGlxDrawableBacking::Pixmap {
+                pixmap: current,
+                texture,
+            } = record.backing
+                && current == pixmap
+            {
+                record.backing = XGlxDrawableBacking::Pixmap {
+                    pixmap: backing,
+                    texture,
+                };
+            }
+        }
+        Ok(true)
+    }
+
+    /// Drops one referent and, when the last goes, the backing with it.
+    ///
+    /// The release is queued rather than performed: the renderer call must
+    /// leave the runtime lock, and an owed release is never discarded.
+    fn release_retained_referent(&mut self, backing: crate::XResourceId, picture: bool) {
+        let Some(retained) = self.retained_pixmap_backings.get_mut(&backing) else {
+            return;
+        };
+        if picture {
+            retained.pictures = retained.pictures.saturating_sub(1);
+        } else {
+            retained.glx_pixmaps = retained.glx_pixmaps.saturating_sub(1);
+        }
+        if retained.referents() == 0
+            && let Some(handle) = self.pixmap_export_handles.get(&backing)
+            && let Some(state) = self.pixmap_publications.get_mut(handle)
+        {
+            state.retired = true;
+        }
+        self.maybe_drop_retained_pixmap(backing);
+    }
+
+    fn maybe_drop_retained_pixmap(&mut self, backing: crate::XResourceId) {
+        let Some(retained) = self.retained_pixmap_backings.get(&backing) else {
+            return;
+        };
+        if retained.referents() != 0 || self.pixmap_export_holds_backing(backing) {
+            return;
+        }
+        if let Some(handle) = self.pixmap_export_handles.get(&backing).copied() {
+            self.maybe_retire_pixmap_publication(handle);
+            return;
+        }
+        let retained = self
+            .retained_pixmap_backings
+            .remove(&backing)
+            .expect("retained backing checked");
+        self.software_buffers.remove(backing);
+        self.shm_mappings
+            .retain(|_, mapping| mapping.strong_count() != 0);
+        if let Some(handle) = retained.release_handle {
+            self.retired_pixmap_registrations
+                .entry(retained.namespace)
+                .or_default()
+                .push(handle);
+        }
+    }
+
+    /// Takes the renderer registrations whose backings have been dropped.
+    ///
+    /// Draining leaves the runtime with no record of them, so a caller that
+    /// cannot complete a release must hand it back through
+    /// [`Self::restore_pending_backing_releases`] rather than drop it.
+    pub fn take_pending_backing_releases(&mut self) -> Vec<sophia_protocol::BufferHandle> {
+        self.pending_backing_releases.drain(..).collect()
+    }
+
+    /// Returns releases a caller could not complete, ahead of any queued since.
+    pub fn restore_pending_backing_releases(
+        &mut self,
+        handles: impl IntoIterator<Item = sophia_protocol::BufferHandle>,
+    ) {
+        for handle in handles.into_iter().collect::<Vec<_>>().into_iter().rev() {
+            self.pending_backing_releases.push_front(handle);
+        }
     }
 
     fn render_release_picture(&mut self, picture: crate::XResourceId) {
@@ -67,15 +183,6 @@ impl XAuthorityRuntime {
         let Some(record) = self.render_pictures.remove(&picture) else {
             return;
         };
-        let Some(retained) = self.retained_render_pixmaps.get_mut(&record.drawable) else {
-            return;
-        };
-        retained.pictures -= 1;
-        if retained.pictures == 0 {
-            self.retained_render_pixmaps.remove(&record.drawable);
-            self.software_buffers.remove(record.drawable);
-            self.shm_mappings
-                .retain(|_, mapping| mapping.strong_count() != 0);
-        }
+        self.release_retained_referent(record.drawable, true);
     }
 }

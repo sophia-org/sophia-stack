@@ -5,6 +5,7 @@ use sophia_protocol::{Rect, Size};
 
 use crate::{XFontFace, XGraphicsContextValues, XPoint, XResourceId};
 
+mod pixmap_exports;
 mod raster_ops;
 mod raster_replay;
 mod raster_variants;
@@ -12,6 +13,7 @@ mod render_gradient;
 mod render_ops;
 mod render_traps;
 mod update;
+use pixmap_exports::XPixmapExportDamage;
 
 use raster_ops::{
     copy_buffer_region, copy_xrgb8888, draw_fixed_glyph, draw_line, draw_rectangle_outline,
@@ -53,6 +55,7 @@ pub(crate) struct XSoftwareBufferStore {
     next_handle: u64,
     buffers: BTreeMap<XResourceId, XAuthorityCpuBufferSnapshot>,
     presentations: BTreeMap<XResourceId, XAuthorityCpuBufferSnapshot>,
+    export_damage: BTreeMap<XResourceId, XPixmapExportDamage>,
 }
 
 impl XSoftwareBufferStore {
@@ -72,12 +75,16 @@ impl XSoftwareBufferStore {
     }
     pub fn remove(&mut self, drawable: XResourceId) -> Option<XAuthorityCpuBufferSnapshot> {
         self.presentations.remove(&drawable);
+        self.export_damage.remove(&drawable);
         self.buffers.remove(&drawable)
     }
 
     /// Move retained pixmap pixels to a private key before its XID is reused.
     /// Existing exported snapshots keep their immutable storage and identity.
     pub(crate) fn rekey_pixmap(&mut self, from: XResourceId, to: XResourceId) {
+        if let Some(damage) = self.export_damage.remove(&from) {
+            self.export_damage.insert(to, damage);
+        }
         if let Some(mut buffer) = self.buffers.remove(&from) {
             buffer.drawable = to;
             self.buffers.insert(to, buffer);
@@ -287,7 +294,10 @@ impl XSoftwareBufferStore {
         for rect in damage {
             fill_rect(buffer, *rect, gc.foreground, gc);
         }
-        finish_immutable_update(buffer, handle, replaced, union_rects(damage))
+        let published_damage = union_rects(damage);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     /// Lift a drawable's pixels into an owned sample plane, so compositing
@@ -342,7 +352,10 @@ impl XSoftwareBufferStore {
             clip,
             format,
         );
-        finish_immutable_update(buffer, handle, replaced, Some(rect))
+        let published_damage = Some(rect);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     /// Fill rectangles of a picture with one premultiplied color through a
@@ -362,7 +375,10 @@ impl XSoftwareBufferStore {
         for rect in rects {
             render_fill_rect(buffer, *rect, op, color, clip, format);
         }
-        finish_immutable_update(buffer, handle, replaced, union_rects(rects))
+        let published_damage = union_rects(rects);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     pub fn clear(
@@ -375,7 +391,10 @@ impl XSoftwareBufferStore {
         let handle = self.allocate_handle();
         let (buffer, replaced) = self.ensure(drawable, size, handle)?;
         fill_rect(buffer, rect, pixel, &XGraphicsContextValues::default());
-        finish_immutable_update(buffer, handle, replaced, Some(rect))
+        let published_damage = Some(rect);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     pub fn draw_text(
@@ -443,7 +462,10 @@ impl XSoftwareBufferStore {
                 height: draw.font.ascent().saturating_add(draw.font.descent()),
             });
         }
-        finish_immutable_update(buffer, handle, replaced, union_rects(&damage))
+        let published_damage = union_rects(&damage);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     pub fn put_image(
@@ -466,7 +488,10 @@ impl XSoftwareBufferStore {
         let handle = self.allocate_handle();
         let (buffer, replaced) = self.ensure(drawable, size, handle)?;
         put_image_pixels(buffer, destination, data, semantics);
-        finish_immutable_update(buffer, handle, replaced, Some(destination))
+        let published_damage = Some(destination);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     pub fn ensure_image_backing(&mut self, drawable: XResourceId, size: Size) -> Option<()> {
@@ -485,6 +510,7 @@ impl XSoftwareBufferStore {
         let (buffer, _) = self.ensure(drawable, size, handle)?;
         copy_xrgb8888(buffer, destination, data);
         buffer.generation = buffer.generation.checked_add(1)?;
+        self.note_export_damage(drawable, false, Some(destination));
         Some(())
     }
 
@@ -556,7 +582,10 @@ impl XSoftwareBufferStore {
         for pair in points.windows(2) {
             draw_line(buffer, pair[0], pair[1], width, gc);
         }
-        finish_immutable_update(buffer, handle, replaced, Some(damage))
+        let published_damage = Some(damage);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result
     }
 
     pub fn draw_rectangles(
@@ -573,8 +602,10 @@ impl XSoftwareBufferStore {
         for rectangle in rectangles {
             draw_rectangle_outline(buffer, *rectangle, line_width, gc);
         }
-        finish_immutable_update(buffer, handle, replaced, Some(damage))
-            .map(|update| (update, damage))
+        let published_damage = Some(damage);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(drawable, replaced, published_damage);
+        result.map(|update| (update, damage))
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -638,8 +669,10 @@ impl XSoftwareBufferStore {
             width: offset_right.saturating_sub(offset_left),
             height: offset_bottom.saturating_sub(offset_top),
         };
-        finish_immutable_update(buffer, handle, replaced, Some(damage))
-            .map(|update| (update, damage))
+        let published_damage = Some(damage);
+        let result = finish_immutable_update(buffer, handle, replaced, published_damage);
+        self.note_export_damage(destination, replaced, published_damage);
+        result.map(|update| (update, damage))
     }
 
     fn ensure(

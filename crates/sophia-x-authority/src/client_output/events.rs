@@ -1,17 +1,3 @@
-pub fn encode_x_client_error(
-    byte_order: XByteOrder,
-    error: XClientError,
-) -> [u8; X_CLIENT_OUTPUT_RECORD_LEN] {
-    let mut out = [0; X_CLIENT_OUTPUT_RECORD_LEN];
-    out[0] = X_ERROR;
-    out[1] = error.code.wire_code();
-    put_u16(byte_order, &mut out[2..4], error.sequence);
-    put_u32(byte_order, &mut out[4..8], error.resource_id);
-    put_u16(byte_order, &mut out[8..10], error.minor_code);
-    out[10] = error.major_code;
-    out
-}
-
 pub fn encode_x_client_event(byte_order: XByteOrder, event: XClientEvent) -> Vec<u8> {
     let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
     match event {

@@ -846,6 +846,11 @@ descriptor, geometry, stride and namespace checks still apply. Measuring the FD
 does not map its pixels or change its file offset, and renderer import remains
 responsible for accepting the native buffer.
 
+The [pixmap texture export contract](pixmap-texture-exports.md) defines direct
+GLX pixmap capability, retained backing identity, CPU update ordering and the
+renderer-provider boundary. These offscreen resources do not carry WM policy
+or acquire scanout authority.
+
 An immediately satisfied Present `NotifyMSC` is serialized with the requesting
 connection's output and carries that request's sequence. A later reply cannot
 overtake it. Other subscribers receive asynchronous events stamped with their

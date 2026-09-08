@@ -27,16 +27,19 @@ use crate::{
 include!("runtime/clipboard.rs");
 include!("runtime/color.rs");
 include!("runtime/drawing.rs");
+include!("runtime/graphics_contexts.rs");
 include!("runtime/drawing/image_ops.rs");
 include!("runtime/render_resources.rs");
 include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
+include!("runtime/pixmap_publication.rs");
 include!("runtime/render_glyphs.rs");
 include!("runtime/render_traps.rs");
 include!("runtime/xfixes_regions.rs");
 include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");
+include!("runtime/glx_resources.rs");
 include!("runtime/pointer_query.rs");
 
 /// Effects of releasing every currently supported resource allocated from one
@@ -128,6 +131,17 @@ enum XGlxDrawableBacking {
     /// An offscreen surface. Sophia stores no pixels for it, so it carries the
     /// extent it was created with; nothing else knows one.
     Pbuffer(Size),
+    /// A GLX drawable over an X pixmap, and the texture target it binds to.
+    ///
+    /// It names the backing rather than copying its extent, so a pixmap that
+    /// outlives its XID keeps answering through the one record that retained
+    /// it, and a GLX pixmap cannot drift from the pixels it wraps. The target
+    /// is resolved once here, because the extent that admits it is the extent
+    /// at creation.
+    Pixmap {
+        pixmap: crate::XResourceId,
+        texture: crate::XGlxPixmapTexture,
+    },
 }
 
 #[derive(Debug)]
@@ -162,8 +176,21 @@ pub struct XAuthorityRuntime {
     sync_counters: BTreeMap<crate::XResourceId, i64>,
     xfixes_regions: BTreeMap<crate::XResourceId, Region>,
     render_pictures: BTreeMap<crate::XResourceId, XRenderPictureRecord>,
-    retained_render_pixmaps: BTreeMap<crate::XResourceId, XRetainedRenderPixmap>,
+    retained_pixmap_backings: BTreeMap<crate::XResourceId, XRetainedPixmapBacking>,
     next_render_backing: u64,
+    /// Renderer registrations owed a release once their backing was dropped.
+    ///
+    /// Queued rather than released here: the provider call must leave the
+    /// runtime lock, and an owed release is retried rather than discarded.
+    pending_backing_releases: std::collections::VecDeque<sophia_protocol::BufferHandle>,
+    provider_pixmap_backings: std::collections::BTreeSet<sophia_protocol::BufferHandle>,
+    /// Per-backing publication state: what it owes, and the one update in the
+    /// air for it.
+    pixmap_publications: BTreeMap<sophia_protocol::BufferHandle, XPixmapPublication>,
+    pixmap_export_handles: BTreeMap<crate::XResourceId, sophia_protocol::BufferHandle>,
+    pixmap_publication_targets: BTreeMap<u64, XPixmapPublicationTarget>,
+    next_pixmap_publication_target: u64,
+    retired_pixmap_registrations: BTreeMap<NamespaceId, Vec<sophia_protocol::BufferHandle>>,
     /// Glyph-set resource ids, each naming a shared store. Two ids name one
     /// store after `ReferenceGlyphSet`.
     render_glyphsets: BTreeMap<crate::XResourceId, u64>,
@@ -187,6 +214,12 @@ pub struct XAuthorityRuntime {
     output_topology: OutputTopologySnapshot,
     input_focus: BTreeMap<NamespaceId, (crate::XResourceId, u8)>,
     defer_policy_maps: bool,
+    /// Whether the provider keeps pixmap backings a GL client can sample.
+    ///
+    /// Set once when the frontend is built and never again: `GetFBConfigs` and
+    /// `QueryExtensionsString` are answered once per client, so a value that
+    /// moved would leave clients holding configurations no longer honoured.
+    pixmap_textures_supported: bool,
     xkb_keymap: crate::XkbKeymapSnapshot,
     input_authority: Arc<Mutex<crate::XInputAuthorityState>>,
 }
@@ -217,7 +250,14 @@ impl Default for XAuthorityRuntime {
             sync_counters: Default::default(),
             xfixes_regions: Default::default(),
             render_pictures: Default::default(),
-            retained_render_pixmaps: Default::default(),
+            retained_pixmap_backings: Default::default(),
+            pending_backing_releases: Default::default(),
+            provider_pixmap_backings: Default::default(),
+            pixmap_publications: Default::default(),
+            pixmap_export_handles: Default::default(),
+            pixmap_publication_targets: Default::default(),
+            next_pixmap_publication_target: 1,
+            retired_pixmap_registrations: Default::default(),
             next_render_backing: u64::from(u32::MAX) + 1,
             render_glyphsets: Default::default(),
             render_glyph_stores: Default::default(),
@@ -236,6 +276,7 @@ impl Default for XAuthorityRuntime {
             output_topology: OutputTopologySnapshot::deterministic(),
             input_focus: Default::default(),
             defer_policy_maps: false,
+            pixmap_textures_supported: false,
             xkb_keymap: crate::XkbKeymapSnapshot::new(&crate::XkbRmlvoConfig::default())
                 .expect("the deterministic default XKB keymap must compile"),
             input_authority: Arc::new(Mutex::new(crate::XInputAuthorityState::default())),
@@ -263,6 +304,14 @@ impl XAuthorityRuntime {
 
     pub fn set_policy_map_deferred(&mut self, deferred: bool) {
         self.defer_policy_maps = deferred;
+    }
+
+    pub fn set_pixmap_textures_supported(&mut self, supported: bool) {
+        self.pixmap_textures_supported = supported;
+    }
+
+    pub const fn pixmap_textures_supported(&self) -> bool {
+        self.pixmap_textures_supported
     }
 
     pub fn input_authority_mut(&self) -> MutexGuard<'_, crate::XInputAuthorityState> {

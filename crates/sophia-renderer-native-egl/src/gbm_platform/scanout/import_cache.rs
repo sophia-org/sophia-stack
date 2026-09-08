@@ -178,7 +178,7 @@ impl NativeDmaBufImportCache {
             }
             NativeRendererImageCacheAdmission::Hit { .. } => unreachable!(),
         };
-        let image = create_dma_buf_image(egl, display, layer)?;
+        let image = create_dma_buf_image(egl, display, layer.frame)?;
         let texture = match unsafe { pipeline.create_egl_image_texture(egl, image.as_ptr()) } {
             Ok(texture) => texture,
             Err(error) => {
@@ -268,10 +268,10 @@ impl NativeDmaBufImportCache {
     }
 }
 
-fn create_dma_buf_image(
+pub(crate) fn create_dma_buf_image(
     egl: &khronos_egl::DynamicInstance<khronos_egl::EGL1_5>,
     display: khronos_egl::Display,
-    layer: NativeDmaBufCompositionLayer<'_>,
+    frame: super::NativeMultiPlaneDmaBufFrame<'_>,
 ) -> Result<khronos_egl::Image, NativeGbmScanoutBufferExportDetail> {
     use std::{ffi::c_void, ptr};
 
@@ -287,19 +287,19 @@ fn create_dma_buf_image(
     ];
     let mut attributes = vec![
         EGL_WIDTH,
-        layer.frame.width as khronos_egl::Attrib,
+        frame.width as khronos_egl::Attrib,
         EGL_HEIGHT,
-        layer.frame.height as khronos_egl::Attrib,
+        frame.height as khronos_egl::Attrib,
         EGL_LINUX_DRM_FOURCC_EXT,
-        layer.frame.format as khronos_egl::Attrib,
+        frame.format as khronos_egl::Attrib,
     ];
     for (index, keys) in PLANE_ATTRIBUTES
         .iter()
         .copied()
         .enumerate()
-        .take(usize::from(layer.frame.plane_count))
+        .take(usize::from(frame.plane_count))
     {
-        let plane = layer.frame.planes[index]
+        let plane = frame.planes[index]
             .ok_or(NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor)?;
         attributes.extend_from_slice(&[
             keys[0],
@@ -309,12 +309,12 @@ fn create_dma_buf_image(
             keys[2],
             plane.stride as khronos_egl::Attrib,
         ]);
-        if layer.frame.modifier != u64::MAX {
+        if frame.modifier != u64::MAX {
             attributes.extend_from_slice(&[
                 keys[3],
-                (layer.frame.modifier & u64::from(u32::MAX)) as khronos_egl::Attrib,
+                (frame.modifier & u64::from(u32::MAX)) as khronos_egl::Attrib,
                 keys[4],
-                (layer.frame.modifier >> 32) as khronos_egl::Attrib,
+                (frame.modifier >> 32) as khronos_egl::Attrib,
             ]);
         }
     }

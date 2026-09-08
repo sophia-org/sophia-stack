@@ -36,6 +36,8 @@ mod head_composition;
 #[cfg(feature = "gbm-probe")]
 mod native_scanout;
 mod shared_buffer;
+#[cfg(feature = "gbm-probe")]
+mod shared_pixmap;
 
 pub use buffer_registry::*;
 pub use cpu_buffer_registry::*;
@@ -73,6 +75,8 @@ pub use native_scanout::*;
 #[cfg(feature = "gbm-probe")]
 pub use shared_buffer::allocate_shared_buffer;
 pub use shared_buffer::{LiveSharedBufferAllocation, LiveSharedBufferError};
+#[cfg(feature = "gbm-probe")]
+pub use shared_pixmap::*;
 
 pub const LIVE_RENDERER_SCANOUT_FORMAT_ARGB8888: u32 = 875_713_089;
 pub const LIVE_RENDERER_SCANOUT_FORMAT_XRGB8888: u32 = 875_713_112;

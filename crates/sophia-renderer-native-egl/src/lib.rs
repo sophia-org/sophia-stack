@@ -1,8 +1,10 @@
 mod default_display;
+mod dmabuf_sync;
 mod gl;
 mod pixel_evidence;
 mod sampling;
 mod status;
+pub use dmabuf_sync::native_dmabuf_cpu_write_access;
 
 #[cfg(feature = "gbm-platform")]
 mod gbm_platform;

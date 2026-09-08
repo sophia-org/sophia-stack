@@ -237,6 +237,98 @@ const X_XFIXES_REGION_QUERY_REQ_LEN: usize = 8;
 pub const X_GLX_EXTENSION_NAME: &str = "GLX";
 pub const X_GLX_MAJOR_OPCODE: u8 = 140;
 pub const X_GLX_FIRST_EVENT: u8 = 72;
+/// `GLX_EXT_texture_from_pixmap` configuration attributes.
+pub const X_GLX_BIND_TO_TEXTURE_RGB_ATTRIBUTE: u32 = 0x20D0;
+pub const X_GLX_BIND_TO_TEXTURE_RGBA_ATTRIBUTE: u32 = 0x20D1;
+pub const X_GLX_BIND_TO_TEXTURE_TARGETS_ATTRIBUTE: u32 = 0x20D3;
+pub const X_GLX_Y_INVERTED_ATTRIBUTE: u32 = 0x20D4;
+/// `GLX_EXT_texture_from_pixmap` target bits and names.
+pub const X_GLX_TEXTURE_1D_BIT_VALUE: u32 = 0x1;
+pub const X_GLX_TEXTURE_2D_BIT_VALUE: u32 = 0x2;
+pub const X_GLX_TEXTURE_RECTANGLE_BIT_VALUE: u32 = 0x4;
+/// Every direct target the extension defines.
+pub const X_GLX_TEXTURE_TARGETS_ALL: u32 =
+    X_GLX_TEXTURE_1D_BIT_VALUE | X_GLX_TEXTURE_2D_BIT_VALUE | X_GLX_TEXTURE_RECTANGLE_BIT_VALUE;
+pub const X_GLX_TEXTURE_TARGET_ATTRIBUTE: u32 = 0x20D6;
+pub const X_GLX_TEXTURE_1D_VALUE: u32 = 0x20DB;
+pub const X_GLX_TEXTURE_2D_VALUE: u32 = 0x20DC;
+pub const X_GLX_TEXTURE_RECTANGLE_VALUE: u32 = 0x20DD;
+
+/// The target bit a named target selects, if it names one at all.
+pub const fn x_glx_texture_target_bit(target: u32) -> Option<u32> {
+    match target {
+        X_GLX_TEXTURE_1D_VALUE => Some(X_GLX_TEXTURE_1D_BIT_VALUE),
+        X_GLX_TEXTURE_2D_VALUE => Some(X_GLX_TEXTURE_2D_BIT_VALUE),
+        X_GLX_TEXTURE_RECTANGLE_VALUE => Some(X_GLX_TEXTURE_RECTANGLE_BIT_VALUE),
+        _ => None,
+    }
+}
+
+/// The target name a bit answers to, so a query returns what was asked for.
+pub const fn x_glx_texture_target_name(target_bit: u32) -> u32 {
+    match target_bit {
+        X_GLX_TEXTURE_1D_BIT_VALUE => X_GLX_TEXTURE_1D_VALUE,
+        X_GLX_TEXTURE_RECTANGLE_BIT_VALUE => X_GLX_TEXTURE_RECTANGLE_VALUE,
+        _ => X_GLX_TEXTURE_2D_VALUE,
+    }
+}
+
+/// Whether an extent can be bound to a target.
+///
+/// A one-dimensional texture has one row. Modern direct GL supports
+/// non-power-of-two extents for both two-dimensional and rectangle textures.
+pub const fn x_glx_texture_target_admits(target_bit: u32, width: i32, height: i32) -> bool {
+    if width <= 0 || height <= 0 {
+        return false;
+    }
+    match target_bit {
+        X_GLX_TEXTURE_1D_BIT_VALUE => height == 1,
+        X_GLX_TEXTURE_2D_BIT_VALUE | X_GLX_TEXTURE_RECTANGLE_BIT_VALUE => true,
+        _ => false,
+    }
+}
+
+/// `GLX_TEXTURE_FORMAT_EXT` and its values.
+pub const X_GLX_TEXTURE_FORMAT_ATTRIBUTE: u32 = 0x20D5;
+pub const X_GLX_TEXTURE_FORMAT_NONE_VALUE: u32 = 0x20D8;
+pub const X_GLX_TEXTURE_FORMAT_RGB_VALUE: u32 = 0x20D9;
+pub const X_GLX_TEXTURE_FORMAT_RGBA_VALUE: u32 = 0x20DA;
+/// `GLX_MIPMAP_TEXTURE_EXT`, and the configuration capability it requires.
+///
+/// A mipmapped binding needs `GLX_BIND_TO_MIPMAP_TEXTURE_EXT` on the
+/// configuration, which the row itself answers.
+pub const X_GLX_MIPMAP_TEXTURE_ATTRIBUTE: u32 = 0x20D7;
+pub const X_GLX_BIND_TO_MIPMAP_TEXTURE_ATTRIBUTE: u32 = 0x20D2;
+
+/// Selects the first supported target in the extension's default preference order.
+pub const fn x_glx_default_texture_target(supported: u32, width: i32, height: i32) -> Option<u32> {
+    let candidates = [
+        X_GLX_TEXTURE_2D_BIT_VALUE,
+        X_GLX_TEXTURE_RECTANGLE_BIT_VALUE,
+        X_GLX_TEXTURE_1D_BIT_VALUE,
+    ];
+    let mut index = 0;
+    while index < candidates.len() {
+        let bit = candidates[index];
+        if supported & bit != 0 && x_glx_texture_target_admits(bit, width, height) {
+            return Some(bit);
+        }
+        index += 1;
+    }
+    None
+}
+/// GLX's error range follows the disjoint XInput and RENDER ranges.
+pub const X_GLX_FIRST_ERROR: u8 = 170;
+/// How many codes the GLX protocol defines, `GLXBadContext` through
+/// `GLXBadProfileARB`. The whole span is reserved even though Sophia emits a
+/// few of them, because a client computes every offset from the same base.
+pub const X_GLX_ERROR_COUNT: u8 = 14;
+/// `GLXBadDrawable`: the drawable is not one this configuration can render to.
+pub const X_GLX_BAD_DRAWABLE_ERROR_OFFSET: u8 = 2;
+/// `GLXBadPixmap`: the pixmap is not a GLX drawable, or cannot become one.
+pub const X_GLX_BAD_PIXMAP_ERROR_OFFSET: u8 = 3;
+/// `GLXBadFBConfig`: no configuration answers to that identifier.
+pub const X_GLX_BAD_FB_CONFIG_ERROR_OFFSET: u8 = 9;
 
 // The GLX request minors, all of them, in protocol order.
 //

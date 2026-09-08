@@ -7,6 +7,7 @@ pub struct X11CoreSocketServerState {
     atoms: Arc<Mutex<XAtomTable>>,
     properties: Arc<Mutex<XPropertyTable>>,
     control_runtime_pending: Arc<AtomicUsize>,
+    pixmap_progress: Arc<(Mutex<()>, Condvar)>,
     clients: Arc<Mutex<X11CoreClientLeaseState>>,
     next_transaction_id: Arc<AtomicU64>,
     render_device_provider: Option<Arc<dyn XServerFrontendRenderDeviceProvider>>,
@@ -58,6 +59,7 @@ impl Default for X11CoreSocketServerState {
             atoms: Default::default(),
             properties: Default::default(),
             control_runtime_pending: Default::default(),
+            pixmap_progress: Default::default(),
             clients: Arc::new(Mutex::new(X11CoreClientLeaseState {
                 next_client_resource_range: 1,
                 next_client_id: 1,
@@ -148,6 +150,22 @@ impl X11CoreSocketServerState {
 
     fn pixmap_allocator(&self) -> Option<&Arc<dyn XServerFrontendPixmapAllocator>> {
         self.pixmap_allocator.as_ref()
+    }
+
+    /// Latches the provider's pixmap-texture capability into the runtime.
+    ///
+    /// Read once here rather than per request, so the advertisement a client
+    /// received cannot disagree with what a later request is answered by.
+    fn latch_pixmap_texture_support(&self) -> Result<(), X11SetupSocketError> {
+        let supported = self
+            .pixmap_allocator
+            .as_ref()
+            .is_some_and(|allocator| allocator.supports_pixmap_textures());
+        self.runtime
+            .lock()
+            .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+            .set_pixmap_textures_supported(supported);
+        Ok(())
     }
 
     fn set_policy_map_deferred(&self, deferred: bool) -> Result<(), X11SetupSocketError> {

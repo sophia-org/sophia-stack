@@ -163,10 +163,27 @@ impl XAuthorityRuntime {
         // drawable it just created exists at all. Its depth comes from its
         // configuration, since there is no window to read one from.
         if let Ok((size, fbconfig)) = self.glx_pbuffer(namespace, drawable)
-            && let Some(config) = crate::x_glx_fb_config(fbconfig)
+            && let Some(config) = crate::x_glx_fb_config(fbconfig, self.pixmap_textures_supported())
         {
             return Ok(XDrawableFacts {
                 kind: XDrawableKind::GlxPbuffer,
+                geometry: Rect {
+                    x: 0,
+                    y: 0,
+                    width: size.width,
+                    height: size.height,
+                },
+                depth: config.depth(),
+            });
+        }
+        // A GLX pixmap answers for the pixels it wraps, so it reports the
+        // pixmap's extent. Without this it is a drawable that cannot be made
+        // current, which is the one thing it exists to be.
+        if let Ok((size, fbconfig, _)) = self.glx_pixmap_attributes(namespace, drawable)
+            && let Some(config) = crate::x_glx_fb_config(fbconfig, self.pixmap_textures_supported())
+        {
+            return Ok(XDrawableFacts {
+                kind: XDrawableKind::Pixmap,
                 geometry: Rect {
                     x: 0,
                     y: 0,
@@ -227,77 +244,6 @@ impl XAuthorityRuntime {
         Ok(())
     }
 
-    pub fn create_graphics_context(
-        &mut self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-        drawable: crate::XResourceId,
-        values: XGraphicsContextValues,
-    ) -> Result<(), XAuthorityRuntimeError> {
-        self.validate_drawable_access(namespace, drawable)?;
-        let depth = self.drawable_depth(namespace, drawable)?;
-        let font_face = values
-            .font
-            .map(|font| self.font_face(namespace, font))
-            .transpose()?
-            .unwrap_or_default();
-        self.graphics_contexts
-            .create(namespace, gc, drawable, depth, values, font_face)
-            .map_err(XAuthorityRuntimeError::from)?;
-        Ok(())
-    }
-
-    pub fn graphics_context_values(
-        &self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-    ) -> Result<XGraphicsContextValues, XAuthorityRuntimeError> {
-        self.graphics_contexts
-            .get(namespace, gc)
-            .map(|record| record.values.clone())
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn graphics_context_depth_and_values(
-        &self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-    ) -> Result<(u8, XGraphicsContextValues), XAuthorityRuntimeError> {
-        self.graphics_contexts
-            .get(namespace, gc)
-            .map(|record| (record.depth, record.values.clone()))
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn graphics_context_depth_values_and_font(
-        &self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-    ) -> Result<(u8, XGraphicsContextValues, XFontFace), XAuthorityRuntimeError> {
-        self.graphics_contexts
-            .get(namespace, gc)
-            .map(|record| (record.depth, record.values.clone(), record.font_face))
-            .map_err(Into::into)
-    }
-
-    pub(crate) fn fontable_face(
-        &self,
-        namespace: NamespaceId,
-        fontable: crate::XResourceId,
-    ) -> Result<XFontFace, XAuthorityRuntimeError> {
-        match self.font_face(namespace, fontable) {
-            Ok(face) => Ok(face),
-            Err(
-                XAuthorityRuntimeError::UnknownResource | XAuthorityRuntimeError::WrongResourceKind,
-            ) => self
-                .graphics_contexts
-                .get(namespace, fontable)
-                .map(|record| record.font_face)
-                .map_err(Into::into),
-            Err(error) => Err(error),
-        }
-    }
-
     pub(crate) fn drawable_depth(
         &self,
         namespace: NamespaceId,
@@ -311,49 +257,6 @@ impl XAuthorityRuntime {
             return Ok(depth);
         }
         Ok(self.window_visual(drawable).0)
-    }
-
-    pub fn change_graphics_context(
-        &mut self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-        mask: u32,
-        values: XGraphicsContextValues,
-    ) -> Result<(), XAuthorityRuntimeError> {
-        let font_face = if mask & (1 << 14) != 0 {
-            Some(self.font_face(
-                namespace,
-                values.font.ok_or(XAuthorityRuntimeError::InvalidResource)?,
-            )?)
-        } else {
-            None
-        };
-        self.graphics_contexts
-            .change(namespace, gc, mask, values, font_face)
-            .map_err(Into::into)
-    }
-
-    pub fn set_graphics_context_clip_rectangles(
-        &mut self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-        clip_x_origin: i16,
-        clip_y_origin: i16,
-        rectangles: Vec<Rect>,
-    ) -> Result<(), XAuthorityRuntimeError> {
-        self.graphics_contexts
-            .set_clip_rectangles(namespace, gc, clip_x_origin, clip_y_origin, rectangles)
-            .map_err(Into::into)
-    }
-
-    pub fn free_graphics_context(
-        &mut self,
-        namespace: NamespaceId,
-        gc: crate::XResourceId,
-    ) -> Result<(), XAuthorityRuntimeError> {
-        self.graphics_contexts
-            .remove(namespace, gc)
-            .map_err(Into::into)
     }
 
     pub fn window_background_pixel(
@@ -380,6 +283,28 @@ impl XAuthorityRuntime {
         Ok(())
     }
 
+    fn core_draw_target(
+        &self,
+        namespace: NamespaceId,
+        drawable: crate::XResourceId,
+    ) -> Result<(Size, Option<u64>), XAuthorityRuntimeError> {
+        self.validate_drawable_access(namespace, drawable)?;
+        if let Ok(size) = self.pixmap_size(namespace, drawable) {
+            return Ok((size, None));
+        }
+        let record = self
+            .windows
+            .get(drawable)
+            .ok_or(XAuthorityRuntimeError::UnknownResource)?;
+        Ok((
+            Size {
+                width: record.geometry.width,
+                height: record.geometry.height,
+            },
+            Some(record.generation),
+        ))
+    }
+
     pub fn apply_core_draw(
         &mut self,
         transaction: TransactionId,
@@ -404,25 +329,21 @@ impl XAuthorityRuntime {
         damage: Region,
         gc: &XGraphicsContextValues,
     ) -> XAuthorityResponsePacket {
-        let Some(record) = self.windows.get(window) else {
-            return XAuthorityResponsePacket::rejected(
-                transaction,
-                XAuthorityRuntimeError::UnknownResource,
-            );
+        let (size, window_generation) = match self.core_draw_target(namespace, window) {
+            Ok(target) => target,
+            Err(error) => return XAuthorityResponsePacket::rejected(transaction, error),
         };
-        let Some(buffer) = self.software_buffers.paint_damage(
-            window,
-            Size {
-                width: record.geometry.width,
-                height: record.geometry.height,
-            },
-            &damage.rects,
-            gc,
-        ) else {
+        let Some(buffer) = self
+            .software_buffers
+            .paint_damage(window, size, &damage.rects, gc)
+        else {
             return XAuthorityResponsePacket::rejected(
                 transaction,
                 XAuthorityRuntimeError::InvalidResource,
             );
+        };
+        let Some(generation) = window_generation else {
+            return XAuthorityResponsePacket::accepted(transaction);
         };
         let handle = buffer.handle();
         self.pending_raster_command = Some(XAuthorityRasterCommand::Paint {
@@ -435,7 +356,7 @@ impl XAuthorityRuntime {
             window,
             handle,
             damage,
-            record.generation,
+            generation,
             250,
         ))
     }
@@ -448,21 +369,11 @@ impl XAuthorityRuntime {
         points: &[XPoint],
         gc: &XGraphicsContextValues,
     ) -> XAuthorityResponsePacket {
-        let Some(record) = self.windows.get(window) else {
-            return XAuthorityResponsePacket::rejected(
-                transaction,
-                XAuthorityRuntimeError::UnknownResource,
-            );
+        let (size, window_generation) = match self.core_draw_target(namespace, window) {
+            Ok(target) => target,
+            Err(error) => return XAuthorityResponsePacket::rejected(transaction, error),
         };
-        let Some(update) = self.software_buffers.draw_lines(
-            window,
-            Size {
-                width: record.geometry.width,
-                height: record.geometry.height,
-            },
-            points,
-            gc,
-        ) else {
+        let Some(update) = self.software_buffers.draw_lines(window, size, points, gc) else {
             return XAuthorityResponsePacket::accepted(transaction);
         };
         let damage = Region::single(Rect {
@@ -503,6 +414,9 @@ impl XAuthorityRuntime {
                 )
                 .saturating_add(i32::from(gc.line_width.max(1))),
         });
+        let Some(generation) = window_generation else {
+            return XAuthorityResponsePacket::accepted(transaction);
+        };
         let handle = update.handle();
         self.pending_raster_command = Some(XAuthorityRasterCommand::Lines {
             points: points
@@ -520,7 +434,7 @@ impl XAuthorityRuntime {
             window,
             handle,
             damage,
-            record.generation,
+            generation,
             250,
         ))
     }
@@ -533,21 +447,17 @@ impl XAuthorityRuntime {
         rectangles: &[Rect],
         gc: &XGraphicsContextValues,
     ) -> XAuthorityResponsePacket {
-        let Some(record) = self.windows.get(window) else {
-            return XAuthorityResponsePacket::rejected(
-                transaction,
-                XAuthorityRuntimeError::UnknownResource,
-            );
+        let (size, window_generation) = match self.core_draw_target(namespace, window) {
+            Ok(target) => target,
+            Err(error) => return XAuthorityResponsePacket::rejected(transaction, error),
         };
-        let Some((update, damage)) = self.software_buffers.draw_rectangles(
-            window,
-            Size {
-                width: record.geometry.width,
-                height: record.geometry.height,
-            },
-            rectangles,
-            gc,
-        ) else {
+        let Some((update, damage)) = self
+            .software_buffers
+            .draw_rectangles(window, size, rectangles, gc)
+        else {
+            return XAuthorityResponsePacket::accepted(transaction);
+        };
+        let Some(generation) = window_generation else {
             return XAuthorityResponsePacket::accepted(transaction);
         };
         let handle = update.handle();
@@ -561,7 +471,7 @@ impl XAuthorityRuntime {
             window,
             handle,
             Region::single(damage),
-            record.generation,
+            generation,
             250,
         ))
     }
@@ -728,11 +638,11 @@ impl XAuthorityRuntime {
             update.previous_committed_generation = presentation_record.generation;
             // A bounding shape on the toplevel is what clips the composed
             // result; an unset one leaves the buffer opaque as before.
-            let shape = match self.effective_shape(presentation_window, crate::X_SHAPE_KIND_BOUNDING)
-            {
-                (true, rects) => Some(rects),
-                (false, _) => None,
-            };
+            let shape =
+                match self.effective_shape(presentation_window, crate::X_SHAPE_KIND_BOUNDING) {
+                    (true, rects) => Some(rects),
+                    (false, _) => None,
+                };
             let Some(presentation_update) = self.software_buffers.present_window_damage(
                 presentation_window,
                 presentation_size,
@@ -792,11 +702,10 @@ impl XAuthorityRuntime {
         };
         // A window that shaped its input answers the pointer only inside
         // that shape; one that has not is interactive everywhere.
-        transaction.input_region =
-            match self.effective_shape(window, crate::X_SHAPE_KIND_INPUT) {
-                (true, rects) => Some(Region { rects }),
-                (false, _) => None,
-            };
+        transaction.input_region = match self.effective_shape(window, crate::X_SHAPE_KIND_INPUT) {
+            (true, rects) => Some(Region { rects }),
+            (false, _) => None,
+        };
         if let Err(error) = self.windows.advance_generation(window, previous_generation) {
             return XAuthorityResponsePacket::rejected(transaction_id, error.into());
         }
@@ -882,17 +791,17 @@ impl XAuthorityRuntime {
         // runtime.
         let satisfied =
             match self
-            .raster_store
-            .satisfy(record.id, requirements, canonical.bytes.len())
-        {
-            Ok(outcome) => outcome,
-            Err(_) => {
-                return Ok(XSurfaceRasterOutcome::SampledFallback {
-                    cause: crate::XRasterFallbackCause::LogicalExtentMismatch,
-                    observed_content_generation: record.generation,
-                });
-            }
-        };
+                .raster_store
+                .satisfy(record.id, requirements, canonical.bytes.len())
+            {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    return Ok(XSurfaceRasterOutcome::SampledFallback {
+                        cause: crate::XRasterFallbackCause::LogicalExtentMismatch,
+                        observed_content_generation: record.generation,
+                    });
+                }
+            };
         let updates = match satisfied {
             crate::XRasterSatisfyOutcome::Satisfied(updates) => updates,
             crate::XRasterSatisfyOutcome::Fallback(cause) => {

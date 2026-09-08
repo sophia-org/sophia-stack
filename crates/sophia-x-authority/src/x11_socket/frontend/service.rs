@@ -31,6 +31,7 @@ impl XServerFrontend {
         .with_optional_render_device_provider(config.render_device_provider())
         .with_optional_pixmap_allocator(config.pixmap_allocator());
         state.set_policy_map_deferred(config.policy_map_deferred())?;
+        state.latch_pixmap_texture_support()?;
         let (worker_completion_sender, worker_completions) = std::sync::mpsc::channel();
         let (worker_admission_event_sender, worker_admission_events) = std::sync::mpsc::channel();
         Ok(Self {
@@ -102,7 +103,8 @@ impl XServerFrontend {
     /// Reaps every concurrent worker that has already completed without
     /// waiting for an active client.
     pub fn poll_client_workers(&mut self) -> Result<(), X11SetupSocketError> {
-        self.reap_finished_client_workers()
+        self.reap_finished_client_workers()?;
+        self.state.release_exported_pixmaps()
     }
 
     /// Shuts down every accepted client stream while leaving worker threads

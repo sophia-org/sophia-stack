@@ -1,4 +1,46 @@
-# GTK redraw probe
+# Private graphics probes
+
+## Private GLX pixmap probe
+
+`glx_pixmap.c` creates offscreen resources and compares synthetic pixels read
+through a direct GL texture. It checks the initial CPU contents, a later partial
+write and retention after `FreePixmap`, for depth-24 and depth-32 buffers with
+2D and rectangle textures. Its non-power-of-two width exercises the texture
+shape needed by ordinary video frames. It follows the required
+synchronize/bind/read/release sequence. It opens no visible window and sends no
+input.
+
+The optional `--texture-1d` diagnostic exercises a separate Mesa client limit:
+its direct GLX target decoder does not recognize 1D despite the driver's target
+mask including it. The local Mesa 26.1.8 client reports target zero on that path.
+The default pixel gate therefore covers 2D and rectangle sampling; it does not
+claim 1D client support.
+
+The integrated test starts a private X frontend with the same pixmap provider
+as a native session. Select a render node explicitly:
+
+```sh
+SOPHIA_PIXMAP_TEST_DEVICE=/dev/dri/renderD128 \
+  cargo test --offline -p sophia-session --all-features --lib \
+  direct_glx_client_reads_live_and_retained_pixmap_exports \
+  -- --ignored --nocapture --test-threads=1
+```
+
+The lower-level renderer tests verify repeated imports, partial updates,
+revision replay and allocation lifetime through a private EGL/GL consumer:
+
+```sh
+SOPHIA_PIXMAP_TEST_DEVICE=/dev/dri/renderD128 \
+  cargo test --offline -p sophia-renderer-live --all-features \
+  --test shared_pixmap -- --ignored --nocapture --test-threads=1
+```
+
+Both commands require DRM render-node access. The GLX test also requires a C
+compiler and Xlib/GL development files. They do not install a build, replace a
+session or prove browser hardware-video playback. See the
+[export contract](../../docs/pixmap-texture-exports.md) for those boundaries.
+
+## GTK redraw
 
 `gtk_redraw.c` exercises GTK3 drawing through Sophia's X frontend: a dialog,
 a menu, dialog hide/show, and an explicit redraw. It uses synthetic text and
@@ -43,7 +85,7 @@ no physical trigger event; GTK may report that warning. Installed-session
 acceptance still requires opening Thunar menus and submenus, dismissing them,
 and switching windows without missing pixels or lingering overlays.
 
-# Qt popup probe
+## Qt popup probe
 
 `qt_popup.cpp` opens an owned QMenu, selects an action, reopens it, opens and
 selects a nested menu, then dismisses another opening with Escape. A separately labelled raw-X phase

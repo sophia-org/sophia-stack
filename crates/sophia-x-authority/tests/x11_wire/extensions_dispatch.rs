@@ -5427,3 +5427,97 @@ fn xfixes_builds_a_region_from_a_bitmaps_set_bits() {
         Some(XErrorCode::BadPixmap)
     );
 }
+
+/// The extension error bases must partition. A client adds an offset to a base
+/// and has no other way to tell whose error it is holding.
+#[test]
+fn extension_error_bases_do_not_overlap_each_other_or_the_core_range() {
+    // BadImplementation is the last core code; XI and RENDER define five codes
+    // each, GLX fourteen.
+    const CORE_LAST: u8 = 17;
+    let spans: [(&str, u8, u8); 3] = [
+        ("XI", X_INPUT_FIRST_ERROR, 5),
+        ("RENDER", X_RENDER_FIRST_ERROR, 5),
+        ("GLX", X_GLX_FIRST_ERROR, X_GLX_ERROR_COUNT),
+    ];
+    for (name, base, count) in spans {
+        assert!(count > 0, "{name} reserves no codes");
+        assert!(
+            base > CORE_LAST,
+            "{name} base {base} falls inside the core range",
+        );
+        assert!(
+            base.checked_add(count - 1).is_some(),
+            "{name} span runs past the end of the code space",
+        );
+    }
+    for (index, (first_name, first_base, first_count)) in spans.iter().enumerate() {
+        for (second_name, second_base, second_count) in spans.iter().skip(index + 1) {
+            let first_end = first_base + first_count - 1;
+            let second_end = second_base + second_count - 1;
+            assert!(
+                first_end < *second_base || second_end < *first_base,
+                "{first_name} {first_base}..={first_end} overlaps \
+                 {second_name} {second_base}..={second_end}",
+            );
+        }
+    }
+}
+
+/// No two errors may share a wire code, and an extension error must sit inside
+/// its own extension's span.
+///
+/// GLX answered from base zero until now, which put `GLXBadPixmap` on code 3 --
+/// the core `BadWindow` -- so a refusal from one arrived as the other.
+#[test]
+fn every_wire_error_code_is_distinct_and_inside_its_extension_span() {
+    let codes = [
+        ("BadRequest", XErrorCode::BadRequest),
+        ("BadValue", XErrorCode::BadValue),
+        ("BadWindow", XErrorCode::BadWindow),
+        ("BadPixmap", XErrorCode::BadPixmap),
+        ("BadDrawable", XErrorCode::BadDrawable),
+        ("BadAtom", XErrorCode::BadAtom),
+        ("BadFont", XErrorCode::BadFont),
+        ("BadMatch", XErrorCode::BadMatch),
+        ("BadAccess", XErrorCode::BadAccess),
+        ("BadAlloc", XErrorCode::BadAlloc),
+        ("BadColor", XErrorCode::BadColor),
+        ("BadGraphicsContext", XErrorCode::BadGraphicsContext),
+        ("BadIdChoice", XErrorCode::BadIdChoice),
+        ("BadName", XErrorCode::BadName),
+        ("BadLength", XErrorCode::BadLength),
+        ("BadImplementation", XErrorCode::BadImplementation),
+        ("XiBadDevice", XErrorCode::XiBadDevice),
+        ("RenderPictFormat", XErrorCode::RenderPictFormat),
+        ("RenderPicture", XErrorCode::RenderPicture),
+        ("RenderPictOp", XErrorCode::RenderPictOp),
+        ("RenderGlyphSet", XErrorCode::RenderGlyphSet),
+        ("RenderGlyph", XErrorCode::RenderGlyph),
+        ("GlxBadDrawable", XErrorCode::GlxBadDrawable),
+        ("GlxBadPixmap", XErrorCode::GlxBadPixmap),
+        ("GlxBadFbConfig", XErrorCode::GlxBadFbConfig),
+    ];
+    for (index, (name, code)) in codes.iter().enumerate() {
+        for (other_name, other) in codes.iter().skip(index + 1) {
+            assert_ne!(
+                code.wire_code(),
+                other.wire_code(),
+                "{name} and {other_name} both answer to code {}",
+                code.wire_code(),
+            );
+        }
+    }
+    let glx_last = X_GLX_FIRST_ERROR + X_GLX_ERROR_COUNT - 1;
+    for (name, code) in [
+        ("GlxBadDrawable", XErrorCode::GlxBadDrawable),
+        ("GlxBadPixmap", XErrorCode::GlxBadPixmap),
+        ("GlxBadFbConfig", XErrorCode::GlxBadFbConfig),
+    ] {
+        let wire = code.wire_code();
+        assert!(
+            (X_GLX_FIRST_ERROR..=glx_last).contains(&wire),
+            "{name} answers {wire}, outside GLX {X_GLX_FIRST_ERROR}..={glx_last}",
+        );
+    }
+}

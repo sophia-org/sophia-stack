@@ -97,7 +97,25 @@ impl XAuthorityRuntime {
             .dri3_pixmaps
             .get(&pixmap)
             .map(|record| record.descriptor.handle);
-        self.render_retain_freed_pixmap(namespace, pixmap)?;
+        // A pixmap something still references keeps its registration: the
+        // release is owed to the retained backing and is sent when the last
+        // referent goes, not when the XID does.
+        let retained = self.retain_freed_pixmap(namespace, pixmap, released_handle)?;
+        let provider_tracked = self.pixmap_export_handles.contains_key(&pixmap);
+        if !retained {
+            self.retire_pixmap_export_drawable(pixmap);
+        }
+        let released_handle = if retained || provider_tracked {
+            None
+        } else {
+            released_handle
+        };
+        if let Some(handle) = released_handle {
+            self.retired_pixmap_registrations
+                .entry(namespace)
+                .or_default()
+                .push(handle);
+        }
         self.resources.remove(pixmap);
         self.pixmaps.remove(&pixmap);
         self.shm_pixmaps.remove(&pixmap);
@@ -436,7 +454,8 @@ impl XAuthorityRuntime {
             }
             return Err(error);
         }
-        let Some(record) = self.dri3_pixmaps.get(&pixmap) else {
+        let backing = self.resolve_pixmap_export_backing(namespace, pixmap)?;
+        let Some(record) = self.pixmap_export_descriptor(backing) else {
             if crate::x11_authority_trace_enabled() {
                 tracing::info!(
                     "sophia_dri3_recovery schema=1 status=refused reason=never_imported pixmap={:#x} kind={:?}",
@@ -522,16 +541,16 @@ impl XAuthorityRuntime {
         // Both storage paths publish the same compositor-facing owner. A child
         // is an X drawing target, not an independently managed desktop surface.
         let (target_window, _, child_x, child_y) =
-                    match self.window_presentation_root_and_offset(namespace, window) {
-                        Ok(presentation) => presentation,
+            match self.window_presentation_root_and_offset(namespace, window) {
+                Ok(presentation) => presentation,
                 Err(error) => return XAuthorityResponsePacket::rejected(transaction, error),
-                    };
+            };
         let Some(presentation_record) = self.windows.get(target_window) else {
-                    return XAuthorityResponsePacket::rejected(
-                        transaction,
-                        XAuthorityRuntimeError::UnknownResource,
-                    );
-                };
+            return XAuthorityResponsePacket::rejected(
+                transaction,
+                XAuthorityRuntimeError::UnknownResource,
+            );
+        };
         let target_generation = presentation_record.generation;
         let target_size = Size {
             width: presentation_record.geometry.width,
@@ -546,94 +565,93 @@ impl XAuthorityRuntime {
             .get(&pixmap)
             .map(|record| record.descriptor)
         {
-                (
-                    sophia_protocol::BufferSource::DmaBuf {
-                        handle: descriptor.handle.raw(),
-                    },
-                    Region {
-                        rects: damage
-                            .rects
-                            .into_iter()
-                            .map(|rect| Rect {
-                                x: rect.x.saturating_add(child_x),
-                                y: rect.y.saturating_add(child_y),
-                                ..rect
-                            })
-                            .collect(),
-                    },
+            (
+                sophia_protocol::BufferSource::DmaBuf {
+                    handle: descriptor.handle.raw(),
+                },
+                Region {
+                    rects: damage
+                        .rects
+                        .into_iter()
+                        .map(|rect| Rect {
+                            x: rect.x.saturating_add(child_x),
+                            y: rect.y.saturating_add(child_y),
+                            ..rect
+                        })
+                        .collect(),
+                },
                 drawing_extent,
                 pixmap_size,
-                )
-            } else {
-                if let Some(binding) = self.shm_pixmaps.get(&pixmap).cloned() {
-                    let Some(stride) = usize::try_from(binding.size.width)
-                        .ok()
-                        .and_then(|width| width.checked_mul(4))
-                    else {
-                        return XAuthorityResponsePacket::rejected(
-                            transaction,
-                            XAuthorityRuntimeError::InvalidResource,
-                        );
-                    };
-                    if self
-                        .software_buffers
-                        .ensure_image_backing(pixmap, binding.size)
-                        .is_none()
-                    {
-                        return XAuthorityResponsePacket::rejected(
-                            transaction,
-                            XAuthorityRuntimeError::InvalidResource,
-                        );
-                    }
-                    for rect in &source_damage {
-                        let packed = usize::try_from(binding.offset).ok().and_then(|offset| {
-                            let row_offset = usize::try_from(rect.x).ok()?.checked_mul(4)?;
-                            let row_bytes = usize::try_from(rect.width).ok()?.checked_mul(4)?;
-                            let rows = usize::try_from(rect.height).ok()?;
-                            let source_y = usize::try_from(rect.y).ok()?.checked_mul(stride)?;
-                            binding
-                                .mapping
-                                .copy_rows(
-                                    offset.checked_add(source_y)?,
-                                    stride,
-                                    row_offset,
-                                    row_bytes,
-                                    rows,
-                                )
-                                .ok()
-                        });
-                        if packed.as_ref().is_none_or(|bytes| {
-                            self.software_buffers
-                                .put_image_backing(pixmap, binding.size, *rect, bytes)
-                                .is_none()
-                        }) {
-                            return XAuthorityResponsePacket::rejected(
-                                transaction,
-                                XAuthorityRuntimeError::InvalidResource,
-                            );
-                        }
-                    }
-                }
-                let shape =
-                    match self.effective_shape(target_window, crate::X_SHAPE_KIND_BOUNDING) {
-                        (true, rects) => Some(rects),
-                        (false, _) => None,
-                    };
-                let Some(update) = self.software_buffers.present_window_damage(
-                    target_window,
-                    target_size,
-                    pixmap,
-                    child_x.saturating_add(i32::from(x_offset)),
-                    child_y.saturating_add(i32::from(y_offset)),
-                    &source_damage,
-                    shape.as_deref(),
-                ) else {
+            )
+        } else {
+            if let Some(binding) = self.shm_pixmaps.get(&pixmap).cloned() {
+                let Some(stride) = usize::try_from(binding.size.width)
+                    .ok()
+                    .and_then(|width| width.checked_mul(4))
+                else {
                     return XAuthorityResponsePacket::rejected(
                         transaction,
                         XAuthorityRuntimeError::InvalidResource,
                     );
                 };
-                let handle = update.handle();
+                if self
+                    .software_buffers
+                    .ensure_image_backing(pixmap, binding.size)
+                    .is_none()
+                {
+                    return XAuthorityResponsePacket::rejected(
+                        transaction,
+                        XAuthorityRuntimeError::InvalidResource,
+                    );
+                }
+                for rect in &source_damage {
+                    let packed = usize::try_from(binding.offset).ok().and_then(|offset| {
+                        let row_offset = usize::try_from(rect.x).ok()?.checked_mul(4)?;
+                        let row_bytes = usize::try_from(rect.width).ok()?.checked_mul(4)?;
+                        let rows = usize::try_from(rect.height).ok()?;
+                        let source_y = usize::try_from(rect.y).ok()?.checked_mul(stride)?;
+                        binding
+                            .mapping
+                            .copy_rows(
+                                offset.checked_add(source_y)?,
+                                stride,
+                                row_offset,
+                                row_bytes,
+                                rows,
+                            )
+                            .ok()
+                    });
+                    if packed.as_ref().is_none_or(|bytes| {
+                        self.software_buffers
+                            .put_image_backing(pixmap, binding.size, *rect, bytes)
+                            .is_none()
+                    }) {
+                        return XAuthorityResponsePacket::rejected(
+                            transaction,
+                            XAuthorityRuntimeError::InvalidResource,
+                        );
+                    }
+                }
+            }
+            let shape = match self.effective_shape(target_window, crate::X_SHAPE_KIND_BOUNDING) {
+                (true, rects) => Some(rects),
+                (false, _) => None,
+            };
+            let Some(update) = self.software_buffers.present_window_damage(
+                target_window,
+                target_size,
+                pixmap,
+                child_x.saturating_add(i32::from(x_offset)),
+                child_y.saturating_add(i32::from(y_offset)),
+                &source_damage,
+                shape.as_deref(),
+            ) else {
+                return XAuthorityResponsePacket::rejected(
+                    transaction,
+                    XAuthorityRuntimeError::InvalidResource,
+                );
+            };
+            let handle = update.handle();
             let extent = update.size();
             if std::env::var("SOPHIA_X11_PIXEL_TRACE").as_deref() == Ok("1")
                 && let Some(snapshot) = self.software_buffers.presentation_snapshot(target_window)
@@ -651,9 +669,9 @@ impl XAuthorityRuntime {
                     &snapshot.bytes,
                 );
             }
-                self.last_cpu_buffer_updates.push(update);
-                (
-                    sophia_protocol::BufferSource::CpuBuffer { handle },
+            self.last_cpu_buffer_updates.push(update);
+            (
+                sophia_protocol::BufferSource::CpuBuffer { handle },
                 Region {
                     rects: damage
                         .rects
@@ -667,8 +685,8 @@ impl XAuthorityRuntime {
                 },
                 extent,
                 extent,
-                )
-            };
+            )
+        };
         // Two extents, and they are not the same question. The drawing window
         // is what this present was asked to fill; the pixmap is what the client
         // actually handed over. A client that has not answered its last
@@ -690,7 +708,6 @@ impl XAuthorityRuntime {
             250,
         ))
     }
-
 
     pub fn create_dri3_fence(
         &mut self,

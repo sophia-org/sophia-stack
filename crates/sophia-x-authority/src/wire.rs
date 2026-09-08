@@ -959,6 +959,33 @@ pub enum XWireRequest {
     GlxDestroyPbuffer {
         pbuffer: XResourceId,
     },
+    /// GLX 1.3 `CreatePixmap`: a GLX drawable over an existing X pixmap.
+    GlxCreatePixmap {
+        screen: u32,
+        fbconfig: u32,
+        pixmap: XResourceId,
+        glx_pixmap: XResourceId,
+        /// `GLX_TEXTURE_TARGET_EXT`, where the client named one. Absent means
+        /// the server chooses, which the extension allows.
+        target: Option<u32>,
+        /// `GLX_TEXTURE_FORMAT_EXT`, where named.
+        format: Option<u32>,
+        /// `GLX_MIPMAP_TEXTURE_EXT`, where named.
+        mipmap: Option<bool>,
+    },
+    /// GLX 1.2 `CreateGLXPixmap`, which names a visual where its successor
+    /// names a configuration.
+    GlxCreateGlxPixmap {
+        screen: u32,
+        visual: u32,
+        pixmap: XResourceId,
+        glx_pixmap: XResourceId,
+    },
+    /// Both destructors. They differ only in the name a refusal carries.
+    GlxDestroyPixmap {
+        minor_opcode: u8,
+        glx_pixmap: XResourceId,
+    },
     GlxQueryContext {
         context: XResourceId,
     },

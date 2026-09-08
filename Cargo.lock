@@ -1024,6 +1024,7 @@ version = "0.1.0"
 dependencies = [
  "gbm",
  "parley",
+ "rustix",
  "sophia-engine",
  "sophia-protocol",
  "sophia-renderer-native-egl",

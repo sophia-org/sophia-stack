@@ -1,6 +1,8 @@
 use std::os::fd::OwnedFd;
 
-use sophia_protocol::{ClientAdmissionContext, ClientAuthenticationMethod, DmaBufDescriptor, Size};
+use sophia_protocol::{
+    BufferHandle, ClientAdmissionContext, ClientAuthenticationMethod, DmaBufDescriptor, Rect, Size,
+};
 
 /// Monotonically assigned identity for one live X11 client connection.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -143,6 +145,10 @@ pub enum XServerFrontendPixmapAllocationError {
     /// The device refused the allocation or its descriptors could not be
     /// exported.
     AllocationFailed,
+    /// The handle names no backing this provider owns. An imported client
+    /// buffer never enters the store, so naming one here is a mistake to
+    /// report rather than a write to absorb.
+    UnknownBacking,
 }
 
 impl core::fmt::Display for XServerFrontendPixmapAllocationError {
@@ -153,6 +159,9 @@ impl core::fmt::Display for XServerFrontendPixmapAllocationError {
                 formatter.write_str("X11 pixmap allocation target is unsupported")
             }
             Self::AllocationFailed => formatter.write_str("X11 pixmap allocation failed"),
+            Self::UnknownBacking => {
+                formatter.write_str("X11 pixmap backing is not owned by the allocator")
+            }
         }
     }
 }
@@ -172,6 +181,66 @@ pub trait XServerFrontendPixmapAllocator: Send + Sync + 'static {
         &self,
         request: XServerFrontendPixmapAllocation,
     ) -> Result<XServerFrontendAllocatedPixmap, XServerFrontendPixmapAllocationError>;
+
+    /// Whether this provider keeps pixmap backings a GL client can sample.
+    ///
+    /// Immutable for the life of the frontend. `GetFBConfigs` and
+    /// `QueryExtensionsString` are answered once per client, so a value that
+    /// changed mid-session would leave clients holding configurations the
+    /// server no longer honours.
+    fn supports_pixmap_textures(&self) -> bool {
+        false
+    }
+
+    /// Publishes pixels into a backing this provider owns.
+    ///
+    /// Revisions are monotonic per handle: a provider that has already
+    /// published a newer one reports success without rewriting, so a late or
+    /// duplicated update is absorbed rather than retried.
+    fn update_pixmap_buffer(
+        &self,
+        request: XServerFrontendPixmapUpdate,
+    ) -> Result<(), XServerFrontendPixmapAllocationError> {
+        let _ = request;
+        Err(XServerFrontendPixmapAllocationError::Unavailable)
+    }
+
+    /// Drops a backing this provider owns.
+    ///
+    /// Only provider-owned backings reach here; an imported client buffer is
+    /// not the provider's to free.
+    fn release_pixmap_buffer(
+        &self,
+        handle: BufferHandle,
+    ) -> Result<(), XServerFrontendPixmapAllocationError> {
+        let _ = handle;
+        Err(XServerFrontendPixmapAllocationError::Unavailable)
+    }
+}
+
+/// One tightly packed rectangle of a pixmap's pixels.
+///
+/// `bytes` carries `rect.height` rows of `rect.width` pixels with nothing
+/// between them, so a patch has no stride of its own and cannot disagree with
+/// the backing about padding.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XServerFrontendPixmapPatch {
+    pub rect: Rect,
+    pub bytes: Vec<u8>,
+}
+
+/// Pixels to publish into a provider-owned pixmap backing.
+///
+/// Bounded by the limits the CPU patch path already enforces:
+/// `X_AUTHORITY_CPU_PATCH_BATCH_MAX_RECTS` rectangles and
+/// `X_AUTHORITY_SOFTWARE_BUFFER_MAX_BYTES` in total.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct XServerFrontendPixmapUpdate {
+    pub handle: BufferHandle,
+    pub revision: u64,
+    pub size: Size,
+    pub format: u32,
+    pub patches: Vec<XServerFrontendPixmapPatch>,
 }
 
 fn authorization_data_eq(actual: &[u8], expected: &[u8]) -> bool {

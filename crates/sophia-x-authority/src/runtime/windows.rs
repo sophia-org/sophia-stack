@@ -437,180 +437,6 @@ impl XAuthorityRuntime {
                  != sophia_protocol::SurfacePresentationRole::PolicyManaged)
      }
  
-     pub fn create_glx_context(
-         &mut self,
-         namespace: NamespaceId,
-         context: crate::XResourceId,
-         fbconfig: u32,
-         direct: bool,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         if self.resources.get(context).is_some()
-             || self.glx_contexts.contains_key(&context)
-             || self.glx_drawables.contains_key(&context)
-         {
-             return Err(XAuthorityRuntimeError::InvalidResource);
-         }
-         self.glx_contexts
-             .insert(context, (namespace, fbconfig, direct));
-         Ok(())
-     }
- 
-     pub fn glx_context(
-         &self,
-         namespace: NamespaceId,
-         context: crate::XResourceId,
-     ) -> Result<(u32, bool), XAuthorityRuntimeError> {
-         self.glx_contexts
-             .get(&context)
-             .filter(|(owner, _, _)| *owner == namespace)
-             .map(|(_, config, direct)| (*config, *direct))
-             .ok_or(XAuthorityRuntimeError::UnknownResource)
-     }
- 
-     pub fn destroy_glx_context(
-         &mut self,
-         namespace: NamespaceId,
-         context: crate::XResourceId,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         self.glx_context(namespace, context)?;
-         self.glx_contexts.remove(&context);
-         Ok(())
-     }
- 
-     pub fn create_glx_window(
-         &mut self,
-         namespace: NamespaceId,
-         glx_window: crate::XResourceId,
-         window: crate::XResourceId,
-         fbconfig: u32,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         self.validate_window_access(namespace, window)?;
-         if self.resources.get(glx_window).is_some()
-             || self.glx_contexts.contains_key(&glx_window)
-             || self.glx_drawables.contains_key(&glx_window)
-         {
-             return Err(XAuthorityRuntimeError::InvalidResource);
-         }
-         self.glx_drawables.insert(
-             glx_window,
-             XGlxDrawableRecord {
-                 owner: namespace,
-                 fbconfig,
-                 backing: XGlxDrawableBacking::Window(window),
-             },
-         );
-         Ok(())
-     }
- 
-     pub fn glx_drawable(
-         &self,
-         namespace: NamespaceId,
-         drawable: crate::XResourceId,
-     ) -> Result<(crate::XResourceId, u32), XAuthorityRuntimeError> {
-         if let Some(record) = self.glx_drawables.get(&drawable) {
-             if record.owner != namespace {
-                 return Err(XAuthorityRuntimeError::UnknownResource);
-             }
-             return match record.backing {
-                 XGlxDrawableBacking::Window(window) => Ok((window, record.fbconfig)),
-                 // A pbuffer has no X window behind it, so it cannot answer a
-                 // question about one. Callers that accept an offscreen surface
-                 // ask for it by name.
-                 XGlxDrawableBacking::Pbuffer(_) => {
-                     Err(XAuthorityRuntimeError::WrongResourceKind)
-                 }
-             };
-         }
-         self.validate_window_access(namespace, drawable)?;
-         // An X window a client never wrapped still answers as its own drawable.
-         // Its configuration follows its visual, which is the same rule the
-         // catalog states, read back rather than restated.
-         let visual = self.window_visual(drawable).1;
-         let config = crate::X_GLX_FB_CONFIGS
-             .iter()
-             .rev()
-             .find(|config| config.visual == visual)
-             .map_or(1, |config| config.id);
-         Ok((drawable, config))
-     }
- 
-     /// Records an offscreen GLX drawable.
-     ///
-     /// Bookkeeping only, which is the whole of GLX here: a client allocates its
-     /// own buffers and imports them through DRI3, so a drawable with no server
-     /// storage is what a GLX window already is. A pbuffer differs only in having
-     /// no X window to borrow an extent from.
-     pub fn create_glx_pbuffer(
-         &mut self,
-         namespace: NamespaceId,
-         pbuffer: crate::XResourceId,
-         fbconfig: u32,
-         size: Size,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         if self.resources.get(pbuffer).is_some()
-             || self.glx_contexts.contains_key(&pbuffer)
-             || self.glx_drawables.contains_key(&pbuffer)
-         {
-             return Err(XAuthorityRuntimeError::InvalidResource);
-         }
-         self.glx_drawables.insert(
-             pbuffer,
-             XGlxDrawableRecord {
-                 owner: namespace,
-                 fbconfig,
-                 backing: XGlxDrawableBacking::Pbuffer(size),
-             },
-         );
-         Ok(())
-     }
-
-     /// The extent and configuration of an offscreen drawable this client owns.
-     pub fn glx_pbuffer(
-         &self,
-         namespace: NamespaceId,
-         pbuffer: crate::XResourceId,
-     ) -> Result<(Size, u32), XAuthorityRuntimeError> {
-         let record = self
-             .glx_drawables
-             .get(&pbuffer)
-             .filter(|record| record.owner == namespace)
-             .ok_or(XAuthorityRuntimeError::UnknownResource)?;
-         match record.backing {
-             XGlxDrawableBacking::Pbuffer(size) => Ok((size, record.fbconfig)),
-             XGlxDrawableBacking::Window(_) => Err(XAuthorityRuntimeError::WrongResourceKind),
-         }
-     }
-
-     pub fn destroy_glx_pbuffer(
-         &mut self,
-         namespace: NamespaceId,
-         pbuffer: crate::XResourceId,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         self.glx_pbuffer(namespace, pbuffer)?;
-         self.glx_drawables.remove(&pbuffer);
-         Ok(())
-     }
-
-     pub fn destroy_glx_window(
-         &mut self,
-         namespace: NamespaceId,
-         glx_window: crate::XResourceId,
-     ) -> Result<(), XAuthorityRuntimeError> {
-         // Resolving through `glx_drawable` alone would accept any window this
-         // client owns, since that helper falls through to plain X windows.
-         // Deleting a GLX window must name one.
-         let record = self
-             .glx_drawables
-             .get(&glx_window)
-             .filter(|record| record.owner == namespace)
-             .ok_or(XAuthorityRuntimeError::UnknownResource)?;
-         if !matches!(record.backing, XGlxDrawableBacking::Window(_)) {
-             return Err(XAuthorityRuntimeError::WrongResourceKind);
-         }
-         self.glx_drawables.remove(&glx_window);
-         Ok(())
-     }
- 
      pub fn configure_window_geometry(
          &mut self,
          namespace: NamespaceId,
@@ -659,6 +485,7 @@ impl XAuthorityRuntime {
              &self.windows,
              crate::XSelectionChangeKind::SelectionWindowDestroyed,
          );
+         self.retire_pixmap_export_drawable(window);
          self.windows
              .apply(XWindowLifecycleEvent::Destroyed { id: window })?;
          self.resources.remove(window);
@@ -671,7 +498,8 @@ impl XAuthorityRuntime {
          self.window_visuals.remove(&window);
          self.glx_drawables.retain(|_, record| match record.backing {
              XGlxDrawableBacking::Window(underlying) => underlying != window,
-             XGlxDrawableBacking::Pbuffer(_) => true,
+             // Neither borrows a window, so neither is disturbed by one going.
+             XGlxDrawableBacking::Pbuffer(_) | XGlxDrawableBacking::Pixmap { .. } => true,
          });
          if self
              .input_focus
@@ -705,14 +533,24 @@ impl XAuthorityRuntime {
              }
              !owned
          });
+         // A GLX pixmap going here may be the last referent of a retained
+         // backing, and a disconnect must settle that account like any other
+         // release. Collected first because the accounting needs `&mut self`.
+         let mut dropped_pixmap_backings = Vec::new();
          self.glx_drawables.retain(|id, record| {
              let owned = record.owner == namespace
                  && u32::try_from(id.local.raw()).is_ok_and(|raw| range.owns_new_resource(raw));
              if owned {
                  release.released_glx_windows = release.released_glx_windows.saturating_add(1);
+                 if let XGlxDrawableBacking::Pixmap { pixmap: backing, .. } = record.backing {
+                     dropped_pixmap_backings.push(backing);
+                 }
              }
              !owned
          });
+         for backing in dropped_pixmap_backings {
+             self.release_retained_referent(backing, false);
+         }
          for gc in self
              .graphics_contexts
              .ids_for_namespace_in_client_range(namespace, range)

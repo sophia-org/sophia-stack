@@ -1,5 +1,9 @@
 #![cfg(test)]
 
+#[cfg(feature = "native-session")]
+#[path = "../../tests/support/glx_pixmap_export.rs"]
+mod glx_pixmap_export;
+
 #[path = "../../tests/support/live_session_shutdown.rs"]
 mod live_session_shutdown;
 

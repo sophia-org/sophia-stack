@@ -68,3 +68,7 @@ pub use sophia_renderer_live::LivePresentationDisconnectReport;
 #[cfg(feature = "gbm-probe")]
 pub use sophia_renderer_live::allocate_shared_buffer;
 pub use sophia_renderer_live::{LiveSharedBufferAllocation, LiveSharedBufferError};
+#[cfg(feature = "gbm-probe")]
+pub use sophia_renderer_live::{
+    LiveSharedPixmapError, LiveSharedPixmapPatch, LiveSharedPixmapService, LiveSharedPixmapUpdate,
+};

@@ -1,4 +1,6 @@
 mod config;
+mod pixmap_probe;
+pub use pixmap_probe::*;
 mod scanout;
 mod smoke;
 

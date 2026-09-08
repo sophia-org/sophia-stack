@@ -128,6 +128,13 @@ Rules:
 This keeps production modules readable and forces tests to exercise the same
 crate boundary that downstream Sophia components use.
 
+The renderer's private pixmap-allocation adoption handshake is an exception to
+public-API testing. Its external `tests/support/shared_pixmap_adoption.rs` file
+is mounted inside the service module to control cancellation between reply
+enqueue and receipt. A GPU-backed public call cannot deterministically place
+that race. The production API remains unchanged; all test bodies stay outside
+`src`.
+
 ## TEA Policy Style
 
 Use TEA-style structure for policy components:

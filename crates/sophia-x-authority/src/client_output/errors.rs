@@ -1,3 +1,97 @@
+const X_ERROR: u8 = 0;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum XErrorCode {
+    BadRequest,
+    BadValue,
+    BadWindow,
+    BadPixmap,
+    BadDrawable,
+    BadAtom,
+    BadFont,
+    BadMatch,
+    BadAccess,
+    BadAlloc,
+    BadColor,
+    BadGraphicsContext,
+    BadIdChoice,
+    BadName,
+    BadLength,
+    BadImplementation,
+    /// XInput's BadDevice, at the extension's first error code.
+    XiBadDevice,
+    /// RENDER's own errors, at `X_RENDER_FIRST_ERROR` plus each one's offset.
+    /// The protocol defines five, in this order.
+    RenderPictFormat,
+    RenderPicture,
+    RenderPictOp,
+    RenderGlyphSet,
+    RenderGlyph,
+    /// GLX's own errors, at `X_GLX_FIRST_ERROR` plus each one's offset.
+    GlxBadDrawable,
+    GlxBadPixmap,
+    GlxBadFbConfig,
+}
+
+impl XErrorCode {
+    pub const fn wire_code(self) -> u8 {
+        match self {
+            Self::BadRequest => 1,
+            Self::BadValue => 2,
+            Self::BadWindow => 3,
+            Self::BadPixmap => 4,
+            Self::BadDrawable => 9,
+            Self::BadAtom => 5,
+            Self::BadFont => 7,
+            Self::BadMatch => 8,
+            Self::BadAccess => 10,
+            Self::BadAlloc => 11,
+            Self::BadColor => 12,
+            Self::BadGraphicsContext => 13,
+            Self::BadIdChoice => 14,
+            Self::BadName => 15,
+            Self::BadLength => 16,
+            Self::BadImplementation => 17,
+            Self::XiBadDevice => crate::X_INPUT_FIRST_ERROR,
+            Self::RenderPictFormat => X_RENDER_FIRST_ERROR + X_RENDER_PICT_FORMAT_ERROR_OFFSET,
+            Self::RenderPicture => X_RENDER_FIRST_ERROR + X_RENDER_PICTURE_ERROR_OFFSET,
+            Self::RenderPictOp => X_RENDER_FIRST_ERROR + X_RENDER_PICT_OP_ERROR_OFFSET,
+            Self::RenderGlyphSet => X_RENDER_FIRST_ERROR + X_RENDER_GLYPH_SET_ERROR_OFFSET,
+            Self::RenderGlyph => X_RENDER_FIRST_ERROR + X_RENDER_GLYPH_ERROR_OFFSET,
+            Self::GlxBadDrawable => {
+                crate::X_GLX_FIRST_ERROR + crate::X_GLX_BAD_DRAWABLE_ERROR_OFFSET
+            }
+            Self::GlxBadPixmap => crate::X_GLX_FIRST_ERROR + crate::X_GLX_BAD_PIXMAP_ERROR_OFFSET,
+            Self::GlxBadFbConfig => {
+                crate::X_GLX_FIRST_ERROR + crate::X_GLX_BAD_FB_CONFIG_ERROR_OFFSET
+            }
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct XClientError {
+    pub code: XErrorCode,
+    pub sequence: u16,
+    pub resource_id: u32,
+    pub minor_code: u16,
+    pub major_code: u8,
+}
+
+pub fn encode_x_client_error(
+    byte_order: XByteOrder,
+    error: XClientError,
+) -> [u8; X_CLIENT_OUTPUT_RECORD_LEN] {
+    let mut out = [0; X_CLIENT_OUTPUT_RECORD_LEN];
+    out[0] = X_ERROR;
+    out[1] = error.code.wire_code();
+    put_u16(byte_order, &mut out[2..4], error.sequence);
+    put_u32(byte_order, &mut out[4..8], error.resource_id);
+    put_u16(byte_order, &mut out[8..10], error.minor_code);
+    out[10] = error.major_code;
+    out
+}
+
 pub fn x_error_from_wire_parse(
     error: &XWireParseError,
     sequence: u16,
@@ -26,15 +120,8 @@ pub fn x_error_from_wire_parse(
     }
 }
 
-/// Turns a runtime refusal into the X error a client sees.
-///
-/// `minor_code` is the failing request's minor opcode, or `0` for a core
-/// request, which has none. It is a parameter rather than a default because
-/// this used to hardcode zero: every extension refusal that came through here
-/// then claimed to be minor opcode 0, which in most extensions is
-/// `QueryVersion` -- a request that usually takes no resource and so cannot
-/// produce the error being reported. A live session refused nine Present
-/// requests and the evidence named a request that could not have failed.
+/// Converts a runtime refusal while preserving the failing request's opcode.
+/// `minor_code` is zero only for core requests.
 pub fn x_error_from_runtime(
     error: XAuthorityRuntimeError,
     sequence: u16,

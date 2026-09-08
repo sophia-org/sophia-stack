@@ -75,6 +75,7 @@ include!("x11_socket/state.rs");
 include!("x11_socket/connection/raster_telemetry.rs");
 include!("x11_socket/connection/server.rs");
 include!("x11_socket/connection/protocol_routing.rs");
+include!("x11_socket/connection/pixmap_publication.rs");
 include!("x11_socket/connection/dispatch.rs");
 include!("x11_socket/connection/event_state.rs");
 include!("x11_socket/connection/focus.rs");

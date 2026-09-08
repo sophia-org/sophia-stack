@@ -624,10 +624,9 @@ pub(crate) fn run_persistent_xterm_session(
             }));
         #[cfg(feature = "native-session")]
         {
-            frontend_config =
-                frontend_config.with_pixmap_allocator(Arc::new(LiveXPixmapAllocator {
-                    device: native_scanout.clone_render_device_file()?,
-                }));
+            frontend_config = frontend_config.with_pixmap_allocator(Arc::new(
+                LiveXPixmapAllocator::new(native_scanout.clone_render_device_file()?),
+            ));
         }
     }
     let (authority_sender, authority_receiver) = sync_channel(SESSION_AUTHORITY_CAPACITY);

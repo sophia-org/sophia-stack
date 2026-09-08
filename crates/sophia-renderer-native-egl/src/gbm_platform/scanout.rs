@@ -7,6 +7,7 @@ use std::{
 };
 
 mod import_cache;
+pub(crate) use import_cache::create_dma_buf_image;
 mod types;
 
 pub use import_cache::*;

@@ -599,14 +599,16 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
             let mut explicit_pointer_release_completion = None;
             let mut parse_failed = false;
             let mut request_stage = X11ObservedRequestStage::Other;
+            let mut pixmap_publication_prefix = Vec::new();
+            let mut pixmap_prefix_refused = false;
             let (
-                output,
+                mut output,
                 cpu_buffer_updates,
                 dri3_pixmap_import,
                 dri3_fence_import,
                 present_submission,
                 software_present_submission,
-                released_dma_bufs,
+                mut released_dma_bufs,
                 released_fences,
                 mut server_reply_fds,
                 surface_output_reservations,
@@ -712,10 +714,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             initially_triggered,
                             ..
                         } => Some((*fence, *initially_triggered)),
-                        _ => None,
-                    };
-                    let freed_pixmap = match &request {
-                        crate::XWireRequest::FreePixmap { pixmap } => Some(*pixmap),
                         _ => None,
                     };
                     let destroyed_fence = match &request {
@@ -926,6 +924,10 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         client,
                         &request,
                     )?;
+                    let prepared_pixmap_export = match dri3_recovered_pixmap {
+                        Some(drawable) => state.prepare_exported_pixmap(namespace, drawable)?,
+                        None => None,
+                    };
                     let mut runtime = lock_x11_request_runtime(
                         &state.runtime,
                         &state.control_runtime_pending,
@@ -938,63 +940,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         X11SetupSocketError::new("X11 property table lock poisoned")
                     })?;
                     dispatch_started = true;
-                    // The other half of DRI3: a client that expects the server
-                    // to own the storage and asks for its descriptors back. Back
-                    // the pixmap before the request is answered, so the recovery
-                    // finds the same record an import would have left and nothing
-                    // downstream can tell the two halves apart.
-                    if let Some(pixmap) = dri3_recovered_pixmap
-                        && let Some(backing) =
-                            runtime.dri3_pixmap_backing_request(namespace, pixmap)
-                        && let Some(allocator) = state.pixmap_allocator()
-                    {
-                        match allocator.allocate_pixmap_buffer(backing) {
-                            Ok(allocated) => {
-                                let plane_fds =
-                                    allocated.plane_fds.into_iter().map(Arc::new).collect();
-                                let extent = allocated.descriptor.size;
-                                let planes = allocated.descriptor.plane_count;
-                                if let Err(error) = runtime.adopt_dri3_pixmap_backing(
-                                    namespace,
-                                    pixmap,
-                                    allocated.descriptor,
-                                    plane_fds,
-                                ) {
-                                    if crate::x11_authority_trace_enabled() {
-                                        tracing::info!(
-                                            "sophia_dri3_backing schema=1 status=refused reason=not_adopted pixmap={:#x} error={error:?}",
-                                            pixmap.local.raw(),
-                                        );
-                                    }
-                                } else if crate::x11_authority_trace_enabled() {
-                                    // A silent success is indistinguishable from
-                                    // a path that never ran, and telling those
-                                    // apart is the whole reason to look.
-                                    tracing::info!(
-                                        "sophia_dri3_backing schema=1 status=originated pixmap={:#x} width={} height={} planes={}",
-                                        pixmap.local.raw(),
-                                        extent.width,
-                                        extent.height,
-                                        planes,
-                                    );
-                                }
-                            }
-                            Err(error) => {
-                                if crate::x11_authority_trace_enabled() {
-                                    tracing::info!(
-                                        "sophia_dri3_backing schema=1 status=refused reason=allocator pixmap={:#x} error={error}",
-                                        pixmap.local.raw(),
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    let released_dma_buf = freed_pixmap.and_then(|pixmap| {
-                        runtime
-                            .dri3_pixmap_descriptor(namespace, pixmap)
-                            .ok()
-                            .map(|descriptor| descriptor.handle)
-                    });
                     let released_fence = destroyed_fence
                         .and_then(|fence| runtime.dri3_fence_handle(namespace, fence).ok());
                     let configured_geometry_before = hierarchy_geometry.and_then(
@@ -1043,7 +988,30 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             .pointer_grab(namespace)
                             .is_none_or(|grab| grab.owner != client.raw() || grab.route_lease != Some(identity))
                     });
+                    let pixmap_export_changed = prepared_pixmap_export.is_some_and(|token| {
+                        let expected = runtime.pixmap_export_buffers(token).ok();
+                        let current = dri3_recovered_pixmap.and_then(|drawable| {
+                            runtime.dri3_pixmap_buffers(namespace, drawable).ok()
+                        });
+                        !expected.zip(current).is_some_and(|(expected, current)| {
+                            expected.0.handle == current.0.handle
+                        })
+                    });
                     let mut output = match explicit_pointer_preparation {
+                        _ if pixmap_export_changed => {
+                            runtime.begin_dispatch();
+                            XDispatchResult {
+                                response: None,
+                                outputs: vec![crate::XClientOutput::Error(crate::XClientError {
+                                    code: crate::XErrorCode::BadPixmap,
+                                    sequence,
+                                    resource_id: dri3_recovered_pixmap.map_or(0, |id| id.local.raw() as u32),
+                                    minor_code: request_minor_code,
+                                    major_code: major_opcode,
+                                })],
+                                metadata_candidates: Vec::new(),
+                            }
+                        }
                         _ if release_is_stale => {
                             runtime.begin_dispatch();
                             XDispatchResult {
@@ -1731,6 +1699,11 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     } else {
                         Vec::new()
                     };
+                    match runtime.capture_pixmap_publication_prefix(namespace) {
+                        Ok(prefix) => pixmap_publication_prefix = prefix,
+                        Err(_) => pixmap_prefix_refused = true,
+                    }
+                    let released_dma_bufs = runtime.take_retired_pixmap_registrations(namespace);
                     (
                         output,
                         cpu_buffer_updates,
@@ -1738,7 +1711,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         dri3_fence_import,
                         present_submission,
                         software_present_submission,
-                        released_dma_buf.into_iter().collect::<Vec<_>>(),
+                        released_dma_bufs,
                         released_fence.into_iter().collect::<Vec<_>>(),
                         server_reply_fds,
                         surface_output_reservations,
@@ -1764,6 +1737,31 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     )
                 }
             };
+            state.notify_pixmap_progress()?;
+            let published = state.publish_pixmap_prefix(&pixmap_publication_prefix);
+            {
+                let mut runtime = state.runtime.lock()
+                    .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?;
+                runtime.release_pixmap_publication_prefix(pixmap_publication_prefix);
+                released_dma_bufs.extend(runtime.take_retired_pixmap_registrations(namespace));
+                released_dma_bufs.sort_unstable();
+                released_dma_bufs.dedup();
+            }
+            state.notify_pixmap_progress()?;
+            state.release_exported_pixmaps()?;
+            if (!published? || pixmap_prefix_refused)
+                && !output.outputs.iter().any(|item| matches!(item, crate::XClientOutput::Error(_)))
+            {
+                output.outputs.retain(|item| !matches!(item, crate::XClientOutput::Reply(_)));
+                server_reply_fds.clear();
+                output.outputs.push(crate::XClientOutput::Error(crate::XClientError {
+                    code: crate::XErrorCode::BadAlloc,
+                    sequence,
+                    resource_id: 0,
+                    minor_code: request_minor_code,
+                    major_code: major_opcode,
+                }));
+            }
             let observed_received_fds = received_fds
                 .iter()
                 .map(OwnedFd::try_clone)
@@ -2092,7 +2090,14 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     }
     let client_lease = state.release_client(client)?;
     debug_assert_eq!(client_lease.resource_id_range, resource_id_range);
-    let release = release_x11_client_lease(state, namespace, client_lease)?;
+    let mut release = release_x11_client_lease(state, namespace, client_lease)?;
+    release.released_dma_bufs.extend(state.runtime.lock()
+        .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+        .take_retired_pixmap_registrations(namespace));
+    release.released_dma_bufs.sort_unstable();
+    release.released_dma_bufs.dedup();
+    state.notify_pixmap_progress()?;
+    state.release_exported_pixmaps()?;
     if let Some(routing) = protocol_routing.as_ref() {
         for window in &release.destroyed_windows {
             routing

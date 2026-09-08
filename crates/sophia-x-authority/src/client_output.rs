@@ -23,7 +23,6 @@ include!("client_output/helpers.rs");
 
 pub const X_CLIENT_OUTPUT_RECORD_LEN: usize = 32;
 
-const X_ERROR: u8 = 0;
 const X_KEY_PRESS: u8 = 2;
 const X_KEY_RELEASE: u8 = 3;
 const X_BUTTON_PRESS: u8 = 4;
@@ -41,73 +40,6 @@ const X_PROPERTY_NOTIFY: u8 = 28;
 const X_SELECTION_NOTIFY: u8 = 31;
 
 const PROPERTY_NEW_VALUE: u8 = 0;
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum XErrorCode {
-    BadRequest,
-    BadValue,
-    BadWindow,
-    BadPixmap,
-    BadDrawable,
-    BadAtom,
-    BadFont,
-    BadMatch,
-    BadAccess,
-    BadAlloc,
-    BadColor,
-    BadGraphicsContext,
-    BadIdChoice,
-    BadName,
-    BadLength,
-    BadImplementation,
-    /// XInput's BadDevice, at the extension's first error code.
-    XiBadDevice,
-    /// RENDER's own errors, at `X_RENDER_FIRST_ERROR` plus each one's offset.
-    /// The protocol defines five, in this order.
-    RenderPictFormat,
-    RenderPicture,
-    RenderPictOp,
-    RenderGlyphSet,
-    RenderGlyph,
-}
-
-impl XErrorCode {
-    pub const fn wire_code(self) -> u8 {
-        match self {
-            Self::BadRequest => 1,
-            Self::BadValue => 2,
-            Self::BadWindow => 3,
-            Self::BadPixmap => 4,
-            Self::BadDrawable => 9,
-            Self::BadAtom => 5,
-            Self::BadFont => 7,
-            Self::BadMatch => 8,
-            Self::BadAccess => 10,
-            Self::BadAlloc => 11,
-            Self::BadColor => 12,
-            Self::BadGraphicsContext => 13,
-            Self::BadIdChoice => 14,
-            Self::BadName => 15,
-            Self::BadLength => 16,
-            Self::BadImplementation => 17,
-            Self::XiBadDevice => crate::X_INPUT_FIRST_ERROR,
-            Self::RenderPictFormat => X_RENDER_FIRST_ERROR + X_RENDER_PICT_FORMAT_ERROR_OFFSET,
-            Self::RenderPicture => X_RENDER_FIRST_ERROR + X_RENDER_PICTURE_ERROR_OFFSET,
-            Self::RenderPictOp => X_RENDER_FIRST_ERROR + X_RENDER_PICT_OP_ERROR_OFFSET,
-            Self::RenderGlyphSet => X_RENDER_FIRST_ERROR + X_RENDER_GLYPH_SET_ERROR_OFFSET,
-            Self::RenderGlyph => X_RENDER_FIRST_ERROR + X_RENDER_GLYPH_ERROR_OFFSET,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct XClientError {
-    pub code: XErrorCode,
-    pub sequence: u16,
-    pub resource_id: u32,
-    pub minor_code: u16,
-    pub major_code: u8,
-}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum XClientEvent {

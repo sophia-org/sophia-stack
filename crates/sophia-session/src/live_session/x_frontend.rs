@@ -45,6 +45,25 @@ impl XServerFrontendAdmissionPolicy for LiveXAdmissionPolicy {
 #[cfg(feature = "native-session")]
 pub(super) struct LiveXPixmapAllocator {
     pub(super) device: std::fs::File,
+    shared: Option<sophia_backend_live::LiveSharedPixmapService>,
+}
+
+#[cfg(feature = "native-session")]
+impl LiveXPixmapAllocator {
+    pub(super) fn new(device: std::fs::File) -> Self {
+        let shared = device
+            .try_clone()
+            .map_err(|_| sophia_backend_live::LiveSharedPixmapError::Unavailable)
+            .and_then(sophia_backend_live::LiveSharedPixmapService::new);
+        let shared = match shared {
+            Ok(service) => Some(service),
+            Err(reason) => {
+                tracing::warn!(?reason, "pixmap texture export capability unavailable");
+                None
+            }
+        };
+        Self { device, shared }
+    }
 }
 
 #[cfg(feature = "native-session")]
@@ -53,6 +72,19 @@ impl XServerFrontendPixmapAllocator for LiveXPixmapAllocator {
         &self,
         request: XServerFrontendPixmapAllocation,
     ) -> Result<XServerFrontendAllocatedPixmap, XServerFrontendPixmapAllocationError> {
+        if let Some(shared) = self.shared.as_ref() {
+            let allocation = shared
+                .allocate(
+                    sophia_protocol::BufferHandle::from_raw(request.handle),
+                    request.size,
+                    request.depth,
+                )
+                .map_err(shared_pixmap_error)?;
+            return Ok(XServerFrontendAllocatedPixmap {
+                descriptor: allocation.descriptor,
+                plane_fds: allocation.plane_fds,
+            });
+        }
         let allocation = sophia_backend_live::allocate_shared_buffer(
             &self.device,
             request.handle,
@@ -72,6 +104,62 @@ impl XServerFrontendPixmapAllocator for LiveXPixmapAllocator {
             descriptor: allocation.descriptor,
             plane_fds: allocation.plane_fds,
         })
+    }
+
+    fn supports_pixmap_textures(&self) -> bool {
+        self.shared.is_some()
+    }
+
+    fn update_pixmap_buffer(
+        &self,
+        request: sophia_x_authority::XServerFrontendPixmapUpdate,
+    ) -> Result<(), XServerFrontendPixmapAllocationError> {
+        let shared = self
+            .shared
+            .as_ref()
+            .ok_or(XServerFrontendPixmapAllocationError::Unavailable)?;
+        shared
+            .update(sophia_backend_live::LiveSharedPixmapUpdate {
+                handle: request.handle,
+                revision: request.revision,
+                size: request.size,
+                format: request.format,
+                patches: request
+                    .patches
+                    .into_iter()
+                    .map(|patch| sophia_backend_live::LiveSharedPixmapPatch {
+                        rect: patch.rect,
+                        bytes: patch.bytes,
+                    })
+                    .collect(),
+            })
+            .map_err(shared_pixmap_error)
+    }
+
+    fn release_pixmap_buffer(
+        &self,
+        handle: sophia_protocol::BufferHandle,
+    ) -> Result<(), XServerFrontendPixmapAllocationError> {
+        self.shared
+            .as_ref()
+            .ok_or(XServerFrontendPixmapAllocationError::Unavailable)?
+            .release(handle)
+            .map_err(shared_pixmap_error)
+    }
+}
+
+#[cfg(feature = "native-session")]
+fn shared_pixmap_error(
+    error: sophia_backend_live::LiveSharedPixmapError,
+) -> XServerFrontendPixmapAllocationError {
+    use sophia_backend_live::LiveSharedPixmapError as E;
+    match error {
+        E::InvalidTarget => XServerFrontendPixmapAllocationError::UnsupportedTarget,
+        E::UnknownBacking => XServerFrontendPixmapAllocationError::UnknownBacking,
+        E::Unavailable => XServerFrontendPixmapAllocationError::Unavailable,
+        E::Capacity | E::IdentityInUse | E::DeviceRejected | E::ExportFailed | E::UploadFailed => {
+            XServerFrontendPixmapAllocationError::AllocationFailed
+        }
     }
 }
 

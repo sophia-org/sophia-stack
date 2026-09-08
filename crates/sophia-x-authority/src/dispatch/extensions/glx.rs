@@ -43,6 +43,9 @@ fn dispatch_glx_request(
             | XWireRequest::GlxCreateWindow { .. }
             | XWireRequest::GlxCreatePbuffer { .. }
             | XWireRequest::GlxDestroyPbuffer { .. }
+            | XWireRequest::GlxCreatePixmap { .. }
+            | XWireRequest::GlxCreateGlxPixmap { .. }
+            | XWireRequest::GlxDestroyPixmap { .. }
             | XWireRequest::GlxQueryContext { .. }
             | XWireRequest::GlxChangeDrawableAttributes { .. }
             | XWireRequest::GlxMakeContextCurrent { .. }
@@ -86,7 +89,7 @@ fn dispatch_glx_request(
                     let outputs = if screen == 0 {
                         vec![XClientOutput::Reply(XClientReply::GlxFbConfigs {
                             sequence: context.sequence,
-                            configs: glx_fb_configs(),
+                            configs: glx_fb_configs(runtime.pixmap_textures_supported()),
                         })]
                     } else {
                         vec![glx_bad_value(
@@ -116,8 +119,10 @@ fn dispatch_glx_request(
                     let fbconfig = match config {
                         XGlxContextConfig::Visual(X_SETUP_DEFAULT_VISUAL) => Some(1),
                         XGlxContextConfig::Visual(X_SETUP_ARGB_VISUAL) => Some(2),
-                        XGlxContextConfig::FbConfig(fbconfig @ 1..=3) => Some(fbconfig),
-                        XGlxContextConfig::Visual(_) | XGlxContextConfig::FbConfig(_) => None,
+                        XGlxContextConfig::FbConfig(fbconfig) => crate::x_glx_fb_config(
+                            fbconfig, runtime.pixmap_textures_supported(),
+                        ).map(|config| config.id),
+                        XGlxContextConfig::Visual(_) => None,
                     };
                     let valid = screen == 0
                         && fbconfig.is_some()
@@ -190,13 +195,16 @@ fn dispatch_glx_request(
                         (Some(drawable), Some(context_id)) => {
                             let context_record =
                                 runtime.glx_context(context.namespace, context_id);
-                            let drawable = runtime.glx_drawable(context.namespace, drawable);
-                            valid_old_tag
-                                && matches!(
-                                    (context_record, drawable),
-                                    (Ok((1, true)), Ok((_, 1)))
-                                        | (Ok((2 | 3, true)), Ok((_, 2 | 3)))
-                                )
+                            let drawable = runtime.glx_drawable_config(context.namespace, drawable);
+                            valid_old_tag && match (context_record, drawable) {
+                                (Ok((context_config, true)), Ok(drawable_config)) => {
+                                    let supported = runtime.pixmap_textures_supported();
+                                    crate::x_glx_fb_config(context_config, supported)
+                                        .zip(crate::x_glx_fb_config(drawable_config, supported))
+                                        .is_some_and(|(context, drawable)| context.visual == drawable.visual)
+                                }
+                                _ => false,
+                            }
                         }
                         (None, Some(_)) | (Some(_), None) => false,
                     };
@@ -246,10 +254,8 @@ fn dispatch_glx_request(
                     glx_window,
                 } => {
                     let visual = runtime.window_visual(window).1;
-                    let compatible = matches!(
-                        (fbconfig, visual),
-                        (1, X_SETUP_DEFAULT_VISUAL) | (2 | 3, X_SETUP_ARGB_VISUAL)
-                    );
+                    let compatible = crate::x_glx_fb_config(fbconfig, runtime.pixmap_textures_supported())
+                        .is_some_and(|config| config.visual == visual);
                     let outputs = if screen == 0 && compatible {
                         runtime
                             .create_glx_window(context.namespace, glx_window, window, fbconfig)
@@ -285,7 +291,10 @@ fn dispatch_glx_request(
                     height,
                     largest,
                 } => {
-                    let outputs = if screen != 0 || crate::x_glx_fb_config(fbconfig).is_none() {
+                    let outputs = if screen != 0
+                        || crate::x_glx_fb_config(fbconfig, runtime.pixmap_textures_supported())
+                            .is_none()
+                    {
                         vec![glx_bad_value(
                             &context,
                             fbconfig,
@@ -377,6 +386,131 @@ fn dispatch_glx_request(
                         metadata_candidates: Vec::new(),
                     }
                 }
+                XWireRequest::GlxCreatePixmap {
+                    screen,
+                    fbconfig,
+                    pixmap,
+                    glx_pixmap,
+                    target,
+                    format,
+                    mipmap,
+                } => {
+                    // The capability first: with no provider behind them these
+                    // configurations never claimed pixmap drawables, so the
+                    // configuration is what cannot answer.
+                    let supported = runtime.pixmap_textures_supported();
+                    let config = crate::x_glx_fb_config(fbconfig, supported);
+                    let outputs = match config.filter(|_| supported && screen == 0) {
+                        None => vec![XClientOutput::Error(crate::XClientError {
+                            code: XErrorCode::GlxBadFbConfig,
+                            sequence: context.sequence,
+                            resource_id: fbconfig,
+                            minor_code: crate::X_GLX_CREATE_PIXMAP_MINOR_OPCODE.into(),
+                            major_code: context.major_opcode,
+                        })],
+                        Some(config) => runtime
+                            .create_glx_pixmap(
+                                context.namespace,
+                                glx_pixmap,
+                                config,
+                                pixmap,
+                                target,
+                                format,
+                                mipmap,
+                            )
+                            .err()
+                            .map(|error| {
+                                XClientOutput::Error(x_error_from_runtime(
+                                    error,
+                                    context.sequence,
+                                    context.major_opcode,
+                                    u16::from(crate::X_GLX_CREATE_PIXMAP_MINOR_OPCODE),
+                                    glx_pixmap.local.raw() as u32,
+                                ))
+                            })
+                            .into_iter()
+                            .collect(),
+                    };
+                    XDispatchResult {
+                        response: None,
+                        outputs,
+                        metadata_candidates: Vec::new(),
+                    }
+                }
+                XWireRequest::GlxCreateGlxPixmap {
+                    screen,
+                    visual,
+                    pixmap,
+                    glx_pixmap,
+                } => {
+                    // The older constructor names a visual. Resolve it through
+                    // the same catalog so its depth and its successor's cannot
+                    // disagree.
+                    let supported = runtime.pixmap_textures_supported();
+                    let config = crate::x_glx_fb_configs(supported)
+                        .iter()
+                        .copied()
+                        .find(|config| config.visual == visual);
+                    let outputs = match config.filter(|_| supported && screen == 0) {
+                        None => vec![glx_bad_value(
+                            &context,
+                            visual,
+                            crate::X_GLX_CREATE_GLX_PIXMAP_MINOR_OPCODE,
+                        )],
+                        Some(config) => runtime
+                            .create_glx_pixmap(
+                                context.namespace,
+                                glx_pixmap,
+                                config,
+                                pixmap,
+                                // The older constructor names none of them.
+                                None,
+                                None,
+                                None,
+                            )
+                            .err()
+                            .map(|error| {
+                                XClientOutput::Error(x_error_from_runtime(
+                                    error,
+                                    context.sequence,
+                                    context.major_opcode,
+                                    u16::from(crate::X_GLX_CREATE_GLX_PIXMAP_MINOR_OPCODE),
+                                    glx_pixmap.local.raw() as u32,
+                                ))
+                            })
+                            .into_iter()
+                            .collect(),
+                    };
+                    XDispatchResult {
+                        response: None,
+                        outputs,
+                        metadata_candidates: Vec::new(),
+                    }
+                }
+                XWireRequest::GlxDestroyPixmap {
+                    minor_opcode,
+                    glx_pixmap,
+                } => {
+                    let outputs = runtime
+                        .destroy_glx_pixmap(context.namespace, glx_pixmap)
+                        .err()
+                        .map(|error| {
+                            XClientOutput::Error(x_error_from_runtime(
+                                error,
+                                context.sequence,
+                                context.major_opcode,
+                                u16::from(minor_opcode),
+                                glx_pixmap.local.raw() as u32,
+                            ))
+                        })
+                        .into_iter()
+                        .collect();
+                    XDispatchResult {
+                        response: None,
+                        outputs,
+                        metadata_candidates: Vec::new(),
+                    }
+                }
                 XWireRequest::GlxDestroyPbuffer { pbuffer } => {
                     let outputs = runtime
                         .destroy_glx_pbuffer(context.namespace, pbuffer)
@@ -406,10 +540,17 @@ fn dispatch_glx_request(
                     read_drawable,
                     context: glx_context,
                 } => {
+                    // Sophia renders nothing indirectly, so a context that is
+                    // not direct has no renderer to become current on. Binding
+                    // it would promise a path that does not exist.
                     let bound = glx_context.map_or(Ok(()), |glx_context| {
                         runtime
                             .glx_context(context.namespace, glx_context)
-                            .map(|_| ())
+                            .and_then(|(_, direct)| {
+                                direct
+                                    .then_some(())
+                                    .ok_or(XAuthorityRuntimeError::WrongResourceKind)
+                            })
                     });
                     let outputs = match bound
                         .and_then(|()| runtime.drawable_facts(context.namespace, drawable))
@@ -456,9 +597,11 @@ fn dispatch_glx_request(
                     // A window alias reports its backing window's live geometry;
                     // an offscreen surface reports the extent it was created
                     // with, because no window is tracking it.
+                    // A GLX pixmap answers its texture attributes too, which
+                    // the extension defines as queryable rather than as hints.
                     let resolved = runtime
-                        .glx_pbuffer(context.namespace, drawable)
-                        .map(|(size, config)| {
+                        .glx_pixmap_attributes(context.namespace, drawable)
+                        .map(|(size, config, texture)| {
                             (
                                 Rect {
                                     x: 0,
@@ -467,27 +610,58 @@ fn dispatch_glx_request(
                                     height: size.height,
                                 },
                                 config,
+                                Some(texture),
                             )
+                        })
+                        .or_else(|_| {
+                            runtime
+                                .glx_pbuffer(context.namespace, drawable)
+                                .map(|(size, config)| {
+                                    (
+                                        Rect {
+                                            x: 0,
+                                            y: 0,
+                                            width: size.width,
+                                            height: size.height,
+                                        },
+                                        config,
+                                        None,
+                                    )
+                                })
                         })
                         .or_else(|_| {
                             runtime.glx_drawable(context.namespace, drawable).and_then(
                                 |(window, config)| {
                                     runtime
                                         .window_geometry(context.namespace, window)
-                                        .map(|geometry| (geometry, config))
+                                        .map(|geometry| (geometry, config, None))
                                 },
                             )
                         });
                     let outputs = match resolved {
-                        Ok((geometry, config)) => {
+                        Ok((geometry, config, texture)) => {
+                            let mut attributes = vec![
+                                (0x801D, geometry.width as u32),
+                                (0x801E, geometry.height as u32),
+                                (0x8013, config),
+                                (0x800C, 0),
+                            ];
+                            if let Some(texture) = texture {
+                                attributes.extend([
+                                    (
+                                        crate::X_GLX_TEXTURE_TARGET_ATTRIBUTE,
+                                        crate::x_glx_texture_target_name(texture.target),
+                                    ),
+                                    (crate::X_GLX_TEXTURE_FORMAT_ATTRIBUTE, texture.format),
+                                    (
+                                        crate::X_GLX_MIPMAP_TEXTURE_ATTRIBUTE,
+                                        u32::from(texture.mipmap),
+                                    ),
+                                ]);
+                            }
                             vec![XClientOutput::Reply(XClientReply::GlxDrawableAttributes {
                                 sequence: context.sequence,
-                                attributes: vec![
-                                    (0x801D, geometry.width as u32),
-                                    (0x801E, geometry.height as u32),
-                                    (0x8013, config),
-                                    (0x800C, 0),
-                                ],
+                                attributes,
                             })]
                         }
                         Err(error) => vec![XClientOutput::Error(x_error_from_runtime(
@@ -507,7 +681,7 @@ fn dispatch_glx_request(
                     response: None,
                     outputs: vec![XClientOutput::Reply(XClientReply::GlxString {
                         sequence: context.sequence,
-                        value: GLX_EXTENSIONS.to_owned(),
+                        value: glx_extensions(runtime.pixmap_textures_supported()).to_owned(),
                     })],
                     metadata_candidates: Vec::new(),
                 },
@@ -515,7 +689,7 @@ fn dispatch_glx_request(
                     let value = match name {
                         1 => "Sophia",
                         2 => "1.4",
-                        3 => GLX_EXTENSIONS,
+                        3 => glx_extensions(runtime.pixmap_textures_supported()),
                         0x20f6 => "mesa",
                         _ => "",
                     };

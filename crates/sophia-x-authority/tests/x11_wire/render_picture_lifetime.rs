@@ -305,3 +305,390 @@ fn render_picture_survives_pixmap_owner_disconnect_and_releases_with_its_owner()
         assert_eq!(fixture.runtime.resource_count(), 0);
     }
 }
+
+/// A GLX pixmap keeps the pixels it wrapped when the XID is freed and reused,
+/// and the registration it owes is released only when the drawable goes.
+///
+/// The XID is the client's name for the pixmap, not the pixels' identity. A
+/// backing released with the XID would be released while something still reads
+/// it, and one released never would leak.
+#[test]
+fn a_glx_pixmap_keeps_its_backing_across_free_pixmap_and_defers_the_release() {
+    const NAMESPACE: NamespaceId = NamespaceId::from_raw(77);
+    const PIXMAP: u32 = 0x0060_0100;
+    const GLX_PIXMAP: u32 = 0x0060_0101;
+    // A power-of-two extent, so the default texture target is available.
+    const WIDTH: u16 = 64;
+    const HEIGHT: u16 = 64;
+    const STRIDE: u16 = WIDTH * 4;
+
+    let pixmap = XResourceId::new(u64::from(PIXMAP), 1);
+    let glx_pixmap = XResourceId::new(u64::from(GLX_PIXMAP), 1);
+    let mut runtime = XAuthorityRuntime::new();
+    runtime.set_pixmap_textures_supported(true);
+
+    let descriptor = runtime
+        .create_dri3_pixmap(
+            NAMESPACE,
+            pixmap,
+            1,
+            u32::from(STRIDE) * u32::from(HEIGHT),
+            WIDTH,
+            HEIGHT,
+            STRIDE,
+            32,
+            32,
+        )
+        .unwrap();
+    let config = x_glx_fb_config(2, true).unwrap();
+    runtime
+        .create_glx_pixmap(NAMESPACE, glx_pixmap, config, pixmap, None, None, None)
+        .unwrap();
+
+    // Freeing the XID must not release a registration something still reads.
+    assert_eq!(runtime.free_pixmap(NAMESPACE, pixmap).unwrap(), None);
+    assert!(runtime.take_retired_pixmap_registrations(NAMESPACE).is_empty());
+
+    // The drawable still resolves, and to a backing that is no longer the XID.
+    let (backing, fbconfig) = runtime.glx_pixmap(NAMESPACE, glx_pixmap).unwrap();
+    assert_eq!(fbconfig, 2);
+    assert_ne!(
+        backing, pixmap,
+        "the backing must have left the client's XID"
+    );
+
+    // The XID is free for reuse, and reusing it must not disturb the drawable.
+    runtime
+        .create_dri3_pixmap(
+            NAMESPACE,
+            pixmap,
+            2,
+            u32::from(STRIDE) * u32::from(HEIGHT),
+            WIDTH,
+            HEIGHT,
+            STRIDE,
+            32,
+            32,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime.glx_pixmap(NAMESPACE, glx_pixmap).unwrap().0,
+        backing,
+        "a reused XID must not capture a drawable that outlived it",
+    );
+
+    // Imported storage retires its Engine registration, never a provider allocation.
+    assert!(runtime.take_pending_backing_releases().is_empty());
+    // Only when the last referent goes is the release owed.
+    runtime.destroy_glx_pixmap(NAMESPACE, glx_pixmap).unwrap();
+    assert_eq!(
+        runtime.take_retired_pixmap_registrations(NAMESPACE),
+        vec![descriptor.handle],
+    );
+    assert!(runtime.take_pending_backing_releases().is_empty());
+    // And taken once: a release handed back is the caller's obligation, not a
+    // second copy the runtime still holds.
+    assert!(runtime.take_retired_pixmap_registrations(NAMESPACE).is_empty());
+}
+
+/// A release the caller could not complete is returned, not discarded.
+#[test]
+fn an_uncompleted_backing_release_is_returned_ahead_of_later_ones() {
+    let mut runtime = XAuthorityRuntime::new();
+    let first = sophia_protocol::BufferHandle::from_raw(11);
+    let second = sophia_protocol::BufferHandle::from_raw(12);
+    runtime.restore_pending_backing_releases([first]);
+    runtime.restore_pending_backing_releases([second]);
+    assert_eq!(
+        runtime.take_pending_backing_releases(),
+        vec![second, first],
+        "a returned release goes ahead of what was queued after it",
+    );
+}
+
+/// The texture attributes a GLX pixmap was created with are queryable, and the
+/// ones a configuration cannot honour are refused rather than reinterpreted.
+#[test]
+fn glx_pixmap_texture_attributes_round_trip_and_refuse_what_is_unbacked() {
+    const NAMESPACE: NamespaceId = NamespaceId::from_raw(78);
+    const WIDTH: u16 = 30;
+    const HEIGHT: u16 = 17;
+    const STRIDE: u16 = WIDTH * 4;
+
+    fn pixmap_of(runtime: &mut XAuthorityRuntime, raw: u32, depth: u8) -> XResourceId {
+        let pixmap = XResourceId::new(u64::from(raw), 1);
+        runtime
+            .create_dri3_pixmap(
+                NAMESPACE,
+                pixmap,
+                1,
+                u32::from(STRIDE) * u32::from(HEIGHT),
+                WIDTH,
+                HEIGHT,
+                STRIDE,
+                depth,
+                32,
+            )
+            .unwrap();
+        pixmap
+    }
+
+    let mut runtime = XAuthorityRuntime::new();
+    runtime.set_pixmap_textures_supported(true);
+    let argb = x_glx_fb_config(2, true).unwrap();
+
+    // A non-power-of-two extent binds to an ordinary 2D target: refusing it
+    // would refuse what GL_ARB_texture_non_power_of_two allows.
+    let pixmap = pixmap_of(&mut runtime, 0x0060_0200, 32);
+    let drawable = XResourceId::new(0x0060_0201, 1);
+    runtime
+        .create_glx_pixmap(NAMESPACE, drawable, argb, pixmap, None, None, None)
+        .unwrap();
+    let (size, config, texture) = runtime.glx_pixmap_attributes(NAMESPACE, drawable).unwrap();
+    assert_eq!(size.width, i32::from(WIDTH));
+    assert_eq!(size.height, i32::from(HEIGHT));
+    assert_eq!(config, argb.id);
+    assert_eq!(texture.target, X_GLX_TEXTURE_2D_BIT_VALUE);
+    assert_eq!(texture.format, X_GLX_TEXTURE_FORMAT_RGBA_VALUE);
+    assert!(!texture.mipmap);
+
+    // A named rectangle target round trips as itself.
+    let rectangle = XResourceId::new(0x0060_0202, 1);
+    runtime
+        .create_glx_pixmap(
+            NAMESPACE,
+            rectangle,
+            argb,
+            pixmap,
+            Some(X_GLX_TEXTURE_RECTANGLE_VALUE),
+            None,
+            None,
+        )
+        .unwrap();
+    assert_eq!(
+        runtime
+            .glx_pixmap_attributes(NAMESPACE, rectangle)
+            .unwrap()
+            .2
+            .target,
+        X_GLX_TEXTURE_RECTANGLE_BIT_VALUE,
+    );
+
+    // A one-dimensional target needs a single row.
+    assert!(
+        runtime
+            .create_glx_pixmap(
+                NAMESPACE,
+                XResourceId::new(0x0060_0203, 1),
+                argb,
+                pixmap,
+                Some(X_GLX_TEXTURE_1D_VALUE),
+                None,
+                None,
+            )
+            .is_err(),
+    );
+
+    // A mipmapped binding has no capability behind it.
+    assert!(
+        runtime
+            .create_glx_pixmap(
+                NAMESPACE,
+                XResourceId::new(0x0060_0204, 1),
+                argb,
+                pixmap,
+                None,
+                None,
+                Some(true),
+            )
+            .is_err(),
+    );
+
+    // Format follows the ADVERTISED binding capability, not the alpha depth.
+    // The opaque configuration advertises RGBA binding, so it must accept it;
+    // refusing on alpha would refuse what the catalog promises.
+    let opaque_pixmap = pixmap_of(&mut runtime, 0x0060_0210, 24);
+    let opaque = x_glx_fb_config(1, true).unwrap();
+    assert!(opaque.bind_to_texture_rgba());
+    runtime
+        .create_glx_pixmap(
+            NAMESPACE,
+            XResourceId::new(0x0060_0211, 1),
+            opaque,
+            opaque_pixmap,
+            None,
+            Some(X_GLX_TEXTURE_FORMAT_RGBA_VALUE),
+            None,
+        )
+        .unwrap();
+
+    // A format outside the extension's set is refused.
+    assert!(
+        runtime
+            .create_glx_pixmap(
+                NAMESPACE,
+                XResourceId::new(0x0060_0212, 1),
+                opaque,
+                opaque_pixmap,
+                None,
+                Some(0x1234),
+                None,
+            )
+            .is_err(),
+    );
+
+    // And the mipmap refusal is the capability the row advertises, not a
+    // constant the constructor keeps to itself.
+    assert!(!opaque.bind_to_mipmap_texture());
+}
+
+
+fn glx_create_pixmap_request(fbconfig: u32, pixmap: u32, glx_pixmap: u32) -> Vec<u8> {
+    let mut out = vec![0u8; 24];
+    out[0] = X_GLX_MAJOR_OPCODE;
+    out[1] = X_GLX_CREATE_PIXMAP_MINOR_OPCODE;
+    out[2..4].copy_from_slice(&6u16.to_le_bytes());
+    out[8..12].copy_from_slice(&fbconfig.to_le_bytes());
+    out[12..16].copy_from_slice(&pixmap.to_le_bytes());
+    out[16..20].copy_from_slice(&glx_pixmap.to_le_bytes());
+    out
+}
+
+fn glx_destroy_pixmap_request(glx_pixmap: u32) -> Vec<u8> {
+    let mut out = vec![0u8; 8];
+    out[0] = X_GLX_MAJOR_OPCODE;
+    out[1] = X_GLX_DESTROY_PIXMAP_MINOR_OPCODE;
+    out[2..4].copy_from_slice(&2u16.to_le_bytes());
+    out[4..8].copy_from_slice(&glx_pixmap.to_le_bytes());
+    out
+}
+
+/// A pixmap referenced by both a RENDER picture and a GLX pixmap has ONE
+/// backing, and it is released exactly once, after whichever reference happens
+/// to go last.
+///
+/// Two independent lifetimes would release it when the first went, while the
+/// other was still reading, or never at all.
+fn joint_render_and_glx_backing(order: &str) {
+    const GLX_PIXMAP: u32 = 0x0020_0102;
+
+    let mut fixture = RenderFixture::new();
+    fixture.runtime.set_pixmap_textures_supported(true);
+
+    // A DRI3 pixmap, so the backing owes a renderer registration.
+    assert_eq!(
+        RenderFixture::error_of(&fixture.send(&dri3_pixmap_from_buffer_request(
+            RenderFixture::ORDER,
+            RenderFixture::PIXMAP,
+            X_SETUP_DEFAULT_ROOT,
+            8 * 4 * 8,
+            8,
+            8,
+            8 * 4,
+            32,
+            32,
+        ))),
+        None,
+        "{order}: DRI3 pixmap",
+    );
+    assert_eq!(
+        RenderFixture::error_of(&fixture.send(&render_create_picture_request(
+            RenderFixture::ORDER,
+            RenderFixture::PICTURE,
+            RenderFixture::PIXMAP,
+            X_RENDER_FORMAT_ARGB32,
+            &[],
+        ))),
+        None,
+        "{order}: picture",
+    );
+    assert_eq!(
+        RenderFixture::error_of(&fixture.send(&glx_create_pixmap_request(
+            2,
+            RenderFixture::PIXMAP,
+            GLX_PIXMAP,
+        ))),
+        None,
+        "{order}: GLX pixmap",
+    );
+
+    // Freeing the XID retains the backing: two references still read it.
+    assert_eq!(
+        RenderFixture::error_of(&fixture.send(&free_pixmap_request(
+            RenderFixture::ORDER,
+            RenderFixture::PIXMAP,
+        ))),
+        None,
+        "{order}: free pixmap",
+    );
+    assert!(
+        fixture.runtime.take_retired_pixmap_registrations(RenderFixture::NS).is_empty(),
+        "{order}: released while two references still held it",
+    );
+
+    let free_picture = |fixture: &mut RenderFixture| {
+        assert_eq!(
+            RenderFixture::error_of(&fixture.send(&render_free_picture_request(
+                RenderFixture::ORDER,
+                RenderFixture::PICTURE,
+            ))),
+            None,
+        );
+    };
+    let destroy_glx = |fixture: &mut RenderFixture| {
+        assert_eq!(
+            RenderFixture::error_of(&fixture.send(&glx_destroy_pixmap_request(GLX_PIXMAP))),
+            None,
+        );
+    };
+
+    match order {
+        "picture-first" => {
+            free_picture(&mut fixture);
+            assert!(
+                fixture.runtime.take_retired_pixmap_registrations(RenderFixture::NS).is_empty(),
+                "{order}: released while the GLX pixmap still held it",
+            );
+            destroy_glx(&mut fixture);
+        }
+        "glx-first" => {
+            destroy_glx(&mut fixture);
+            assert!(
+                fixture.runtime.take_retired_pixmap_registrations(RenderFixture::NS).is_empty(),
+                "{order}: released while the picture still held it",
+            );
+            free_picture(&mut fixture);
+        }
+        "disconnect" => {
+            fixture
+                .runtime
+                .release_client_resource_range(
+                    RenderFixture::NS,
+                    XWireClientResourceRange {
+                        base: 0x0020_0000,
+                        mask: 0x001f_ffff,
+                    },
+                )
+                .unwrap();
+        }
+        other => panic!("unknown order {other}"),
+    }
+
+    assert!(fixture.runtime.take_pending_backing_releases().is_empty(), "imported storage is not provider-owned");
+    assert_eq!(
+        fixture.runtime.take_retired_pixmap_registrations(RenderFixture::NS).len(),
+        1,
+        "{order}: the backing must be released exactly once",
+    );
+    assert!(
+        fixture.runtime.take_retired_pixmap_registrations(RenderFixture::NS).is_empty(),
+        "{order}: released twice",
+    );
+}
+
+#[test]
+fn joint_render_and_glx_backing_releases_once_whichever_reference_goes_last() {
+    for order in ["picture-first", "glx-first", "disconnect"] {
+        joint_render_and_glx_backing(order);
+    }
+}

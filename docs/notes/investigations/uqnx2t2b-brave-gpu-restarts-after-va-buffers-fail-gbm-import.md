@@ -376,6 +376,43 @@ hardware logs, and prepared configuration/patch are archived under
 `manifest.json` binds the uncommitted candidate to exact source bytes. The helper
 was not installed and no browser was launched or restarted during this work.
 
+## Generic-device requirement and withdrawn launch integration, 2026-09-08
+
+After installing `c7d355d2`, the normal Super+B registration still bypassed the
+explicit CLI helper. A read-only process check found Brave's GPU process running
+with `--use-gl=disabled` and no DRM descriptors despite playing video. A manual
+helper recipe was subsequently activated for the next login, with the prior core
+configuration backed up; that did not change the already-running session.
+
+An uncommitted automatic-prefix implementation covered all three managed launch
+paths and passed `cargo xtask check` (2,768 tests, zero compiler/Clippy warnings,
+20 archived proofs and buffer-age pixel equivalence). Six private hardware tests
+also passed with each render node advertised, including a real Go parser/exec
+fixture. It depended on a known-executable table. Mason explicitly rejected that
+maintenance model and required generic behavior for arbitrary clients. The
+entire automatic integration was withdrawn before commit or installation; its
+source and validation logs were saved under
+`/tmp/sophia-t068-automatic/` as temporary investigation evidence. Passing tests
+did not satisfy the revised architectural requirement.
+
+`t069` is now the top-priority [universal device-negotiation plan](../plans/6tewvlbh-universal-device-negotiation-across-sophia-clients.md).
+It prohibits application-specific Engine adapters and supported-app lists
+anywhere. The existing explicit CLI helper is temporary compatibility tooling,
+not the universal solution or its acceptance evidence.
+
+Independent reviews of Chromium 152.0.7977.83 and ANGLE
+`7df613367a1d4ca9aea9ece344d4580d32d132a9` establish why server negotiation alone
+cannot repair the captured client-internal import. ANGLE
+[enumerates PCI devices](https://chromium.googlesource.com/angle/angle/+/7df613367a1d4ca9aea9ece344d4580d32d132a9/src/gpu_info_util/SystemInfo_libpci.cpp#124)
+and its [active-device heuristic](https://chromium.googlesource.com/angle/angle/+/7df613367a1d4ca9aea9ece344d4580d32d132a9/src/gpu_info_util/SystemInfo.cpp#265)
+selects the first device when both are AMD. Chromium passes that preliminary
+identity into VA initialization before collecting GL context identity. DRI3
+controls its separate GBM import device; neither DRI3 modifiers nor a server-side
+copy influences the earlier independent allocation. This establishes the
+selection mechanism and control boundary, not the exact producer of every
+uninstrumented failed buffer. Restricting device access alone also does not prove
+successful accelerated allocation on the permitted device.
+
 ## Connections
 
 `t068` in [todo.md](../../../todo.md) owns this work. The earlier

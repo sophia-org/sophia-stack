@@ -1326,6 +1326,11 @@ fn vt_chord_releases_application_modifiers_before_suspension() {
         .collect::<Vec<_>>();
 
     assert_eq!(report.virtual_terminal, Some(2));
+    assert_eq!(report.virtual_terminal_trigger_keycode, Some(60));
+    assert_eq!(
+        report.virtual_terminal_modifier_keycodes,
+        [Some(29), None, Some(56), None]
+    );
     assert_eq!(report.virtual_terminal_modifier_releases, 2);
     assert_eq!(
         routed,

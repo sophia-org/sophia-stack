@@ -675,7 +675,9 @@ macro_rules! drain_physical_input {
                     }
                     pending_virtual_terminal = Some((terminal, Instant::now()));
                     crate::session_println!(
-                        "sophia_live_session_vt schema=4 status=queued target={terminal} modifier_releases={}",
+                        "sophia_live_session_vt schema=5 status=queued target={terminal} trigger_keycode={} modifiers={:?} modifier_releases={}",
+                        report.virtual_terminal_trigger_keycode.unwrap_or_default(),
+                        report.virtual_terminal_modifier_keycodes,
                         report.virtual_terminal_modifier_releases,
                     );
                 }

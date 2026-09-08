@@ -16,18 +16,41 @@ fn device_lifecycle_uses_the_authoritative_event_phase() {
                 matches!(action, Remove | Unbind),
                 "kernel {name} {action:?}",
             );
-            assert_eq!(
-                topology_event_requires_rescan(
+            assert!(
+                !topology_event_requires_rescan(
                     TopologyEventSource::Processed,
                     action,
                     OsStr::new(name),
-                    false
+                    false,
                 ),
-                matches!(action, Add | Bind | Change),
                 "processed {name} {action:?}",
             );
         }
     }
+}
+
+#[test]
+fn processed_device_rebuilds_require_a_settled_hotplug_change() {
+    for action in [Add, Bind, Remove, Unbind, Unknown] {
+        assert!(!topology_event_requires_rescan(
+            TopologyEventSource::Processed,
+            action,
+            OsStr::new("card0"),
+            false,
+        ));
+    }
+    assert!(!topology_event_requires_rescan(
+        TopologyEventSource::Processed,
+        Change,
+        OsStr::new("card0"),
+        false,
+    ));
+    assert!(topology_event_requires_rescan(
+        TopologyEventSource::Processed,
+        Change,
+        OsStr::new("card0"),
+        true,
+    ));
 }
 
 #[test]

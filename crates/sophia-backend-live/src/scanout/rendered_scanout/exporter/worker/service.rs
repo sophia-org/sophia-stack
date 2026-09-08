@@ -50,10 +50,17 @@ pub(super) fn run_worker<D>(
     let report = NativeGbmRenderedScanoutContext::from_backend_device_result(device);
     let context_status = report.status;
     let mut context = report.context;
-    if let Some(context) = context.as_mut() {
-        context
-            .set_image_import_devices(import_devices)
-            .expect("worker validates the immutable import-device inventory before spawn");
+    if let Some(render_context) = context.as_mut()
+        && let Err(error) = render_context.set_image_import_devices(import_devices)
+    {
+        // Import-device setup is part of worker startup, but it is still a
+        // runtime capability failure.  Do not turn it into a detached thread
+        // panic: keep the command channel alive so every pending render gets
+        // an explicit failure and the owner can recover or fall back.
+        tracing::error!(
+            "sophia_renderer_worker schema=3 status=startup_failed reason=image_import_devices error={error:?}"
+        );
+        context = None;
     }
     let mut outputs = BTreeMap::<LiveRendererWorkerOutputKey, WorkerOutputState>::new();
     let mut next_lease_id = 1_u64;

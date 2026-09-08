@@ -94,6 +94,18 @@ fn either_control_and_alt_side_is_accepted_but_plain_function_keys_pass() {
 }
 
 #[test]
+fn desktop_shortcuts_do_not_activate_a_virtual_terminal_chord() {
+    let mut chord = VirtualTerminalChordState::default();
+    // Super+Enter and Super+Space are compositor shortcuts, not VT chords.
+    assert_eq!(chord.observe(125, true), VirtualTerminalChordAction::Pass);
+    assert_eq!(chord.observe(28, true), VirtualTerminalChordAction::Pass);
+    assert_eq!(chord.observe(28, false), VirtualTerminalChordAction::Pass);
+    assert_eq!(chord.observe(125, false), VirtualTerminalChordAction::Pass);
+    assert_eq!(chord.observe(57, true), VirtualTerminalChordAction::Pass);
+    assert_eq!(chord.observe(57, false), VirtualTerminalChordAction::Pass);
+}
+
+#[test]
 fn active_vt_chord_exposes_modifier_keys_that_need_synthetic_release() {
     let mut chord = VirtualTerminalChordState::default();
     let _ = chord.observe(29, true);

@@ -30,11 +30,13 @@ pub(super) fn topology_event_requires_rescan(
                     && matches!(action, udev::EventType::Remove | udev::EventType::Unbind))
         }
         TopologyEventSource::Processed => {
-            is_device_node(name)
-                && matches!(
-                    action,
-                    udev::EventType::Add | udev::EventType::Bind | udev::EventType::Change
-                )
+            // The processed monitor is a settled view of the same kernel
+            // topology.  Lifecycle notifications are not topology changes:
+            // startup and database replay commonly produce Add/Bind bursts,
+            // and treating those as rescans can defer native recovery before
+            // the first frame.  Only a settled hotplug Change is authoritative
+            // for a connector/output rebuild.
+            is_device_node(name) && action == udev::EventType::Change && hotplug
         }
     }
 }

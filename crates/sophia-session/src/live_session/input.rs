@@ -50,6 +50,8 @@ struct PhysicalInputRouteReport {
     emergency_exit: bool,
     return_suppressed: bool,
     virtual_terminal: Option<u8>,
+    virtual_terminal_trigger_keycode: Option<u32>,
+    virtual_terminal_modifier_keycodes: [Option<u32>; 4],
     virtual_terminal_modifier_releases: usize,
     pointer_focus_handoff_expired: bool,
     pointer_focus_handoff_stale_drops: usize,
@@ -707,6 +709,8 @@ fn route_input_events_with_launcher(
         emergency_exit: false,
         return_suppressed: false,
         virtual_terminal: None,
+        virtual_terminal_trigger_keycode: None,
+        virtual_terminal_modifier_keycodes: [None; 4],
         virtual_terminal_modifier_releases: 0,
         pointer_focus_handoff_expired: false,
         pointer_focus_handoff_stale_drops: 0,
@@ -834,6 +838,9 @@ fn route_input_events_with_launcher(
                     VirtualTerminalChordAction::Pass => {}
                     VirtualTerminalChordAction::Consume => continue,
                     VirtualTerminalChordAction::Activate(terminal) => {
+                        report.virtual_terminal_trigger_keycode = Some(keycode);
+                        report.virtual_terminal_modifier_keycodes =
+                            virtual_terminal_chord.pressed_modifier_keycodes();
                         keyboard_coverage.observe_virtual_terminal(terminal);
                         for modifier_keycode in virtual_terminal_chord
                             .pressed_modifier_keycodes()

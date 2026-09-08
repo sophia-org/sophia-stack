@@ -834,16 +834,22 @@ fn route_input_events_with_launcher(
                     keyboard_coverage.observe_key(keycode, pressed);
                     let launcher_text=launcher.as_mut().map(|(capture,keyboard)|keyboard.observe(keycode,pressed,capture.active()));
 
-                    match virtual_terminal_chord.observe_at(keycode, pressed, event.time_msec) {
+                    match virtual_terminal_chord.observe_at_device(
+                        event.device,
+                        keycode,
+                        pressed,
+                        event.time_msec,
+                    ) {
                     VirtualTerminalChordAction::Pass => {}
                     VirtualTerminalChordAction::Consume => continue,
                     VirtualTerminalChordAction::Activate(terminal) => {
                         report.virtual_terminal_trigger_keycode = Some(keycode);
                         report.virtual_terminal_modifier_keycodes =
-                            virtual_terminal_chord.pressed_modifier_keycodes();
+                            virtual_terminal_chord
+                                .pressed_modifier_keycodes_for(event.device);
                         keyboard_coverage.observe_virtual_terminal(terminal);
                         for modifier_keycode in virtual_terminal_chord
-                            .pressed_modifier_keycodes()
+                            .pressed_modifier_keycodes_for(event.device)
                             .into_iter()
                             .flatten()
                         {

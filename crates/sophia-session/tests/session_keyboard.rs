@@ -123,6 +123,23 @@ fn a_lost_modifier_release_cannot_activate_a_late_function_key() {
 }
 
 #[test]
+fn modifiers_from_another_keyboard_cannot_activate_a_virtual_terminal() {
+    let mut chord = VirtualTerminalChordState::default();
+    assert_eq!(
+        chord.observe_at_device(DeviceId::from_raw(1), 29, true, 1_000),
+        VirtualTerminalChordAction::Pass
+    );
+    assert_eq!(
+        chord.observe_at_device(DeviceId::from_raw(1), 56, true, 1_001),
+        VirtualTerminalChordAction::Pass
+    );
+    assert_eq!(
+        chord.observe_at_device(DeviceId::from_raw(2), 59, true, 1_002),
+        VirtualTerminalChordAction::Pass
+    );
+}
+
+#[test]
 fn active_vt_chord_exposes_modifier_keys_that_need_synthetic_release() {
     let mut chord = VirtualTerminalChordState::default();
     let _ = chord.observe(29, true);

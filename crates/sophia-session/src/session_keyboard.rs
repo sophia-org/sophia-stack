@@ -1,4 +1,5 @@
 use sophia_protocol::{DeviceId, SeatId, SurfaceId};
+use std::collections::BTreeMap;
 
 const EVDEV_KEY_LEFTCTRL: u32 = 29;
 const EVDEV_KEY_LEFTALT: u32 = 56;
@@ -272,7 +273,7 @@ impl PhysicalKeyboardCoverage {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
-pub struct VirtualTerminalChordState {
+struct VirtualTerminalChordDeviceState {
     left_control: bool,
     right_control: bool,
     left_alt: bool,
@@ -280,6 +281,11 @@ pub struct VirtualTerminalChordState {
     function_keys_down: u16,
     consumed_function_keys: u16,
     modifier_started_msec: Option<u64>,
+}
+
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct VirtualTerminalChordState {
+    devices: BTreeMap<DeviceId, VirtualTerminalChordDeviceState>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -298,6 +304,46 @@ impl VirtualTerminalChordState {
     /// remain armed.  Input loss must not turn a later, unrelated F-key press
     /// into a terminal switch; a real chord is expected to complete promptly.
     pub fn observe_at(
+        &mut self,
+        keycode: u32,
+        pressed: bool,
+        time_msec: u64,
+    ) -> VirtualTerminalChordAction {
+        self.observe_at_device(DeviceId::INVALID, keycode, pressed, time_msec)
+    }
+
+    pub fn observe_at_device(
+        &mut self,
+        device: DeviceId,
+        keycode: u32,
+        pressed: bool,
+        time_msec: u64,
+    ) -> VirtualTerminalChordAction {
+        let state = self.devices.entry(device).or_default();
+        let action = state.observe_at(keycode, pressed, time_msec);
+        if !pressed && state.is_idle() {
+            self.devices.remove(&device);
+        }
+        action
+    }
+
+    pub fn pressed_modifier_keycodes_for(&self, device: DeviceId) -> [Option<u32>; 4] {
+        self.devices
+            .get(&device)
+            .map_or([None; 4], |state| state.pressed_modifier_keycodes())
+    }
+
+    pub fn pressed_modifier_keycodes(&self) -> [Option<u32>; 4] {
+        self.pressed_modifier_keycodes_for(DeviceId::INVALID)
+    }
+
+    pub fn reset(&mut self) {
+        self.devices.clear();
+    }
+}
+
+impl VirtualTerminalChordDeviceState {
+    fn observe_at(
         &mut self,
         keycode: u32,
         pressed: bool,
@@ -373,7 +419,7 @@ impl VirtualTerminalChordState {
         }
     }
 
-    pub const fn pressed_modifier_keycodes(self) -> [Option<u32>; 4] {
+    const fn pressed_modifier_keycodes(&self) -> [Option<u32>; 4] {
         [
             if self.left_control {
                 Some(EVDEV_KEY_LEFTCTRL)
@@ -396,6 +442,10 @@ impl VirtualTerminalChordState {
                 None
             },
         ]
+    }
+
+    const fn is_idle(self) -> bool {
+        !self.control() && self.function_keys_down == 0 && self.consumed_function_keys == 0
     }
 
     const fn control(self) -> bool {

@@ -468,6 +468,50 @@ reply-less client hint cannot provide a missing selection to VA. The
 [t069 exit](../plans/6tewvlbh-universal-device-negotiation-across-sophia-clients.md)
 therefore remains unmet by this candidate, despite its passing server tests.
 
+## Native Wayland and X11 comparison on 2026-09-09
+
+Two further fresh-profile runs used the same browser, local video and 30-second
+probe. Weston 15.0.1 ran its GL renderer on renderD128/Navi31 through its nested
+X11 backend. One browser connected to native Wayland; the other connected to
+Xwayland 24.1.13 hosted by Weston. Sophia remained the outer display server.
+This compares client-facing protocols without claiming a standalone physical
+Wayland session or a native XLibre run.
+
+| Client-facing path | Browser argv override | GPU-process override | Callbacks | GBM failures / GPU exits |
+| --- | --- | --- | ---: | ---: |
+| Sophia X11, earlier uninstrumented run | None | None | 2, then stalled | 1 / 1 |
+| Xwayland X11 | None | None | 1, then decode disconnected | 1 / 1 |
+| Native Wayland | None | renderD128, added internally | 895 | 0 / 0 |
+
+The native Wayland run reported `VaapiVideoDecoder`, 909 total video frames,
+seven dropped frames and zero corrupted frames. Both comparison browsers and
+nested compositors exited normally; the user's original browser was untouched.
+The additional summaries and exact probe hashes are in
+`.artifacts/t069-no-override/cross-server-summary.json` and
+`cross-server-probe-sha256.json`. As above, these are browser playback observations,
+not physical scanout measurements.
+
+The internally added override has an existing protocol source.
+[Wayland DMA-BUF main-device handling](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/ui/ozone/platform/wayland/host/wayland_zwp_linux_dmabuf.cc)
+resolves the compositor's device to a render node.
+[SetRenderNodePath](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/ui/ozone/platform/wayland/host/wayland_connection.cc)
+validates that node through GBM and appends the selection to Chromium's in-memory
+command line when no explicit selection exists. The
+[GPU-process launcher](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/content/browser/gpu/gpu_process_host.cc)
+copies that switch to its child. This explains an unchanged browser argv and a
+selected GPU child without a user recipe. The X11 GBM importer consumes DRI3
+Open without the corresponding media-selection bridge.
+
+The paired failure is therefore not unique to Sophia's X11 implementation.
+The successful Wayland path also prevents a broader claim that Chromium cannot
+negotiate this hardware: its native Wayland client already participates in the
+compositor's selection. Extending that participation to X11 is a client-side
+boundary; adding a server advertisement alone cannot make an existing media
+allocator consume it. Native XLibre remains untested, and neither the nested
+comparison nor source similarity establishes its runtime outcome. XLibre and
+yserver remain the X11 references; Xwayland is not a Sophia dependency or a
+proposed implementation strategy.
+
 ## Connections
 
 The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)

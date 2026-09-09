@@ -178,6 +178,15 @@ pub(super) struct LiveXRenderDeviceProvider {
 }
 
 impl XServerFrontendRenderDeviceProvider for LiveXRenderDeviceProvider {
+    fn render_device_identity(&self) -> Option<sophia_x_authority::XRenderDeviceIdentity> {
+        let stat = rustix::fs::fstat(&self.device).ok()?;
+        Some(sophia_x_authority::XRenderDeviceIdentity {
+            device: stat.st_dev,
+            inode: stat.st_ino,
+            device_number: stat.st_rdev,
+        })
+    }
+
     fn dma_buf_import_formats(&self) -> Vec<sophia_x_authority::XServerFrontendDmaBufImportFormat> {
         self.import_formats.clone()
     }

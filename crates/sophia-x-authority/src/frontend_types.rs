@@ -116,7 +116,21 @@ pub struct XServerFrontendDmaBufImportFormat {
     pub modifiers: Vec<u64>,
 }
 
+/// Exact render-node identity after the backend has normalized card to render.
+/// Equality is conservative evidence; a device number alone is not sufficient.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct XRenderDeviceIdentity {
+    pub device: u64,
+    pub inode: u64,
+    pub device_number: u64,
+}
+
 pub trait XServerFrontendRenderDeviceProvider: Send + Sync + 'static {
+    /// Captured during bundle construction, outside authority locks.
+    fn render_device_identity(&self) -> Option<XRenderDeviceIdentity> {
+        None
+    }
+
     fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError>;
 
     /// Returns cached measurements; this callback must not perform GPU work.

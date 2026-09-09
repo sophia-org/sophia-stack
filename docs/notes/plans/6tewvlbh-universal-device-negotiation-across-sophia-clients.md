@@ -97,6 +97,57 @@ contrary-path review, real same-device and cross-device pixel/performance probes
 and the normal-launch physical gate. Signed implementation checkpoints may be
 pushed before physical acceptance; installation and acceptance are separate.
 
+## Native feedback model and reference boundaries
+
+On 2026-09-09 Mason directed the implementation to use XLibre/yserver as X11
+references and native Wayland for stronger negotiation patterns. Adapt those
+patterns within Sophia's existing authority boundaries. No Wayland server or
+Xwayland dependency is introduced.
+
+The [native DMA-BUF feedback contract](https://gitlab.freedesktop.org/wayland/wayland-protocols/-/blob/main/stable/linux-dmabuf/linux-dmabuf-v1.xml)
+separates one main import device from optional preferred allocations for a
+surface. Feedback arrives as a complete replacement; the client retains a
+composition fallback and decides whether to reallocate. The corresponding
+Sophia mapping is:
+
+| Native feedback pattern | Sophia owner and X11 contract |
+| --- | --- |
+| Main device and measured import formats | Backend prepares one device/allocator/capability bundle; frontend pins it per connection and answers DRI3 Open/GetSupportedModifiers. |
+| Atomic feedback replacement | Session publishes a complete surface/topology-generation snapshot; frontend replaces only a valid current snapshot. DRI3 screen modifiers retain their lifetime guarantee. |
+| Surface-specific scanout preference with composition fallback | Frontend intersects per-output preferences with the connection's measured screen formats. Actual import and atomic scanout validation remain authoritative. |
+| Device identity precedes tiled-layout preference | Retain server-observed render-node identity. Equal modifier numbers or a client's hint alone do not prove same-device compatibility. |
+| Reallocation only when beneficial | Keep Present SuboptimalCopy behind its sufficient alternate-layout proof and preference-generation suppression. |
+| Client consumes the selected device | Existing X11 clients must use the DRI3 capability in the relevant allocation path; server feedback cannot redirect an independent client-internal allocator that never reads it. |
+
+The reference audit used Smithay
+`13738f8f2cc18224c229e7e8309ccdaa34e92e2a` and niri
+`dd75865f547f0eac0e9b6c4d86d2cd00c0744252`. niri's
+`src/backend/tty.rs::surface_dmabuf_feedback` intersects renderer and plane
+formats, then restricts cross-device scanout preferences to LINEAR. Its
+`src/niri.rs` selects surface feedback from actual render-element states.
+Smithay's `src/wayland/dmabuf/mod.rs` builds immutable feedback and sends changed
+surface snapshots without repeating identical ones.
+
+The admitted next correction applies niri's conservative device rule to
+Sophia's existing window preferences. Capture exact server-owned render-node
+identity outside authority locks. Revalidate held card and render descriptors
+against their current node identities before and after physical sysfs mapping;
+node-number reuse must not associate an old KMS group with a new device.
+Tiled preferences require a matching live
+connection and output identity; absent or different identities retain only
+LINEAR when already measured by both sides. Client hints may restrict that set,
+never establish the identity proof. Queries perform no discovery and screen
+capabilities remain unchanged. Regressions cover equal tiled modifier numbers
+on different GPUs, absent/conflicting hints, node replacement, stale topology
+and old connections retained across bundle replacement.
+
+This is an allocation-preference correction, not the missing counterfactual
+flip proof and not a repair to Chromium's early media selection. The
+[native Wayland comparison](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md#native-wayland-and-x11-comparison-on-2026-09-09)
+shows that Chromium already propagates compositor feedback to its GPU child on
+Wayland. Its X11 path lacks the corresponding propagation. The overall normal,
+no-override launch exit remains unchanged.
+
 ## SuboptimalCopy gate
 
 The 2026-09-09 contrary-path review found no sufficient counterfactual proof

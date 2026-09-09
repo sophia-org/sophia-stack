@@ -12,6 +12,7 @@ pub struct XDrmDeviceHint {
 pub struct XWindowAllocationPreference {
     pub surface: SurfaceId,
     pub device: XDrmDeviceHint,
+    pub identity: Option<crate::XRenderDeviceIdentity>,
     pub formats: Vec<crate::XServerFrontendDmaBufImportFormat>,
 }
 

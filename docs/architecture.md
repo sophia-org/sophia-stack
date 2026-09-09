@@ -892,8 +892,11 @@ default for new connections only. Backings retain the originating bundle until
 publication and release finish. Device loss marks that bundle unavailable and
 cannot redirect an existing connection to a different GPU. The advertised
 pixmap-texture capability remains fixed for the frontend's lifetime. Cached
-per-output allocation preferences become optional per-window DRI3 preferences;
-they grant no device authority and imply no successful atomic scanout test.
+per-output allocation preferences become optional per-window DRI3 preferences.
+Tiled preferences require equal server-observed render-node identity across the
+connection and output; absent or different identity retains measured LINEAR only.
+The identity is cached at preparation, so queries require no device discovery.
+Preferences grant no device authority and imply no successful atomic scanout test.
 
 Worker shutdown uses an independent cancellation flag and never waits for an
 unfinished thread or a full command queue. A bounded lifecycle registry retains

@@ -38,6 +38,7 @@ pub struct XServerFrontendDeviceBundle {
     pub(crate) provider: Arc<dyn XServerFrontendRenderDeviceProvider>,
     pub(crate) allocator: Option<Arc<dyn XServerFrontendPixmapAllocator>>,
     formats: BTreeMap<u32, Vec<u64>>,
+    pub(crate) identity: Option<crate::XRenderDeviceIdentity>,
     pixmap_textures: bool,
     available: AtomicBool,
 }
@@ -95,7 +96,9 @@ impl XServerFrontendDeviceBundle {
         let pixmap_textures = allocator
             .as_ref()
             .is_some_and(|value| value.supports_pixmap_textures());
+        let identity = provider.render_device_identity();
         Ok(Self {
+            identity,
             generation,
             provider,
             allocator,

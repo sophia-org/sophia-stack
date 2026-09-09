@@ -2,16 +2,27 @@ use super::*;
 use std::fs::File;
 use std::io;
 
+mod identity;
+
+/// Identity of the retained render node after physical card-to-render mapping.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LiveRenderDeviceNodeIdentity {
+    pub device: u64,
+    pub inode: u64,
+    pub device_number: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiveOutputAllocationPreference {
     pub output: OutputId,
     pub device_number: u64,
+    pub identity: Option<LiveRenderDeviceNodeIdentity>,
     pub modifiers: Vec<u64>,
 }
 
 pub(super) struct LiveRenderDeviceState {
     head_modifiers: Vec<Vec<u64>>,
-    group_devices: Vec<Option<u64>>,
+    group_devices: Vec<Option<LiveRenderDeviceNodeIdentity>>,
     pub(super) generation: u64,
     pub(super) pending: BTreeMap<usize, u64>,
     pub(super) applied: BTreeMap<usize, u64>,
@@ -29,15 +40,16 @@ impl LiveRenderDeviceState {
     }
 }
 
-fn physical_device(file: &File) -> Option<(u64, std::path::PathBuf)> {
-    let metadata = rustix::fs::fstat(file).ok()?;
-    let physical = std::fs::canonicalize(format!(
-        "/sys/dev/char/{}:{}/device",
-        rustix::fs::major(metadata.st_rdev),
-        rustix::fs::minor(metadata.st_rdev),
+fn physical_device(file: &File) -> Option<(LiveRenderDeviceNodeIdentity, std::path::PathBuf)> {
+    let (metadata, physical) = identity::physical_device(file)?;
+    Some((
+        LiveRenderDeviceNodeIdentity {
+            device: metadata.st_dev,
+            inode: metadata.st_ino,
+            device_number: metadata.st_rdev,
+        },
+        physical,
     ))
-    .ok()?;
-    Some((metadata.st_rdev, physical))
 }
 
 impl LiveProductionNativeScanout {
@@ -74,14 +86,16 @@ impl LiveProductionNativeScanout {
                 if !head.enabled {
                     return None;
                 }
+                let identity = self
+                    .render_devices
+                    .group_devices
+                    .get(head.group)
+                    .copied()
+                    .flatten()?;
                 Some(LiveOutputAllocationPreference {
                     output: output.id,
-                    device_number: self
-                        .render_devices
-                        .group_devices
-                        .get(head.group)
-                        .copied()
-                        .flatten()?,
+                    device_number: identity.device_number,
+                    identity: Some(identity),
                     modifiers: self.render_devices.head_modifiers.get(index)?.clone(),
                 })
             })

@@ -53,6 +53,13 @@ pub(super) fn window_allocation_rows(
                     major: rustix::fs::major(preference.device_number),
                     minor: rustix::fs::minor(preference.device_number),
                 },
+                identity: preference.identity.map(|identity| {
+                    sophia_x_authority::XRenderDeviceIdentity {
+                        device: identity.device,
+                        inode: identity.inode,
+                        device_number: identity.device_number,
+                    }
+                }),
                 formats: vec![XServerFrontendDmaBufImportFormat {
                     format: sophia_protocol::DRM_FORMAT_XRGB8888,
                     modifiers: preference.modifiers.clone(),

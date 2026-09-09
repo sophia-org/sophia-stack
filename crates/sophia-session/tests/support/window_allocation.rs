@@ -1,5 +1,5 @@
 use crate::live_session::window_allocation::window_allocation_rows;
-use sophia_backend_live::LiveOutputAllocationPreference;
+use sophia_backend_live::{LiveOutputAllocationPreference, LiveRenderDeviceNodeIdentity};
 use sophia_protocol::{
     BufferSource, CommittedSurfaceState, OutputId, Rect, Region, Size, SurfaceId,
 };
@@ -21,11 +21,17 @@ fn window_preferences_follow_exact_placement_and_clear_on_ambiguity_or_withdrawa
         LiveOutputAllocationPreference {
             output: left,
             device_number: rustix::fs::makedev(226, 128),
+            identity: Some(LiveRenderDeviceNodeIdentity {
+                device: 4,
+                inode: 77,
+                device_number: rustix::fs::makedev(226, 128),
+            }),
             modifiers: vec![2, 3],
         },
         LiveOutputAllocationPreference {
             output: right,
             device_number: rustix::fs::makedev(226, 129),
+            identity: None,
             modifiers: vec![4],
         },
     ];
@@ -47,6 +53,18 @@ fn window_preferences_follow_exact_placement_and_clear_on_ambiguity_or_withdrawa
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].surface, surface);
         assert_eq!(rows[0].device.minor, expected_device);
+        assert_eq!(
+            rows[0].identity,
+            if expected_device == 128 {
+                Some(sophia_x_authority::XRenderDeviceIdentity {
+                    device: 4,
+                    inode: 77,
+                    device_number: rustix::fs::makedev(226, 128),
+                })
+            } else {
+                None
+            }
+        );
         assert_eq!(
             rows[0].formats[0].format,
             sophia_protocol::DRM_FORMAT_XRGB8888

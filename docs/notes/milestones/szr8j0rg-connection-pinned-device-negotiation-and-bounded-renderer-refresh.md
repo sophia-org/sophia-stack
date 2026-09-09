@@ -98,3 +98,54 @@ normal launch behavior without the adapter, hardware video decoding, or device
 loss/recovery. Browser stderr was `/dev/null`, so no browser error-log result is
 claimed. Retained diagnostic facts are in
 `.artifacts/t069-validation/installed-76ed2fdd-observation.json`.
+
+## Device-aware window preference correction
+
+The subsequent native reference review identified a narrower allocation-advice
+problem. Sophia intersected output modifiers with the connection's screen set,
+but equal tiled modifier numbers did not establish that both devices were the
+same. A missing client hint left that distinction untested. niri's native
+feedback builder explicitly restricts cross-device scanout preferences to LINEAR
+while retaining the ordinary rendering fallback.
+
+The correction caches server-observed render-node filesystem device, inode and
+device number in the immutable connection bundle and output preference snapshot.
+Only equal available identities permit tiled preferences. Missing or different
+identity permits LINEAR only where both measured sets already contain it.
+Client hints can further restrict that result. Inconsistent identity/device-number
+snapshots are rejected before replacing accepted preferences. Screen formats and
+actual submitted-buffer import remain unchanged; no advice asserts that atomic
+scanout will succeed.
+
+The contrary-path review also found that resolving a held card's device number
+through current sysfs alone could associate an old KMS group with a new node.
+Inventory refresh occurs before topology-notice handling, and topology preparation
+can defer that notice, so ordering does not exclude the interval. Physical
+mapping therefore revalidates both held card and render-node identities around
+sysfs resolution; missing or replaced nodes yield no output preference. This is
+inventory-time metadata work, not per-query discovery or GPU work.
+
+The [native feedback model](../plans/6tewvlbh-universal-device-negotiation-across-sophia-clients.md#native-feedback-model-and-reference-boundaries)
+records reference identities and the mapping to Sophia's native X11 boundaries.
+The separate [protocol comparison](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md#native-wayland-and-x11-comparison-on-2026-09-09)
+shows successful native Wayland browser playback with internally propagated
+device selection, and the same client-internal failure through two X11 server
+implementations. Native XLibre was reviewed as source, not run. The overall
+no-override and physical device-loss exits remain open.
+
+Validation on the correction based on `40161f42` passed
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check`: all-feature workspace tests
+and Clippy, conformance/reader/archive checks, hardware buffer-age pixel
+equivalence, and GLX/EGL first-frame and pixmap-export pixels. The source was
+unchanged during that successful gate. The initial gate stopped at export-order
+formatting; the corrected file was checked by the successful full run.
+
+Focused regressions passed: eleven DRI3 capability tests, five window-allocation
+tests, one real-socket identity/connection-lifetime regression, one session
+identity-propagation test and four held-device mapping tests. The socket test
+also proves that repeated queries do not call the provider's identity callback.
+The mapping tests inject metadata changes on either side of resolution; they
+are deterministic identity tests, not physical hotplug acceptance.
+
+The exact candidate manifest, focused logs and successful full-gate log are
+retained in `.artifacts/t069-window-device-preferences/`. Browser source and launch configuration were unchanged.

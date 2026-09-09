@@ -50,9 +50,10 @@ fn preferences(runtime: &XAuthorityRuntime, generation: u64) -> XWindowAllocatio
         windows: vec![XWindowAllocationPreference {
             surface: SURFACE,
             device: DEVICE,
+            identity: None,
             formats: vec![XServerFrontendDmaBufImportFormat {
                 format: FORMAT,
-                modifiers: vec![3, 2, 2, 9],
+                modifiers: vec![3, 2, 2, 9, 0],
             }],
         }],
     }
@@ -110,9 +111,9 @@ fn window_preferences_and_device_hints_never_change_the_screen_contract() {
         runtime.update_window_allocation_preferences(snapshot),
         XWindowAllocationUpdate::Applied
     );
-    assert_eq!(query(&mut runtime), (vec![2, 3], vec![0, 2, 3]));
+    assert_eq!(query(&mut runtime), (vec![0], vec![0, 2, 3]));
     for (hint, expected) in [
-        (DEVICE, vec![2, 3]),
+        (DEVICE, vec![0]),
         (
             XDrmDeviceHint {
                 major: 999,
@@ -155,7 +156,7 @@ fn hint_namespace_and_surface_lifetime_are_exact() {
         },
     );
     assert!(matches!(refused.as_slice(), [XClientOutput::Error(_)]));
-    assert_eq!(query(&mut runtime).0, vec![2, 3]);
+    assert_eq!(query(&mut runtime).0, vec![0]);
     runtime.destroy_window(NS, WINDOW).unwrap();
     create(&mut runtime, SurfaceId::new(7, 2));
     assert_eq!(query(&mut runtime).0, Vec::<u64>::new());
@@ -187,7 +188,7 @@ fn invalid_or_stale_preferences_preserve_the_last_accepted_snapshot() {
         runtime.update_window_allocation_preferences(bad),
         XWindowAllocationUpdate::Stale
     );
-    assert_eq!(query(&mut runtime).0, vec![2, 3]);
+    assert_eq!(query(&mut runtime).0, vec![0]);
     let mut topology = runtime.output_topology().clone();
     topology.generation += 1;
     runtime.update_output_topology(topology).unwrap();

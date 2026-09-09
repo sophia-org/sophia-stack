@@ -56,7 +56,13 @@ impl XAuthorityRuntime {
         }
         let mut replacement = BTreeMap::new();
         for mut window in snapshot.windows {
-            if !window.surface.is_valid() || replacement.contains_key(&window.surface) {
+            if !window.surface.is_valid()
+                || replacement.contains_key(&window.surface)
+                || window.identity.is_some_and(|identity| {
+                    rustix::fs::major(identity.device_number) != window.device.major
+                        || rustix::fs::minor(identity.device_number) != window.device.minor
+                })
+            {
                 return U::Invalid;
             }
             let mut seen = BTreeSet::new();
@@ -91,6 +97,7 @@ impl XAuthorityRuntime {
     pub fn window_allocation_modifiers(
         &self,
         namespace: NamespaceId,
+        client_id: u64,
         window: crate::XResourceId,
         format: u32,
         screen_modifiers: &[u64],
@@ -117,6 +124,13 @@ impl XAuthorityRuntime {
         {
             return Vec::new();
         }
+        let identity = self
+            .device_connections
+            .get(&client_id)
+            .and_then(|bundle| bundle.as_ref())
+            .filter(|bundle| bundle.available())
+            .and_then(|bundle| bundle.identity);
+        let same_device = identity.is_some() && identity == preference.identity;
         preference
             .formats
             .iter()
@@ -126,6 +140,7 @@ impl XAuthorityRuntime {
                     .iter()
                     .copied()
                     .filter(|modifier| screen_modifiers.contains(modifier))
+                    .filter(|modifier| same_device || *modifier == 0)
                     .collect()
             })
             .unwrap_or_default()

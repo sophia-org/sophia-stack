@@ -171,6 +171,12 @@ That accepts the white-video repair with the existing CLI device override;
 it does not satisfy this plan's requirement for generic device negotiation
 without an application adapter.
 
+The [connection and renderer refresh checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)
+records immutable frontend bundles, DRI3 hints and window preferences, bounded
+source inventory refresh, pooled internal transfers, and full repository plus
+2,400-frame offscreen pixel validation. Its remaining physical and client-internal
+limits preserve the end-to-end exit above.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

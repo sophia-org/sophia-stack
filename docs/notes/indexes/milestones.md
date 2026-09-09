@@ -7,6 +7,7 @@ They do not revive work, close a current milestone, or change acceptance gates.
 
 ## Milestone records
 
+- 2026-09-09: [Connection-pinned device negotiation and bounded renderer refresh](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)
 - 2026-09-04: [2026-09-04 Milestone 14 Exit Retargeted To Development-Session Readiness](../sources/2026-09/legacy-milestone-0001-2026-09-04-milestone-14-exit-retargeted-to-development-session-readiness.md)
 - 2026-09-04: [2026-09-04 Native Tree Layouts And Tab Descriptors](../sources/2026-09/legacy-milestone-0002-2026-09-04-native-tree-layouts-and-tab-descriptors.md)
 - 2026-09-01: [2026-09-01 Milestone 14 Stable X Backing And Continuous Presentation](../sources/2026-09/legacy-milestone-0003-2026-09-01-milestone-14-stable-x-backing-and-continuous-presentation.md)

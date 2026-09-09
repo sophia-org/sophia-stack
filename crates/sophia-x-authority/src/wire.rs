@@ -433,6 +433,11 @@ pub enum XWireRequest {
         fence: XResourceId,
         initially_triggered: bool,
     },
+    Dri3SetDrmDeviceInUse {
+        window: XResourceId,
+        major: u32,
+        minor: u32,
+    },
     Dri3GetSupportedModifiers {
         window: XResourceId,
         depth: u8,

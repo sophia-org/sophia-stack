@@ -310,6 +310,18 @@ pub struct XAuthorityClientControlAck {
 
 #[derive(Clone, Debug)]
 pub enum XServerFrontendServiceCommand {
+    UpdateWindowAllocationPreferences {
+        snapshot: crate::XWindowAllocationPreferences,
+        acknowledgement: SyncSender<crate::XWindowAllocationUpdate>,
+    },
+    InstallDeviceBundle {
+        bundle: std::sync::Arc<crate::XServerFrontendDeviceBundle>,
+        acknowledgement: SyncSender<Result<(), crate::XServerFrontendDeviceBundleError>>,
+    },
+    MarkDeviceGenerationUnavailable {
+        generation: u64,
+        acknowledgement: SyncSender<Result<(), crate::XServerFrontendDeviceBundleError>>,
+    },
     StopAccepting,
     /// Close admission and client streams, but preserve ordered authority
     /// egress until accepted requests and resource teardown have drained.

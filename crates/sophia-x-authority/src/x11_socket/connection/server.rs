@@ -105,6 +105,10 @@ pub fn run_x11_core_socket_server_once_config_traced_with_idle_timeout(
     )?
     .with_optional_render_device_provider(config.render_device_provider())
         .with_optional_pixmap_allocator(config.pixmap_allocator());
+    if let Some(bundle) = config.device_bundle() {
+        state.install_device_bundle(bundle).map_err(|error| X11SetupSocketError::new(error.to_string()))?;
+    }
+    state.latch_pixmap_texture_support()?;
     serve_x11_core_socket_listener_once_with_setup_authorization(
         &listener,
         config.namespace(),
@@ -639,6 +643,19 @@ pub fn run_x_server_frontend_routed_until_stopped_with_backpressure_observer(
         loop {
             let mut progressed = false;
             match service_commands.try_recv() {
+                Ok(XServerFrontendServiceCommand::UpdateWindowAllocationPreferences { snapshot, acknowledgement }) => {
+                    let outcome = frontend.update_window_allocation_preferences(snapshot)?;
+                    let _ = acknowledgement.try_send(outcome);
+                    progressed = true;
+                }
+                Ok(XServerFrontendServiceCommand::InstallDeviceBundle { bundle, acknowledgement }) => {
+                    let _ = acknowledgement.try_send(frontend.install_device_bundle(bundle));
+                    progressed = true;
+                }
+                Ok(XServerFrontendServiceCommand::MarkDeviceGenerationUnavailable { generation, acknowledgement }) => {
+                    let _ = acknowledgement.try_send(frontend.mark_device_generation_unavailable(generation));
+                    progressed = true;
+                }
                 Ok(XServerFrontendServiceCommand::StopAccepting) => {
                     if accepting {
                         accepting = false;

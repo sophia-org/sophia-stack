@@ -24,14 +24,17 @@ fn dispatch_extension_version_request(
                     })],
                     metadata_candidates: Vec::new(),
                 },
-                XWireRequest::Dri3QueryVersion { .. } => XDispatchResult {
-                    response: None,
-                    outputs: vec![XClientOutput::Reply(XClientReply::Dri3QueryVersion {
-                        sequence: context.sequence,
-                        major_version: 1,
-                        minor_version: 2,
-                    })],
-                    metadata_candidates: Vec::new(),
+                XWireRequest::Dri3QueryVersion { major_version, minor_version } => {
+                    let (major_version, minor_version) = (major_version, minor_version).min((1, 3));
+                    XDispatchResult {
+                        response: None,
+                        outputs: vec![XClientOutput::Reply(XClientReply::Dri3QueryVersion {
+                            sequence: context.sequence,
+                            major_version,
+                            minor_version,
+                        })],
+                        metadata_candidates: Vec::new(),
+                    }
                 },
                 XWireRequest::XfixesQueryVersion {
                     major_version: major,

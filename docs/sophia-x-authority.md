@@ -827,7 +827,7 @@ for the first explicit buffer-handoff reducer. It is not the forward path and
 must not be extended or used for application promotion. The CLI
 present-pixmap smoke retains only its bounded regression value.
 
-Standard DRI3 1.2 and Present are the active path. The socket boundary uses
+Standard DRI3 1.3 and Present are the active path. The socket boundary uses
 `recvmsg`/`sendmsg` to carry bounded SCM_RIGHTS records in both directions,
 queues ancillary FDs in Unix-stream order across requests that consume none,
 and drains exactly the declared arity for each FD-bearing request. DRI3 `Open`
@@ -840,21 +840,31 @@ lifecycle required by Mesa are implemented.
 The backend revalidates the retained device and selected render node around
 each DRI3 open using filesystem device, inode, device number and physical sysfs
 identity. A replaced node or ambiguous sibling is a named refusal, never an
-ordinal fallback. Rebuilding native renderer workers does not migrate this
-frontend provider, its capability snapshot or its pixmap allocator to another
-GPU; replacing the original GPU requires a coordinated frontend generation.
+ordinal fallback. Each authenticated connection pins one immutable device bundle:
+provider, measured import capabilities and pixmap allocator. Installing a later
+bundle affects new connections only. Device loss refuses new opens and
+allocations through the unavailable bundle; it never redirects an existing
+connection. At most sixteen retained bundle generations may coexist. Rebuilding
+renderer workers alone does not change any frontend connection's contract.
 
-`GetSupportedModifiers` returns a bounded, immutable snapshot of explicit
-format/modifier pairs measured on the native EGL import devices when the
-frontend is constructed. The render-device provider and snapshot are latched
-together and shared across connection-state clones. Queries perform no GPU
-discovery. An unavailable or unmeasured format answers an empty list; neither
-linear support nor an implicit modifier is invented. External-texture-only
-formats are excluded because the native renderer samples ordinary 2D textures.
-With multiple output devices, the snapshot contains only linear layouts
-measured on every device; equal tiled modifier numbers alone do not establish
-cross-device compatibility. These are import capabilities, not allocation or
-scanout guarantees. Renderer import still validates each submitted descriptor.
+`GetSupportedModifiers` returns the connection's bounded, immutable snapshot of
+explicit format/modifier pairs. The live bundle measures the same device used
+for DRI3 Open and server allocation. Queries perform no GPU discovery. An
+unavailable or unmeasured format answers an empty list; neither linear support
+nor an implicit modifier is invented. External-texture-only formats are excluded
+because the native renderer samples ordinary 2D textures. Equal tiled modifier
+numbers do not establish cross-device compatibility: renderer import still
+validates each submitted descriptor and may transfer through an admitted source
+device. Import capabilities are not allocation or scanout guarantees.
+
+DRI3 QueryVersion clamps to the client's requested version. SetDRMDeviceInUse
+is an advisory device number scoped to the exact window incarnation, with no
+path lookup or authority grant. Window preferences may change with an exact
+surface and output-topology generation, independently of screen modifiers;
+the returned preferences are restricted to the client's immutable import set.
+Unknown device hints yield no matching window preference. Present SuboptimalCopy
+is not emitted until exact alternate-layout flip evidence exists; failed atomic
+validation or IN_FORMATS membership alone is not that evidence.
 
 Descriptor validation bounds dimensions, logical image bytes, plane count,
 offsets and pitches. Explicit non-linear modifiers may carry opaque auxiliary

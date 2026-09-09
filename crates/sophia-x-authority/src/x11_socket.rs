@@ -72,6 +72,7 @@ include!("x11_socket/frontend/service.rs");
 include!("x11_socket/frontend/clipboard.rs");
 include!("x11_socket/frontend/setup.rs");
 include!("x11_socket/state.rs");
+include!("x11_socket/device_bundles.rs");
 include!("x11_socket/connection/raster_telemetry.rs");
 include!("x11_socket/connection/server.rs");
 include!("x11_socket/connection/protocol_routing.rs");

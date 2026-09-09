@@ -148,6 +148,12 @@ struct Provider {
     device: &'static str,
     snapshots: AtomicUsize,
     opens: AtomicUsize,
+    open_gate: std::sync::Mutex<
+        Option<(
+            std::sync::mpsc::SyncSender<()>,
+            std::sync::mpsc::Receiver<()>,
+        )>,
+    >,
 }
 
 impl Provider {
@@ -157,6 +163,7 @@ impl Provider {
             device,
             snapshots: AtomicUsize::new(0),
             opens: AtomicUsize::new(0),
+            open_gate: Default::default(),
         })
     }
 }
@@ -164,6 +171,11 @@ impl Provider {
 impl XServerFrontendRenderDeviceProvider for Provider {
     fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError> {
         self.opens.fetch_add(1, Ordering::SeqCst);
+        let gate = self.open_gate.lock().unwrap().take();
+        if let Some((entered, resume)) = gate {
+            entered.send(()).unwrap();
+            resume.recv_timeout(Duration::from_secs(3)).unwrap();
+        }
         File::open(self.device)
             .map(OwnedFd::from)
             .map_err(|_| XServerFrontendRenderDeviceError::OpenFailed)
@@ -218,7 +230,7 @@ fn query_socket(stream: &mut UnixStream, depth: u8) -> Vec<u64> {
         .collect()
 }
 
-fn assert_open_uses_zero_device(stream: &mut UnixStream) {
+fn opened_device(stream: &mut UnixStream) -> File {
     let mut request = vec![X_DRI3_MAJOR_OPCODE, X_DRI3_OPEN_MINOR_OPCODE, 3, 0];
     request.extend_from_slice(&X_SETUP_DEFAULT_ROOT.to_le_bytes());
     request.extend_from_slice(&0u32.to_le_bytes());
@@ -248,7 +260,11 @@ fn assert_open_uses_zero_device(stream: &mut UnixStream) {
         })
         .collect();
     assert_eq!(fds.len(), 1);
-    let mut device = File::from(fds.into_iter().next().unwrap());
+    File::from(fds.into_iter().next().unwrap())
+}
+
+fn assert_open_uses_zero_device(stream: &mut UnixStream) {
+    let mut device = opened_device(stream);
     let mut byte = [1];
     device.read_exact(&mut byte).unwrap();
     assert_eq!(byte, [0]);
@@ -322,4 +338,224 @@ fn an_unmeasured_provider_keeps_open_without_inventing_explicit_layouts() {
     assert_open_uses_zero_device(&mut client);
     drop(client);
     worker.join().unwrap().unwrap();
+}
+
+fn socket_client(state: &X11CoreSocketServerState) -> (UnixStream, std::thread::JoinHandle<()>) {
+    let (mut client, mut server) = UnixStream::pair().unwrap();
+    let state = state.clone();
+    let worker = std::thread::spawn(move || {
+        serve_x11_core_socket_client_with_state(&mut server, NamespaceId::from_raw(551), &state)
+            .unwrap();
+    });
+    setup(&mut client);
+    (client, worker)
+}
+
+#[test]
+fn connections_keep_atomic_device_and_modifier_bundles_across_replacement_and_loss() {
+    use std::os::unix::fs::MetadataExt;
+    let state = X11CoreSocketServerState::new();
+    let first = Provider::new(7, "/dev/zero");
+    let second = Provider::new(9, "/dev/null");
+    state
+        .install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(1, first.clone(), None).unwrap(),
+        ))
+        .unwrap();
+    let (mut old, old_worker) = socket_client(&state);
+    assert_eq!(query_socket(&mut old, 24), [7]);
+    state
+        .install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(2, second.clone(), None).unwrap(),
+        ))
+        .unwrap();
+    let (mut new, new_worker) = socket_client(&state);
+    for _ in 0..2 {
+        assert_eq!(query_socket(&mut old, 24), [7]);
+        assert_eq!(query_socket(&mut new, 24), [9]);
+        assert_eq!(
+            opened_device(&mut old).metadata().unwrap().rdev(),
+            File::open("/dev/zero").unwrap().metadata().unwrap().rdev()
+        );
+        assert_eq!(
+            opened_device(&mut new).metadata().unwrap().rdev(),
+            File::open("/dev/null").unwrap().metadata().unwrap().rdev()
+        );
+    }
+    state.mark_device_generation_unavailable(1).unwrap();
+    assert_eq!(
+        query_socket(&mut old, 24),
+        [7],
+        "loss cannot rewrite the screen contract"
+    );
+    let mut request = vec![X_DRI3_MAJOR_OPCODE, X_DRI3_OPEN_MINOR_OPCODE, 3, 0];
+    request.extend_from_slice(&X_SETUP_DEFAULT_ROOT.to_le_bytes());
+    request.extend_from_slice(&0u32.to_le_bytes());
+    old.write_all(&request).unwrap();
+    let mut error = [0; 32];
+    old.read_exact(&mut error).unwrap();
+    assert_eq!(
+        error[0], 0,
+        "lost device Open must refuse rather than switch devices"
+    );
+    assert_eq!(
+        first.opens.load(Ordering::SeqCst),
+        2,
+        "loss must be checked before provider Open"
+    );
+    assert_eq!(query_socket(&mut new, 24), [9]);
+    assert_eq!(
+        opened_device(&mut new).metadata().unwrap().rdev(),
+        File::open("/dev/null").unwrap().metadata().unwrap().rdev()
+    );
+    assert_eq!(first.snapshots.load(Ordering::SeqCst), 1);
+    assert_eq!(second.snapshots.load(Ordering::SeqCst), 1);
+    drop(old);
+    drop(new);
+    old_worker.join().unwrap();
+    new_worker.join().unwrap();
+}
+
+#[test]
+fn device_bundle_capacity_and_stale_install_preserve_the_current_generation() {
+    let state = X11CoreSocketServerState::new();
+    let mut clients = Vec::new();
+    for generation in 1..=X_SERVER_FRONTEND_DEVICE_BUNDLE_CAPACITY as u64 {
+        let provider = Provider::new(generation, "/dev/zero");
+        state
+            .install_device_bundle(Arc::new(
+                XServerFrontendDeviceBundle::new(generation, provider, None).unwrap(),
+            ))
+            .unwrap();
+        clients.push(socket_client(&state));
+    }
+    let next = X_SERVER_FRONTEND_DEVICE_BUNDLE_CAPACITY as u64 + 1;
+    let candidate = Arc::new(
+        XServerFrontendDeviceBundle::new(next, Provider::new(next, "/dev/null"), None).unwrap(),
+    );
+    assert_eq!(
+        state.install_device_bundle(candidate.clone()),
+        Err(XServerFrontendDeviceBundleError::Capacity)
+    );
+    assert_eq!(
+        query_socket(&mut clients.last_mut().unwrap().0, 24),
+        [next - 1]
+    );
+    let (old, worker) = clients.remove(0);
+    drop(old);
+    worker.join().unwrap();
+    state.install_device_bundle(candidate).unwrap();
+    assert_eq!(
+        state.install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(next - 1, Provider::new(99, "/dev/null"), None)
+                .unwrap()
+        )),
+        Err(XServerFrontendDeviceBundleError::StaleGeneration)
+    );
+    let (mut latest, worker) = socket_client(&state);
+    assert_eq!(query_socket(&mut latest, 24), [next]);
+    drop(latest);
+    worker.join().unwrap();
+    for (client, worker) in clients {
+        drop(client);
+        worker.join().unwrap();
+    }
+}
+
+#[test]
+fn bundle_constructor_rejects_zero_generation_and_oversized_inventory() {
+    assert_eq!(
+        XServerFrontendDeviceBundle::new(0, Provider::new(0, "/dev/zero"), None).unwrap_err(),
+        XServerFrontendDeviceBundleError::InvalidGeneration
+    );
+    let provider = Arc::new(Provider {
+        modifiers: vec![0; 16_385],
+        device: "/dev/zero",
+        snapshots: AtomicUsize::new(0),
+        opens: AtomicUsize::new(0),
+        open_gate: Default::default(),
+    });
+    assert_eq!(
+        XServerFrontendDeviceBundle::new(1, provider, None).unwrap_err(),
+        XServerFrontendDeviceBundleError::InvalidInventory
+    );
+}
+
+#[test]
+fn device_open_releases_the_runtime_lock_and_refuses_a_completion_overtaken_by_loss() {
+    let state = X11CoreSocketServerState::new();
+    let provider = Provider::new(7, "/dev/zero");
+    state
+        .install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(1, provider.clone(), None).unwrap(),
+        ))
+        .unwrap();
+    let (mut opening, worker) = socket_client(&state);
+    let (mut other, other_worker) = socket_client(&state);
+    let (entered, observed) = std::sync::mpsc::sync_channel(1);
+    let (resume, waiting) = std::sync::mpsc::sync_channel(1);
+    *provider.open_gate.lock().unwrap() = Some((entered, waiting));
+    let mut request = vec![X_DRI3_MAJOR_OPCODE, X_DRI3_OPEN_MINOR_OPCODE, 3, 0];
+    request.extend_from_slice(&X_SETUP_DEFAULT_ROOT.to_le_bytes());
+    request.extend_from_slice(&0u32.to_le_bytes());
+    opening.write_all(&request).unwrap();
+    observed.recv_timeout(Duration::from_secs(3)).unwrap();
+    other
+        .set_read_timeout(Some(Duration::from_secs(1)))
+        .unwrap();
+    assert_eq!(
+        query_socket(&mut other, 24),
+        [7],
+        "a blocked provider Open must not block authority dispatch"
+    );
+    state.mark_device_generation_unavailable(1).unwrap();
+    resume.send(()).unwrap();
+    let mut error = [0; 32];
+    opening.read_exact(&mut error).unwrap();
+    assert_eq!(
+        error[0], 0,
+        "a provider completion after loss must not return its fd"
+    );
+    assert_eq!(query_socket(&mut opening, 24), [7]);
+    drop(opening);
+    drop(other);
+    worker.join().unwrap();
+    other_worker.join().unwrap();
+}
+
+#[test]
+fn replacement_cannot_change_the_frontends_cached_glx_capability() {
+    struct Textures;
+    impl XServerFrontendPixmapAllocator for Textures {
+        fn supports_pixmap_textures(&self) -> bool {
+            true
+        }
+        fn allocate_pixmap_buffer(
+            &self,
+            _: XServerFrontendPixmapAllocation,
+        ) -> Result<XServerFrontendAllocatedPixmap, XServerFrontendPixmapAllocationError> {
+            Err(XServerFrontendPixmapAllocationError::Unavailable)
+        }
+    }
+    let state = X11CoreSocketServerState::new();
+    state
+        .install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(1, Provider::new(7, "/dev/zero"), None).unwrap(),
+        ))
+        .unwrap();
+    assert_eq!(
+        state.install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(
+                2,
+                Provider::new(9, "/dev/null"),
+                Some(Arc::new(Textures))
+            )
+            .unwrap()
+        )),
+        Err(XServerFrontendDeviceBundleError::CapabilityMismatch)
+    );
+    let (mut client, worker) = socket_client(&state);
+    assert_eq!(query_socket(&mut client, 24), [7]);
+    drop(client);
+    worker.join().unwrap();
 }

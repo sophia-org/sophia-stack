@@ -647,7 +647,7 @@ fn x11_dispatch_advertises_mit_shm_and_replies_to_query_version() {
 }
 
 #[test]
-fn x11_dispatch_negotiates_standard_dri3_and_present_1_2() {
+fn x11_dispatch_negotiates_dri3_1_3_and_present_1_2() {
     let namespace = NamespaceId::from_raw(45);
     let mut runtime = XAuthorityRuntime::new();
     let mut atoms = XAtomTable::new();
@@ -691,7 +691,8 @@ fn x11_dispatch_negotiates_standard_dri3_and_present_1_2() {
         );
         let encoded = version.encoded_outputs(XByteOrder::LittleEndian);
         assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][8..12]), 1);
-        assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][12..16]), 2);
+        assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][12..16]),
+            if opcode == X_DRI3_MAJOR_OPCODE { 3 } else { 2 });
     }
 }
 

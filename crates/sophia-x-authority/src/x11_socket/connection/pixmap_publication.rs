@@ -41,12 +41,23 @@ impl X11CoreSocketServerState {
         namespace: NamespaceId,
         drawable: XResourceId,
     ) -> Result<Option<crate::XPixmapExportToken>, X11SetupSocketError> {
-        let Some(provider) = self.pixmap_allocator() else { return Ok(None); };
+        let Some(owner) = self.allocation_provider_owner() else { return Ok(None); };
         let deadline = Instant::now() + X11_PIXMAP_PUBLICATION_TIMEOUT;
-        let preparation = self.runtime.lock()
-            .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
-            .prepare_pixmap_export(namespace, drawable);
-        let Ok(preparation) = preparation else { return Ok(None); };
+        let preparation = {
+            let mut runtime = self.runtime.lock()
+                .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?;
+            if owner.retains_storage != runtime.pixmap_textures_supported() {
+                return Ok(None);
+            }
+            let Ok(preparation) = runtime.prepare_pixmap_export(namespace, drawable) else { return Ok(None); };
+            if let crate::XPixmapExportPreparation::Allocate { token, .. } = preparation
+                && !self.reserve_pixmap_provider(token.handle, owner.clone())?
+            {
+                let _ = runtime.finish_pixmap_export_allocation(token, None);
+                return Ok(None);
+            }
+            preparation
+        };
         let token = match preparation {
             crate::XPixmapExportPreparation::Ready => None,
             crate::XPixmapExportPreparation::Pending(token) => {
@@ -58,13 +69,15 @@ impl X11CoreSocketServerState {
                 Some(token)
             }
             crate::XPixmapExportPreparation::Allocate { token, request } => {
-                let allocation = provider.allocate_pixmap_buffer(request);
+                let allocation = owner.allocator.allocate_pixmap_buffer(request);
+                let allocated = allocation.is_ok();
                 if let Err(error) = &allocation {
                     tracing::warn!("sophia_pixmap_export schema=1 status=refused reason=allocation error={error}");
                 }
                 let adopted = self.runtime.lock()
                     .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
                     .finish_pixmap_export_allocation(token, allocation.ok());
+                if !allocated { self.finish_pixmap_provider_owner(token.handle)?; }
                 self.notify_pixmap_progress()?;
                 if let Err(error) = adopted {
                     tracing::warn!("sophia_pixmap_export schema=1 status=refused reason=adoption error={error:?}");
@@ -81,7 +94,6 @@ impl X11CoreSocketServerState {
         targets: &[crate::XPixmapPublicationTarget],
     ) -> Result<bool, X11SetupSocketError> {
         if targets.is_empty() { return Ok(true); }
-        let Some(provider) = self.pixmap_allocator() else { return Ok(false); };
         let deadline = Instant::now() + X11_PIXMAP_PUBLICATION_TIMEOUT;
         for &target in targets {
             loop {
@@ -95,7 +107,10 @@ impl X11CoreSocketServerState {
                 match update {
                     Ok(Some(update)) => {
                         let (handle, revision) = (update.handle, update.revision);
-                        let result = provider.update_pixmap_buffer(update);
+                        let result = match self.pixmap_provider_owner(handle)? {
+                            Some(owner) => owner.allocator.update_pixmap_buffer(update),
+                            None => Err(crate::XServerFrontendPixmapAllocationError::UnknownBacking),
+                        };
                         self.runtime.lock()
                             .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
                             .finish_pixmap_publication_update(handle, revision, result.is_ok());
@@ -125,28 +140,39 @@ impl X11CoreSocketServerState {
 
     /// Failed cleanup remains debt, including after the originating client exits.
     fn release_exported_pixmaps(&self) -> Result<(), X11SetupSocketError> {
-        let Some(provider) = self.pixmap_allocator() else { return Ok(()); };
         let mut releases = self.runtime.lock()
             .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
             .take_pending_backing_releases().into_iter();
         let deadline = Instant::now() + X11_PIXMAP_PUBLICATION_TIMEOUT;
+        let mut deferred = Vec::new();
         while let Some(handle) = releases.next() {
-            let result = provider.release_pixmap_buffer(handle);
+            let result = match self.pixmap_provider_owner(handle)? {
+                Some(owner) => owner.allocator.release_pixmap_buffer(handle),
+                None => Err(crate::XServerFrontendPixmapAllocationError::UnknownBacking),
+            };
             if result.is_ok() {
                 self.runtime.lock()
                     .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
                     .finish_pixmap_backing_release(handle);
+                self.finish_pixmap_provider_owner(handle)?;
             }
-            if result.is_err() || Instant::now() >= deadline {
-                let restore = result.is_err().then_some(handle).into_iter().chain(releases);
+            if let Err(error) = result {
+                deferred.push(handle);
+                tracing::warn!("sophia_pixmap_export schema=1 status=deferred reason=release error={error}");
+            }
+            if Instant::now() >= deadline {
+                // Unattempted owners lead the next pass; a lost provider must
+                // not prevent a healthy generation from releasing its storage.
                 self.runtime.lock()
                     .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
-                    .restore_pending_backing_releases(restore);
-                if let Err(error) = result {
-                    tracing::warn!("sophia_pixmap_export schema=1 status=deferred reason=release error={error}");
-                }
-                break;
+                    .restore_pending_backing_releases(releases.chain(deferred));
+                return Ok(());
             }
+        }
+        if !deferred.is_empty() {
+            self.runtime.lock()
+                .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+                .restore_pending_backing_releases(deferred);
         }
         Ok(())
     }

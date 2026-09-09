@@ -314,6 +314,8 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
         None
     };
     let mut setup_lease = None;
+    let mut connection_state = None;
+    let mut _device_pin = None;
     let mut admission_lease = None;
     let mut admission_failure = None;
     let Some((setup, setup_success)) = serve_x11_setup_socket_client_with_setup_authorization(
@@ -342,6 +344,9 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
             }
             debug_assert!(authorization.permits(setup_request));
             let (lease, setup_success) = state.next_client_setup_success()?;
+            let (pinned, pin) = state.pin_connection_device(lease.client)?;
+            connection_state = Some(pinned);
+            _device_pin = Some(pin);
             setup_lease = Some(lease);
             Ok(Some(setup_success))
         },
@@ -354,6 +359,8 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
         }
         return Ok(());
     };
+    let connection_state = connection_state.ok_or_else(|| X11SetupSocketError::new("X11 connection device was not pinned"))?;
+    let state = &connection_state;
     let namespace = admission_lease
         .as_ref()
         .map(|lease| lease.context().namespace.id)
@@ -674,7 +681,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         *size_bytes = size;
                     }
                     let event_selection = x11_core_event_selection_update(&request);
-                    let dri3_open = matches!(&request, crate::XWireRequest::Dri3Open { .. });
                     let xid_request = match &request {
                         crate::XWireRequest::XCMiscGetXIDRange => Some(1u32),
                         crate::XWireRequest::XCMiscGetXIDList { count } => Some(*count),
@@ -1607,21 +1613,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             }
                         }
                     }
-                    if dispatch_succeeded && dri3_open {
-                        match state.open_render_device_fd() {
-                            Ok(fd) => server_reply_fds.push(fd),
-                            Err(_) => {
-                                output.outputs =
-                                    vec![crate::XClientOutput::Error(crate::XClientError {
-                                        code: crate::XErrorCode::BadImplementation,
-                                        sequence,
-                                        resource_id: 0,
-                                        minor_code: u16::from(crate::X_DRI3_OPEN_MINOR_OPCODE),
-                                        major_code: crate::X_DRI3_MAJOR_OPCODE,
-                                    })];
-                            }
-                        }
-                    }
                     let surface_output_reservations = dispatch_succeeded
                         .then_some(output_reservation_surface)
                         .flatten()
@@ -1776,6 +1767,21 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     )
                 }
             };
+            // Validation is complete; opening the pinned device must not hold
+            // the authority lock or substitute a newer connection generation.
+            if output.outputs.iter().any(|item| matches!(item,
+                crate::XClientOutput::Reply(crate::XClientReply::Dri3Open { .. })))
+            {
+                match state.open_render_device_fd() {
+                    Ok(fd) => server_reply_fds.push(fd),
+                    Err(_) => output.outputs = vec![crate::XClientOutput::Error(crate::XClientError {
+                        code: crate::XErrorCode::BadImplementation,
+                        sequence, resource_id: 0,
+                        minor_code: u16::from(crate::X_DRI3_OPEN_MINOR_OPCODE),
+                        major_code: crate::X_DRI3_MAJOR_OPCODE,
+                    })],
+                }
+            }
             state.notify_pixmap_progress()?;
             let published = state.publish_pixmap_prefix(&pixmap_publication_prefix);
             {
@@ -2127,6 +2133,9 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
             pointers.retain(|(owner, _), _| *owner != namespace);
         }
     }
+    state.runtime.lock()
+        .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+        .release_client_device_bundle(client.raw());
     let client_lease = state.release_client(client)?;
     debug_assert_eq!(client_lease.resource_id_range, resource_id_range);
     let mut release = release_x11_client_lease(state, namespace, client_lease)?;

@@ -42,6 +42,14 @@ fn decode_dri3(context: XWireClientContext, bytes: &[u8]) -> Result<XWireRequest
                 initially_triggered: bytes[12] != 0,
             })
         }
+        X_DRI3_SET_DRM_DEVICE_IN_USE_MINOR_OPCODE => {
+            require_exact_len(X_DRI3_MAJOR_OPCODE, 16, bytes.len())?;
+            Ok(XWireRequest::Dri3SetDrmDeviceInUse {
+                window: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+                major: context.byte_order.u32(&bytes[8..12]),
+                minor: context.byte_order.u32(&bytes[12..16]),
+            })
+        }
         X_DRI3_GET_SUPPORTED_MODIFIERS_MINOR_OPCODE => {
             require_exact_len(X_DRI3_MAJOR_OPCODE, 12, bytes.len())?;
             Ok(XWireRequest::Dri3GetSupportedModifiers {

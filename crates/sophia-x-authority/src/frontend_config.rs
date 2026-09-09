@@ -22,6 +22,7 @@ pub struct XServerFrontendConfig {
     admission_policy: Option<Arc<dyn XServerFrontendAdmissionPolicy>>,
     render_device_provider: Option<Arc<dyn XServerFrontendRenderDeviceProvider>>,
     pixmap_allocator: Option<Arc<dyn XServerFrontendPixmapAllocator>>,
+    device_bundle: Option<Arc<crate::XServerFrontendDeviceBundle>>,
     max_concurrent_clients: NonZeroUsize,
     output_topology: sophia_protocol::OutputTopologySnapshot,
     xkb_config: crate::XkbRmlvoConfig,
@@ -87,6 +88,7 @@ impl XServerFrontendConfig {
             admission_policy: None,
             render_device_provider: None,
             pixmap_allocator: None,
+            device_bundle: None,
             max_concurrent_clients: DEFAULT_MAX_CONCURRENT_CLIENTS,
             output_topology: sophia_protocol::OutputTopologySnapshot::deterministic(),
             xkb_config: crate::XkbRmlvoConfig::default(),
@@ -124,6 +126,15 @@ impl XServerFrontendConfig {
     ) -> Self {
         self.pixmap_allocator = Some(allocator);
         self
+    }
+
+    pub fn with_device_bundle(mut self, bundle: Arc<crate::XServerFrontendDeviceBundle>) -> Self {
+        self.device_bundle = Some(bundle);
+        self
+    }
+
+    pub(crate) fn device_bundle(&self) -> Option<Arc<crate::XServerFrontendDeviceBundle>> {
+        self.device_bundle.clone()
     }
 
     pub fn with_max_concurrent_clients(mut self, max_concurrent_clients: NonZeroUsize) -> Self {

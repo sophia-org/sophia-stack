@@ -79,6 +79,8 @@ struct Provider {
     state: Mutex<ProviderState>,
     gate: Mutex<Option<Gate>>,
     refuse_release: AtomicBool,
+    always_refuse_release: AtomicBool,
+    refuse_update: AtomicBool,
     release_events: mpsc::Sender<Release>,
 }
 
@@ -90,6 +92,8 @@ impl Provider {
                 state: Mutex::new(ProviderState::default()),
                 gate: Mutex::new(None),
                 refuse_release: AtomicBool::new(false),
+                always_refuse_release: AtomicBool::new(false),
+                refuse_update: AtomicBool::new(false),
                 release_events,
             }),
             events,
@@ -188,6 +192,9 @@ impl XServerFrontendPixmapAllocator for Provider {
         request: XServerFrontendPixmapUpdate,
     ) -> Result<(), XServerFrontendPixmapAllocationError> {
         self.wait_if_blocked(Operation::Update);
+        if self.refuse_update.swap(false, Ordering::AcqRel) {
+            return Err(XServerFrontendPixmapAllocationError::Unavailable);
+        }
         let mut state = self.state.lock().unwrap();
         let file = state
             .buffers
@@ -212,7 +219,8 @@ impl XServerFrontendPixmapAllocator for Provider {
         &self,
         handle: BufferHandle,
     ) -> Result<(), XServerFrontendPixmapAllocationError> {
-        if self.refuse_release.swap(false, Ordering::AcqRel) {
+        if self.always_refuse_release.load(Ordering::Acquire)
+            || self.refuse_release.swap(false, Ordering::AcqRel) {
             let _ = self.release_events.send(Release::Refused(handle));
             return Err(XServerFrontendPixmapAllocationError::Unavailable);
         }
@@ -227,18 +235,35 @@ impl XServerFrontendPixmapAllocator for Provider {
     }
 }
 
-struct SeparateNamespaces(AtomicU64);
+impl XServerFrontendRenderDeviceProvider for Provider {
+    fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError> {
+        File::open("/dev/zero")
+            .map(OwnedFd::from)
+            .map_err(|_| XServerFrontendRenderDeviceError::OpenFailed)
+    }
+    fn dma_buf_import_formats(&self) -> Vec<XServerFrontendDmaBufImportFormat> {
+        vec![XServerFrontendDmaBufImportFormat {
+            format: DRM_FORMAT_ARGB8888,
+            modifiers: vec![0],
+        }]
+    }
+}
+
+struct SeparateNamespaces {
+    next: AtomicU64,
+    shared: bool,
+}
 
 impl XServerFrontendAdmissionPolicy for SeparateNamespaces {
     fn admit(
         &self,
         request: XServerFrontendAdmissionRequest,
     ) -> Result<ClientAdmissionContext, XServerFrontendAdmissionError> {
-        let next = self.0.fetch_add(1, Ordering::Relaxed) + 1;
+        let next = self.next.fetch_add(1, Ordering::Relaxed) + 1;
         ClientAdmissionContext::new(
             ClientAdmissionId::from_raw(next),
             NamespaceContext::new(
-                NamespaceId::from_raw(917 + next),
+                NamespaceId::from_raw(917 + if self.shared { 0 } else { next }),
                 NamespaceProfile::Confined,
                 NamespaceCapabilities::NONE,
             )
@@ -258,6 +283,14 @@ impl XServerFrontendAdmissionPolicy for SeparateNamespaces {
 
 enum Command {
     Accept(mpsc::SyncSender<()>),
+    Install(
+        Arc<XServerFrontendDeviceBundle>,
+        mpsc::SyncSender<Result<(), XServerFrontendDeviceBundleError>>,
+    ),
+    Lose(
+        u64,
+        mpsc::SyncSender<Result<(), XServerFrontendDeviceBundleError>>,
+    ),
     Stop,
 }
 
@@ -271,6 +304,10 @@ struct Fixture {
 
 impl Fixture {
     fn new() -> Self {
+        Self::with_shared_namespace(false)
+    }
+
+    fn with_shared_namespace(shared: bool) -> Self {
         let path = std::env::temp_dir().join(format!(
             "sophia-pixmap-publication-{}-{}.sock",
             std::process::id(),
@@ -279,8 +316,14 @@ impl Fixture {
         let (provider, releases) = Provider::new();
         let config = XServerFrontendConfig::new(&path, NamespaceId::from_raw(917))
             .unwrap()
-            .with_pixmap_allocator(provider.clone())
-            .with_admission_policy(Arc::new(SeparateNamespaces(AtomicU64::new(0))));
+            .with_device_bundle(Arc::new(
+                XServerFrontendDeviceBundle::new(1, provider.clone(), Some(provider.clone()))
+                    .unwrap(),
+            ))
+            .with_admission_policy(Arc::new(SeparateNamespaces {
+                next: AtomicU64::new(0),
+                shared,
+            }));
         let mut frontend = XServerFrontend::bind(config).unwrap();
         let (commands, incoming) = mpsc::channel();
         let worker = std::thread::spawn(move || {
@@ -289,6 +332,12 @@ impl Fixture {
                     Ok(Command::Accept(accepted)) => {
                         frontend.serve_next_concurrently()?;
                         let _ = accepted.send(());
+                    }
+                    Ok(Command::Install(bundle, reply)) => {
+                        let _ = reply.send(frontend.install_device_bundle(bundle));
+                    }
+                    Ok(Command::Lose(generation, reply)) => {
+                        let _ = reply.send(frontend.mark_device_generation_unavailable(generation));
                     }
                     Ok(Command::Stop) | Err(mpsc::RecvTimeoutError::Disconnected) => break,
                     Err(mpsc::RecvTimeoutError::Timeout) => {}
@@ -305,6 +354,23 @@ impl Fixture {
             provider,
             releases,
         }
+    }
+
+    fn install(&self, generation: u64, provider: Arc<Provider>) {
+        let bundle = Arc::new(
+            XServerFrontendDeviceBundle::new(generation, provider.clone(), Some(provider)).unwrap(),
+        );
+        let (reply, receiver) = mpsc::sync_channel(1);
+        self.commands.send(Command::Install(bundle, reply)).unwrap();
+        receiver.recv_timeout(WAIT).unwrap().unwrap();
+    }
+
+    fn lose(&self, generation: u64) {
+        let (reply, receiver) = mpsc::sync_channel(1);
+        self.commands
+            .send(Command::Lose(generation, reply))
+            .unwrap();
+        receiver.recv_timeout(WAIT).unwrap().unwrap();
     }
 
     fn connect(&self) -> Client {
@@ -635,4 +701,162 @@ fn pixmap_rectangle_fill_produces_pixels_before_export() {
     );
     let backing = client.export(pixmap);
     assert_eq!(pixels(&backing), [0xff654321, 0xffabcdef, 0xff654321]);
+}
+
+#[test]
+fn allocation_finishing_after_replacement_keeps_its_original_provider() {
+    let fixture = Fixture::new();
+    let mut old = fixture.connect();
+    let (pixmap, gc) = old.create();
+    let gate = fixture.provider.block(Operation::Allocate);
+    let sequence = old.export_request(pixmap);
+    gate.wait();
+    let (replacement, replacement_releases) = Provider::new();
+    fixture.install(2, replacement.clone());
+    let mut new = fixture.connect();
+    let (other, _) = new.create();
+    let other_backing = new.export(other);
+    gate.release();
+    let (_, fds) = old.reply(sequence);
+    assert_eq!(fds.len(), 1);
+    let backing = File::from(fds.into_iter().next().unwrap());
+    old.put_pixels(pixmap, gc, 1, &[0xffabcdef]);
+    old.sync();
+    assert_eq!(pixels(&backing), [0xff654321, 0xffabcdef, 0xff654321]);
+    assert_eq!(pixels(&other_backing), [0xff654321; 3]);
+    let old_handle = *fixture
+        .provider
+        .state
+        .lock()
+        .unwrap()
+        .buffers
+        .keys()
+        .next()
+        .unwrap();
+    let new_handle = *replacement
+        .state
+        .lock()
+        .unwrap()
+        .buffers
+        .keys()
+        .next()
+        .unwrap();
+    assert_ne!(
+        old_handle, new_handle,
+        "provider replacement must not reset buffer identity"
+    );
+    fixture
+        .provider
+        .refuse_release
+        .store(true, Ordering::Release);
+    drop(old);
+    assert_eq!(
+        fixture.releases.recv_timeout(WAIT).unwrap(),
+        Release::Refused(old_handle)
+    );
+    assert_eq!(
+        fixture.releases.recv_timeout(WAIT).unwrap(),
+        Release::Completed(old_handle)
+    );
+    assert!(
+        replacement
+            .state
+            .lock()
+            .unwrap()
+            .buffers
+            .contains_key(&new_handle)
+    );
+    assert!(replacement_releases.try_recv().is_err());
+    drop(new);
+    assert_eq!(
+        replacement_releases.recv_timeout(WAIT).unwrap(),
+        Release::Completed(new_handle)
+    );
+}
+
+#[test]
+fn namespace_publication_routes_each_backing_to_its_own_generation() {
+    let fixture = Fixture::with_shared_namespace(true);
+    let mut old = fixture.connect();
+    let (old_pixmap, old_gc) = old.create();
+    let old_backing = old.export(old_pixmap);
+    let (replacement, _) = Provider::new();
+    fixture.install(2, replacement.clone());
+    let mut new = fixture.connect();
+    let (new_pixmap, new_gc) = new.create();
+    let new_backing = new.export(new_pixmap);
+    fixture
+        .provider
+        .refuse_update
+        .store(true, Ordering::Release);
+    old.put_pixels(old_pixmap, old_gc, 1, &[0xffabcdef]);
+    let mut error = [0; 32];
+    old.stream.read_exact(&mut error).unwrap();
+    assert_eq!(
+        error[0], 0,
+        "the first upload must leave a refused publication obligation"
+    );
+    new.put_pixels(new_pixmap, new_gc, 0, &[0xff112233]);
+    new.sync();
+    assert_eq!(pixels(&old_backing), [0xff654321, 0xffabcdef, 0xff654321]);
+    assert_eq!(pixels(&new_backing), [0xff112233, 0xff654321, 0xff654321]);
+    assert!(!fixture.provider.state.lock().unwrap().updates.is_empty());
+    assert!(!replacement.state.lock().unwrap().updates.is_empty());
+}
+
+#[test]
+fn device_loss_refuses_new_allocations_but_keeps_existing_release_ownership() {
+    let fixture = Fixture::new();
+    let mut old = fixture.connect();
+    let (pixmap, _) = old.create();
+    let retained = old.export(pixmap);
+    let handle = *fixture
+        .provider
+        .state
+        .lock()
+        .unwrap()
+        .buffers
+        .keys()
+        .next()
+        .unwrap();
+    fixture.lose(1);
+    // A second drawable has no provider allocation yet.
+    let second = old.base + 71;
+    let mut body = words(&[second, X_SETUP_DEFAULT_ROOT]);
+    body.extend_from_slice(&3u16.to_le_bytes());
+    body.extend_from_slice(&1u16.to_le_bytes());
+    old.request(53, 32, &body);
+    old.export_request(second);
+    let mut error = [0; 32];
+    old.stream.read_exact(&mut error).unwrap();
+    assert_eq!(error[0], 0, "loss must refuse a new provider allocation");
+    assert_eq!(fixture.provider.state.lock().unwrap().buffers.len(), 1);
+    assert_eq!(pixels(&retained), [0xff654321; 3]);
+    drop(old);
+    assert_eq!(
+        fixture.releases.recv_timeout(WAIT).unwrap(),
+        Release::Completed(handle)
+    );
+}
+
+#[test]
+fn a_lost_provider_does_not_block_cleanup_of_a_healthy_generation() {
+    let fixture = Fixture::new();
+    let mut old = fixture.connect();
+    let (pixmap, _) = old.create();
+    let _old_backing = old.export(pixmap);
+    fixture.provider.always_refuse_release.store(true, Ordering::Release);
+    drop(old);
+    assert!(matches!(fixture.releases.recv_timeout(WAIT).unwrap(), Release::Refused(_)));
+    let (replacement, releases) = Provider::new();
+    fixture.install(2, replacement.clone());
+    let mut new = fixture.connect();
+    let (pixmap, _) = new.create();
+    let _new_backing = new.export(pixmap);
+    let handle = *replacement.state.lock().unwrap().buffers.keys().next().unwrap();
+    drop(new);
+    assert_eq!(releases.recv_timeout(WAIT).unwrap(), Release::Completed(handle));
+    assert!(replacement.state.lock().unwrap().buffers.is_empty());
+    assert!(!fixture.provider.state.lock().unwrap().buffers.is_empty());
+    fixture.provider.always_refuse_release.store(false, Ordering::Release);
 }

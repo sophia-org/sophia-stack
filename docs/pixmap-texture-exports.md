@@ -12,6 +12,10 @@ additional depth/stencil configurations and `GLX_EXT_texture_from_pixmap`.
 The capability remains off unless the provider can export imported buffers and
 keep CPU-written exports coherent. Unsupported providers retain the base
 configuration catalog.
+Replacement device bundles must preserve that catalog's readiness value. The
+provider and capability snapshot are pinned together per authenticated
+connection; a connection never observes a new allocator under old configuration
+answers.
 
 The live provider probes allocation, export, import and successive writes for
 XRGB8888 and ARGB8888 using a private GL consumer on the selected device. It
@@ -74,6 +78,13 @@ revalidate the retained identity before publishing completion. GPU allocation,
 mapping and synchronization must not hold the frontend's global runtime lock.
 An XID lookup after the call is insufficient because the client may have freed
 and reused that XID in the meantime.
+
+A provider-owned backing retains its originating device bundle. Publication and
+release resolve that backing's owner, including when another connection in the
+same namespace drives the request. The allocation owner is reserved before
+leaving the lock and retained through acknowledgement; installation of a new
+default bundle cannot adopt or clean up the old provider's allocation. Lost
+bundles still owe cleanup, and failed release remains attributed to its owner.
 
 Only one update per backing may be outstanding. Partial patches are not
 cumulative snapshots: a higher revision does not, by itself, contain an older

@@ -30,6 +30,9 @@ impl XServerFrontend {
         )?
         .with_optional_render_device_provider(config.render_device_provider())
         .with_optional_pixmap_allocator(config.pixmap_allocator());
+        if let Some(bundle) = config.device_bundle() {
+            state.install_device_bundle(bundle).map_err(|error| X11SetupSocketError::new(error.to_string()))?;
+        }
         state.set_policy_map_deferred(config.policy_map_deferred())?;
         state.latch_pixmap_texture_support()?;
         let (worker_completion_sender, worker_completions) = std::sync::mpsc::channel();
@@ -47,6 +50,26 @@ impl XServerFrontend {
             worker_admission_event_sender,
             next_worker_id: 1,
         })
+    }
+
+    pub fn install_device_bundle(&self, bundle: Arc<crate::XServerFrontendDeviceBundle>)
+        -> Result<(), crate::XServerFrontendDeviceBundleError>
+    {
+        self.state.install_device_bundle(bundle)
+    }
+
+    pub fn mark_device_generation_unavailable(&self, generation: u64)
+        -> Result<(), crate::XServerFrontendDeviceBundleError>
+    {
+        self.state.mark_device_generation_unavailable(generation)
+    }
+
+    pub fn update_window_allocation_preferences(
+        &self, snapshot: crate::XWindowAllocationPreferences,
+    ) -> Result<crate::XWindowAllocationUpdate, X11SetupSocketError> {
+        Ok(self.state.runtime.lock()
+            .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+            .update_window_allocation_preferences(snapshot))
     }
 
     pub fn config(&self) -> &XServerFrontendConfig {

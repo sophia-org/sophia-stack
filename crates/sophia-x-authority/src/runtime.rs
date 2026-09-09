@@ -31,6 +31,7 @@ include!("runtime/graphics_contexts.rs");
 include!("runtime/drawing/image_ops.rs");
 include!("runtime/render_resources.rs");
 include!("runtime/dmabuf_capabilities.rs");
+include!("runtime/device_connections.rs");
 include!("runtime/render_pictures.rs");
 include!("runtime/render_picture_lifetime.rs");
 include!("runtime/pixmap_publication.rs");
@@ -40,6 +41,7 @@ include!("runtime/xfixes_regions.rs");
 include!("runtime/shape.rs");
 include!("runtime/sync.rs");
 include!("runtime/windows.rs");
+include!("runtime/window_allocation.rs");
 include!("runtime/glx_resources.rs");
 include!("runtime/pointer_query.rs");
 
@@ -208,6 +210,7 @@ pub struct XAuthorityRuntime {
     graphics_contexts: XGraphicsContextTable,
     window_background_pixels: BTreeMap<crate::XResourceId, u32>,
     window_visuals: BTreeMap<crate::XResourceId, (u8, u32, crate::XResourceId)>,
+    window_allocation: XWindowAllocationState,
     colormaps: BTreeMap<crate::XResourceId, u32>,
     glx_contexts: BTreeMap<crate::XResourceId, (NamespaceId, u32, bool)>,
     glx_drawables: BTreeMap<crate::XResourceId, XGlxDrawableRecord>,
@@ -222,6 +225,7 @@ pub struct XAuthorityRuntime {
     /// moved would leave clients holding configurations no longer honoured.
     pixmap_textures_supported: bool,
     dma_buf_import_formats: Option<BTreeMap<u32, Vec<u64>>>,
+    device_connections: BTreeMap<u64, Option<std::sync::Arc<crate::XServerFrontendDeviceBundle>>>,
     xkb_keymap: crate::XkbKeymapSnapshot,
     input_authority: Arc<Mutex<crate::XInputAuthorityState>>,
 }
@@ -271,6 +275,7 @@ impl Default for XAuthorityRuntime {
             graphics_contexts: Default::default(),
             window_background_pixels: Default::default(),
             window_visuals: Default::default(),
+            window_allocation: Default::default(),
             colormaps: Default::default(),
             glx_contexts: Default::default(),
             glx_drawables: Default::default(),
@@ -280,6 +285,7 @@ impl Default for XAuthorityRuntime {
             defer_policy_maps: false,
             pixmap_textures_supported: false,
             dma_buf_import_formats: None,
+            device_connections: BTreeMap::new(),
             xkb_keymap: crate::XkbKeymapSnapshot::new(&crate::XkbRmlvoConfig::default())
                 .expect("the deterministic default XKB keymap must compile"),
             input_authority: Arc::new(Mutex::new(crate::XInputAuthorityState::default())),

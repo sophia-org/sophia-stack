@@ -12,6 +12,9 @@ pub struct X11CoreSocketServerState {
     next_transaction_id: Arc<AtomicU64>,
     render_device_provider: Arc<std::sync::OnceLock<Arc<dyn XServerFrontendRenderDeviceProvider>>>,
     pixmap_allocator: Option<Arc<dyn XServerFrontendPixmapAllocator>>,
+    legacy_device_formats: Arc<std::sync::OnceLock<Vec<crate::XServerFrontendDmaBufImportFormat>>>,
+    devices: Arc<Mutex<X11DeviceBundles>>,
+    connection_device: Option<Option<Arc<crate::XServerFrontendDeviceBundle>>>,
 }
 
 #[cfg(unix)]
@@ -68,6 +71,9 @@ impl Default for X11CoreSocketServerState {
             next_transaction_id: Arc::new(AtomicU64::new(1)),
             render_device_provider: Default::default(),
             pixmap_allocator: None,
+            legacy_device_formats: Default::default(),
+            devices: Default::default(),
+            connection_device: None,
         }
     }
 }
@@ -97,6 +103,7 @@ impl X11CoreSocketServerState {
         if let Ok(mut runtime) = self.runtime.lock()
             && self.render_device_provider.set(provider).is_ok()
         {
+            let _ = self.legacy_device_formats.set(formats.clone());
             runtime.set_dma_buf_import_formats(formats);
         }
         self
@@ -130,14 +137,20 @@ impl X11CoreSocketServerState {
     }
 
     fn open_render_device_fd(&self) -> Result<OwnedFd, XServerFrontendRenderDeviceError> {
-        self.render_device_provider
-            .get()
-            .ok_or(XServerFrontendRenderDeviceError::Unavailable)?
-            .open_render_device_fd()
+        if let Some(pinned) = self.connection_device.as_ref() {
+            let bundle = pinned.as_ref().filter(|bundle| bundle.available())
+                .ok_or(XServerFrontendRenderDeviceError::Unavailable)?;
+            let fd = bundle.provider.open_render_device_fd()?;
+            if !bundle.available() { return Err(XServerFrontendRenderDeviceError::Unavailable); }
+            return Ok(fd);
+        }
+        self.render_device_provider.get()
+            .ok_or(XServerFrontendRenderDeviceError::Unavailable)?.open_render_device_fd()
     }
 
     fn has_render_device_provider(&self) -> bool {
-        self.render_device_provider.get().is_some()
+        self.connection_device.as_ref().map_or_else(
+            || self.render_device_provider.get().is_some(), Option::is_some)
     }
 
     pub fn with_pixmap_allocator(
@@ -157,7 +170,10 @@ impl X11CoreSocketServerState {
     }
 
     fn pixmap_allocator(&self) -> Option<&Arc<dyn XServerFrontendPixmapAllocator>> {
-        self.pixmap_allocator.as_ref()
+        match self.connection_device.as_ref() {
+            Some(Some(bundle)) => bundle.allocator.as_ref(),
+            _ => self.pixmap_allocator.as_ref(),
+        }
     }
 
     /// Latches the provider's pixmap-texture capability into the runtime.
@@ -165,10 +181,14 @@ impl X11CoreSocketServerState {
     /// Read once here rather than per request, so the advertisement a client
     /// received cannot disagree with what a later request is answered by.
     fn latch_pixmap_texture_support(&self) -> Result<(), X11SetupSocketError> {
-        let supported = self
-            .pixmap_allocator
-            .as_ref()
-            .is_some_and(|allocator| allocator.supports_pixmap_textures());
+        self.initialize_legacy_device_bundle()?;
+        let current = self.devices.lock()
+            .map_err(|_| X11SetupSocketError::new("X11 device bundle lock poisoned"))?.current();
+        let supported = current.as_ref().map_or_else(
+            || self.pixmap_allocator.as_ref().is_some_and(|allocator| allocator.supports_pixmap_textures()),
+            |bundle| bundle.supports_pixmap_textures());
+        self.devices.lock()
+            .map_err(|_| X11SetupSocketError::new("X11 device bundle lock poisoned"))?.pixmap_textures = Some(supported);
         self.runtime
             .lock()
             .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?

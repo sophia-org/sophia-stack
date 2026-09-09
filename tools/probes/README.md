@@ -124,3 +124,58 @@ recovery from a real application grab. Installed-session acceptance remains
 necessary. Use `--authority-trace` to retain synthetic X request diagnostics; this changes
 scheduling and is recorded in the identity file. The ordering race can depend
 on scheduling: preserve repeated baseline runs and do not interpret one successful baseline as a disproof.
+
+## Explicit DRI3 layout probe
+
+`dri3_layout.c` allocates real XR24 or AR24 buffers through the server's DRI3
+device, using an explicitly selected modifier. It records the actual GBM layout,
+per-plane descriptor sizes, queried screen/window preferences and received
+Present Complete/Idle events. It generates muted opaque pixels through GBM's
+mapping API; it does not capture the desktop or inject input.
+
+```sh
+cc -std=c11 -O2 -Wall -Wextra -Werror tools/probes/dri3_layout.c \
+  -o /tmp/sophia-dri3-layout $(pkg-config --cflags --libs xcb xcb-dri3 xcb-present gbm)
+/tmp/sophia-dri3-layout --geometry 0,0,16,16 --format XR24 --list-only
+/tmp/sophia-dri3-layout --geometry 64,96,96,64 --format XR24 \
+  --modifier 0 --frames 4 --timeout-ms 3000
+```
+
+Both commands use the selected session's `DISPLAY` and `XAUTHORITY`. List-only
+creates an unmapped window for the queries; with `--modifier` it also verifies a
+real allocation without importing or presenting it. The second command briefly
+opens an owned window. Geometry is explicit and must remain unchanged. A physical
+scanout comparison needs the selected output's exact geometry and an otherwise
+eligible scene; the small example checks only the client's feedback/lifetime path.
+
+The probe refuses implicit sentinels, substituted allocation metadata and layouts
+GBM cannot map for writing. It never relabels a buffer or maps an opaque plane
+directly. Two buffer slots bound residency; a slot is reused only after both
+Complete and Idle. The final scanout buffer may remain owned until connection
+teardown. A process deadline covers X setup and event waits, but does not promise
+cancellation of an uninterruptible kernel operation. `result=pass` establishes
+the probe's completed protocol flow, not captured pixel correctness or task
+acceptance.
+
+For an exact retired comparison, enable `SOPHIA_LIVE_VISUAL_PROGRESS=1` before
+starting the candidate session so routed completion clocks are recorded. Retain
+candidate/session identity, capture health and one bounded run interval, then use:
+
+```sh
+python3 -B tools/verify_layout_comparison.py \
+  --session-log /path/to/bounded-session.log --probe-log /path/to/probe.log
+```
+
+The reader joins the paired tests to retirement by source-image identity, then
+to current preference comparison by transaction and native generation. It checks
+the unique routed completion clock against the probe's received ordinary Copy,
+submission and actual allocation. Repeated test attempts, shared completion
+clocks, implicit layouts and missing stages are inconclusive and fail the check.
+`--transaction` selects an existing comparison in a longer bounded run. Old logs
+without these identities cannot prove the join. Session identity and capture
+health remain prerequisites checked by the caller; the reader does not declare
+t069 or t070 complete.
+
+`cargo xtask check` runs the bounded reader/CLI regressions and a private frontend
+test that checks both exact formats without mapping, importing or presenting a
+window. That test uses a render node and does not acquire DRM master.

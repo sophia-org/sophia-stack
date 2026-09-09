@@ -221,3 +221,19 @@ physical gate. The full repository/GPU gate passed on 31 unchanged Rust files.
 Source hashes, validation logs and signed candidate identity are
 retained in `.artifacts/t070-completion-preferences/`. No installation or
 live-session restart was performed; t069/t070 remain open.
+
+## Controlled physical evidence tooling
+
+The checkpoint based on `41ab89f9` adds a generic explicit-layout DRI3 client and
+a bounded evidence reader. Actual allocation metadata, exact source/transaction
+identities and current native/preference generations connect the paired tests to
+the probe's received Copy completion. No rendering or wire-mode policy changes.
+
+Reader and process-deadline tests pass; the private GPU test checks XR24 and AR24
+allocations without mapping or presenting. Two small authorized live probes each
+completed four Copy/Idle pairs on the old installed `76ed2fdd` session. The
+[investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#controlled-allocation-and-evidence-collection-after-41ab89f9)
+records evidence and limits. Candidate identity and logs are retained in
+`.artifacts/t070-physical-probe/`. The full repository/GPU gate passed on
+13 unchanged source/tool files. A qualifying physical pair on the new owner
+remains the acceptance gate; no install or session restart was performed.

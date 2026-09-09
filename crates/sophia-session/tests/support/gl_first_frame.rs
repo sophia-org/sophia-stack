@@ -29,6 +29,9 @@ use sophia_x_authority::{
 
 use crate::live_session::{LiveXPixmapAllocator, LiveXRenderDeviceProvider};
 
+#[path = "dri3_layout_probe.rs"]
+mod dri3_layout_probe;
+
 const SIZE: u32 = 300;
 
 struct ImportedFrame {

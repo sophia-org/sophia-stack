@@ -93,12 +93,13 @@ where
                 .map_or_else(|| "none".to_owned(), |errno| errno.to_string())
         };
         tracing::info!(
-            "sophia_live_layout_probe schema=1 output={} scene_generation={} status={:?} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
+            "sophia_live_layout_probe schema=1 output={} scene_generation={} source_image={} status={:?} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
             self.output.raw(),
             report
                 .original
                 .trace
                 .map_or(0, |trace| trace.scene_generation),
+            report.source_image.raw(),
             report.tests.status,
             status(report.tests.original),
             status(report.tests.alternative),

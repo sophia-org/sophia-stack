@@ -340,6 +340,9 @@ pub fn reduced_record(line: &str) -> Option<String> {
             && matches!(
                 key,
                 "status"
+                    | "source_image"
+                    | "native_generation"
+                    | "preference_generation"
                     | "original_status"
                     | "alternative_status"
                     | "original_errno"
@@ -553,7 +556,11 @@ fn layout_probe_field(key: &str, value: &str) -> bool {
             atomic_test_field("sophia_live_atomic_test", "errno", value)
         }
         "format" => value.bytes().all(|byte| byte.is_ascii_digit()) && value.parse::<u32>().is_ok(),
-        "original_modifier" | "alternative_modifier" => {
+        "source_image"
+        | "native_generation"
+        | "preference_generation"
+        | "original_modifier"
+        | "alternative_modifier" => {
             value.bytes().all(|byte| byte.is_ascii_digit()) && value.parse::<u64>().is_ok()
         }
         _ => false,

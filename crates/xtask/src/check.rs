@@ -41,6 +41,22 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
     sophia_conformance::profile::check_every_profile(&[])?;
     layout(repo)?;
     anchored_readers(repo)?;
+    for pattern in ["layout_comparison_test.py", "dri3_layout_probe_test.py"] {
+        command(
+            repo,
+            "python3",
+            &[
+                "-B",
+                "-m",
+                "unittest",
+                "discover",
+                "-s",
+                "tools/tests",
+                "-p",
+                pattern,
+            ],
+        )?;
+    }
     let mut report = vec![archives(repo)?];
     report.push(hardware_proof(
         repo,

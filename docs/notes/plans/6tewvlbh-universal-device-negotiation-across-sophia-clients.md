@@ -217,6 +217,14 @@ for multi-output joins, and the frontend does not substitute parent preferences
 for child presentations. Physical paired-test/retirement acceptance remains open;
 only then may the deferred signaling obligations proceed.
 
+A generic explicit-layout DRI3 probe supplies real XR24/AR24 allocations without
+changing their metadata. Its bounded evidence reader joins the exact tested
+source, retired transaction, current native/preference generations and the
+client's received ordinary Copy. These tools prepare physical acceptance; small
+composed-window feedback and private allocation checks do not satisfy it. See
+the [probe contract](../../../tools/probes/README.md#explicit-dri3-layout-probe)
+for run boundaries and the retained evidence requirements.
+
 ## Implementation checkpoints
 
 First replace invented DRI3 modifier responses with measured renderer import

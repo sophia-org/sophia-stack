@@ -32,6 +32,16 @@ listed="$(cargo test "${test_args[@]}" -- --ignored --list)"
 SOPHIA_PIXMAP_TEST_DEVICE="$node" cargo test "${test_args[@]}" -- --ignored --nocapture
 echo "GLX and EGL first-frame pixels passed"
 
+echo "Bounded DRI3 allocation metadata on $node (unmapped private windows)"
+test_args=(--quiet --offline -p sophia-session --all-features --lib
+    list_only_allocates_exact_layouts_without_mapping_importing_or_presenting)
+listed="$(cargo test "${test_args[@]}" -- --ignored --list)"
+[[ "$(printf '%s\n' "$listed" | grep -c ': test$')" == 1 ]] || {
+    echo "Expected the explicit-layout allocation probe test; refusing an empty proof." >&2
+    exit 1
+}
+SOPHIA_PIXMAP_TEST_DEVICE="$node" cargo test "${test_args[@]}" -- --ignored --nocapture
+
 echo "CPU and imported pixmap texture pixels on $node"
 test_args=(--quiet --offline -p sophia-session --all-features --lib
     glx_pixmap_export::egl_pixmap_export::)

@@ -62,10 +62,12 @@ pub(super) fn record_native_present_retirement(
     {
         let witness = layout.witness;
         crate::session_println!(
-            "sophia_live_layout_probe schema=2 status=RetiredCopy transaction={} output={} scene_generation={} format={} original_modifier={} alternative_modifier={}",
+            "sophia_live_layout_probe schema=2 status=RetiredCopy transaction={} output={} scene_generation={} source_image={} native_generation={} format={} original_modifier={} alternative_modifier={}",
             retired.transaction.raw(),
             trace.output.raw(),
             trace.scene_generation,
+            witness.source_image.raw(),
+            layout.context_generation,
             witness.format,
             witness.original_modifier,
             witness.alternative_modifier,

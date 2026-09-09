@@ -351,17 +351,17 @@ fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
 
 #[test]
 fn paired_layout_observations_survive_without_resource_payloads() {
-    let record = "sophia_live_layout_probe schema=1 output=2 scene_generation=91 status=Tested original_status=Rejected alternative_status=Submitted original_errno=22 alternative_errno=none format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    let record = "sophia_live_layout_probe schema=1 output=2 scene_generation=91 source_image=817 status=Tested original_status=Rejected alternative_status=Submitted original_errno=22 alternative_errno=none format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
     assert_eq!(
         reduced_record(&format!("{record} xid=123 payload=secret error=private")),
         Some(record.to_owned())
     );
-    let retired = "sophia_live_layout_probe schema=2 status=RetiredCopy transaction=71 output=2 scene_generation=91 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    let retired = "sophia_live_layout_probe schema=2 status=RetiredCopy transaction=71 output=2 scene_generation=91 source_image=817 native_generation=9 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
     assert_eq!(
         reduced_record(&format!("{retired} xid=123 device_path=/private/card")),
         Some(retired.to_owned())
     );
-    let matched = "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction=71 output=2 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    let matched = "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction=71 output=2 native_generation=9 preference_generation=17 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
     assert_eq!(
         reduced_record(&format!("{matched} xid=123 device_path=/private/card")),
         Some(matched.to_owned())
@@ -372,6 +372,10 @@ fn paired_layout_observations_survive_without_resource_payloads() {
         "alternative_status=secret",
         "original_errno=-22",
         "alternative_errno=2147483648",
+        "source_image=18446744073709551616",
+        "source_image=secret",
+        "native_generation=secret",
+        "preference_generation=18446744073709551616",
         "original_modifier=18446744073709551616",
         "format=4294967296",
     ] {
@@ -380,6 +384,10 @@ fn paired_layout_observations_survive_without_resource_payloads() {
             Some("sophia_live_layout_probe".to_owned())
         );
     }
+    assert_eq!(
+        reduced_record("sophia_other_event source_image=817"),
+        Some("sophia_other_event".to_owned())
+    );
 }
 
 #[test]

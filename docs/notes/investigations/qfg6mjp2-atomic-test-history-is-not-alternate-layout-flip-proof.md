@@ -434,6 +434,54 @@ tests do not acquire DRM master or prove that this host produces a qualifying
 alternative in a normal scene. No installation, live-session restart or
 SuboptimalCopy signaling is part of this checkpoint.
 
+## Controlled allocation and evidence collection after 41ab89f9
+
+The generic `dri3_layout` probe allocates an explicitly requested XR24 or AR24
+layout through DRI3's device. GBM supplies the actual format, modifier, plane
+strides, offsets and descriptors; a substituted layout is refused. List-only
+queries an unmapped window and can measure an allocation without import or
+Present. The presenting mode fills through GBM, uses two bounded buffer slots
+and waits for both Complete and Idle before reuse. X setup and event waits share
+an absolute process deadline. No input or desktop capture is involved.
+
+The diagnostic join now carries the renderer-owned source image from paired
+TEST_ONLY to RetiredCopy, and native context generation from RetiredCopy to
+PreferenceMatched. The latter also reports the effective preference generation.
+These are scoped numeric diagnostics, not protocol fields or new authority.
+The privacy filter still strips arbitrary payloads and paths. Its existing
+substring rule rejects keys containing `text`, so the context nonce is emitted
+as `native_generation`; exact sanitizer tests pin all three added fields.
+
+`verify_layout_comparison.py` requires a unique paired test for that source and
+layout, the exact retired transaction/context, current preference match, and a
+unique routed Complete clock received by the probe as ordinary Copy. It also
+matches the probe's serial, pixmap and original allocation metadata. Repeated
+attempts with indistinguishable keys are rejected rather than inferred from log
+proximity. The caller must supply one bounded, identified session/run and verify
+capture health; this reader validates the join, not those prerequisites or the
+task exit.
+
+Eleven reader tests and three compiled-client CLI/deadline tests pass. An ignored
+private frontend test measures real LINEAR XR24 and AR24 allocations and verifies
+two DRI3 Opens, four exact-format queries and zero map/import/Present requests.
+The full gate includes these checks. Artifacts, source hashes and candidate
+identity are retained in `.artifacts/t070-physical-probe/`.
+
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` passed with exit 0 on
+13 unchanged source/tool files. This includes all-feature workspace tests and
+Clippy, formatting/layout/conformance, the new reader and process tests, twenty
+archived regressions, real buffer-age and GLX/EGL pixel checks, and the private
+XR24/AR24 allocation fixture.
+
+Two authorized small live runs used the installed `76ed2fddf31a` session
+`00000001788951558950-1cb15054-f8c5-4096-b573-a10d6c7acbcd`. Each presented four
+96x64 LINEAR frames at 64,96, received four ordinary Copy completions and four
+Idle events, then exited successfully. XR24 completion latency was 8–17 ms;
+AR24 was 9–25 ms. These establish the probe's feedback/reuse path on the old
+owner. They neither run the new comparison code nor prove scanout eligibility,
+physical pixels or a qualifying alternate layout. No installation or session
+restart was performed.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

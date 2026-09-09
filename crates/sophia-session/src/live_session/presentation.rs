@@ -260,9 +260,11 @@ impl XPresentSessionObserver {
                                 && let Some(comparison) = comparison
                             {
                                 crate::session_println!(
-                                    "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction={} output={} format={} original_modifier={} alternative_modifier={}",
+                                    "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction={} output={} native_generation={} preference_generation={} format={} original_modifier={} alternative_modifier={}",
                                     transaction.raw(),
                                     comparison.native_context.output.raw(),
+                                    comparison.native_context.generation,
+                                    comparison.preference_generation,
                                     comparison.format,
                                     comparison.original_modifier,
                                     comparison.alternative_modifier,

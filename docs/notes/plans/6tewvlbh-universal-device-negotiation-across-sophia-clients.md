@@ -177,6 +177,12 @@ source inventory refresh, pooled internal transfers, and full repository plus
 2,400-frame offscreen pixel validation. Its remaining physical and client-internal
 limits preserve the end-to-end exit above.
 
+The [controlled no-override run](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md#controlled-no-override-acceptance-on-2026-09-09)
+on installed `76ed2fddf31a` reproduces a client-internal import failure after two
+video-frame callbacks. The matched override control sustains 903 callbacks with
+VA decoding and no GPU restart. This leaves the normal-launch exit unmet and
+pins the required next device-selection repair to the client boundary.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

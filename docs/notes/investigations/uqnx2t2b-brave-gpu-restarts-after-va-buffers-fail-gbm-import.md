@@ -2,7 +2,7 @@
 id: uqnx2t2b
 date: 2026-09-07
 kind: investigation
-status: awaiting-physical-acceptance
+status: investigating
 tags: [investigation, rendering, x11]
 ---
 # Brave GPU restarts after VA buffers fail GBM import
@@ -412,6 +412,61 @@ copy influences the earlier independent allocation. This establishes the
 selection mechanism and control boundary, not the exact producer of every
 uninstrumented failed buffer. Restricting device access alone also does not prove
 successful accelerated allocation on the permitted device.
+
+## Controlled no-override acceptance on 2026-09-09
+
+Installed candidate `76ed2fddf31a` still fails this gate. Mason authorized opening
+and closing applications for testing. Three isolated fresh-profile runs used the
+same existing Brave binary, a local 1280x720/30 H.264 loop, and DevTools media/GPU
+observations. No browser source or normal launch configuration was changed.
+All test browsers closed normally; the original browser remained running.
+
+| Run | 30-second result | GBM import failures | GPU exits |
+| --- | --- | ---: | ---: |
+| No override, uninstrumented | Two video-frame callbacks; time fixed at 0.143 s | 1 | 1 (8704) |
+| Existing renderD128 override | 903 callbacks; zero reported dropped/corrupted frames | 0 | 0 |
+| No override, import tracing | Two callbacks; time fixed at 0.130 s | 1 | 1 (8704) |
+
+Both configurations reported `VaapiVideoDecoder` and a platform decoder. The
+control's screenshots contain changing test-pattern pixels. These callbacks and
+screenshots are browser-side evidence, not a count of physical flip retirements.
+The initial probe serialized VideoPlaybackQuality as an empty object; the latter
+two read its individual fields. No quality assertion relies on that first object.
+
+Before video, GPUInfo listed Raphael `[1002:164e]` first and Navi31 `[1002:744c]`
+second, while `glRenderer` identified ANGLE/OpenGL on RX7900 GRE/Navi31. The
+traced initial GPU process held FDs on both render nodes. The failed import ran
+on DRM `226:128` with AR24, size 1280x720, one plane, modifier
+`0x0200000000401b03`, flags 1, and `errno=38` (ENOSYS). That modifier describes
+GFX10_RBPLUS tiling; this pins the importer and descriptor, not the allocation
+call or producer identity. The VA display hook did not fire. The override affects
+multiple allocation/selection consumers and does not isolate VA alone.
+
+The exact [GPU initialization sequence](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/gpu/ipc/service/gpu_init.cc)
+collects basic GPUInfo, initializes GL, passes the earlier snapshot into VA
+pre-sandbox initialization, and later collects context-derived GPUInfo.
+[VA selection](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/media/gpu/vaapi/vaapi_wrapper.cc)
+uses that snapshot's PCI IDs; the
+[X11 GBM importer](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/ui/gfx/linux/gbm_support_x11.cc)
+uses DRI3 Open. The failing buffer never reaches Sophia's import/copy path.
+Earlier X11 initialization may already have completed; the boundary applies to
+the failing buffer, not to all browser/server communication.
+
+A robust upstream repair would acquire one explicit native-pixmap device
+capability before sandbox entry and share it with VA and media allocation for
+the GPU-process generation. Moving context collection earlier alone is
+insufficient: [IdentifyActiveGPU](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/gpu/config/gpu_info_collector.cc)
+still matches vendor strings. Identical PCI IDs, render offload, FD ownership,
+lazy initialization, device loss and restart all need coverage. Selecting the
+same device also does not replace layout validation.
+
+Evidence, the exact private probe and hashes, screenshots, and an unsent upstream
+report are retained under `.artifacts/t069-no-override/`; `summary.json` maps all
+three runs. The browser report contains no profile data or browsing history.
+XLibre `56be9f43` and yserver `a1e33aa8` both ignore SetDRMDeviceInUse; that
+reply-less client hint cannot provide a missing selection to VA. The
+[t069 exit](../plans/6tewvlbh-universal-device-negotiation-across-sophia-clients.md)
+therefore remains unmet by this candidate, despite its passing server tests.
 
 ## Connections
 

@@ -3,6 +3,12 @@ use sophia_protocol::{
     DRM_FORMAT_XRGB8888, DmaBufDescriptor, DmaBufDescriptorError, DmaBufPlaneDescriptor, Size,
 };
 
+#[test]
+fn implicit_modifier_uses_the_drm_reserved_value_without_a_vendor_byte() {
+    // drm_fourcc.h: fourcc_mod_code(NONE, (1ULL << 56) - 1).
+    assert_eq!(DRM_FORMAT_MOD_INVALID, 0x00ff_ffff_ffff_ffff);
+}
+
 fn compressed_image() -> DmaBufDescriptor {
     // Mesa's first 300x300 GLX buffer: color and compression metadata share
     // one allocation. The metadata pitch is smaller than an RGB image row.
@@ -48,7 +54,7 @@ fn explicit_layouts_do_not_give_auxiliary_planes_image_geometry() {
 
 #[test]
 fn linear_and_legacy_implicit_row_bounds_remain_enforced() {
-    for modifier in [0, DRM_FORMAT_MOD_INVALID] {
+    for modifier in [0, 0x00ff_ffff_ffff_ffff] {
         let image = DmaBufDescriptor {
             modifier,
             plane_count: 1,

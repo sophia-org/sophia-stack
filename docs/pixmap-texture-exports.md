@@ -39,6 +39,11 @@ used as a renderer handle.
 
 Imported DMA-BUF storage is re-exported through retained plane descriptors and
 owned file descriptors. It is not copied into the provider's CPU-upload store.
+An import through legacy DRI3 has an unspecified layout. Its modifier-aware
+export must use DRM's `0x00ffffffffffffff` sentinel, with a zero vendor byte;
+`u64::MAX` names a different, invalid modifier. The descriptor, driver import
+and wire reply use the same DRM value. An unspecified layout never implies
+linear storage.
 SHM-backed pixmap exports are refused: writes through shared memory have no
 authority damage boundary to synchronize. SHM uploads into ordinary CPU
 drawables remain available.
@@ -93,8 +98,10 @@ The renderer must preserve the driver's implicit synchronization; it must not
 replace a native modifier with an assumed linear layout.
 
 Deterministic tests cover validation, identity, ordering and cancellation.
-Private hardware tests cover exact pixels through retained imports and a real
-direct GLX client using the live provider. Neither proves accelerated browser
+Private hardware tests cover exact pixels through retained imports, direct
+GLX clients, and EGL pixmap textures using the live provider. CPU-written and
+GPU-produced imported pixmaps are checked across separate X connections, with
+the original FD identity and the wire modifier preserved. Neither proves accelerated browser
 playback in an installed session. That acceptance requires a normal browser
 launch without graphics-selection flags, visible video and evidence that the
 GPU process stayed accelerated.

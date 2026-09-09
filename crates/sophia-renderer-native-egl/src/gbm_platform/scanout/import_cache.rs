@@ -309,7 +309,7 @@ pub(crate) fn create_dma_buf_image(
             keys[2],
             plane.stride as khronos_egl::Attrib,
         ]);
-        if frame.modifier != u64::MAX {
+        if frame.modifier != u64::from(gbm::Modifier::Invalid) {
             attributes.extend_from_slice(&[
                 keys[3],
                 (frame.modifier & u64::from(u32::MAX)) as khronos_egl::Attrib,

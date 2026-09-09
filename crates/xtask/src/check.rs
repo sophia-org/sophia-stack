@@ -50,7 +50,7 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
     report.push(hardware_proof(
         repo,
         "tools/check_client_first_frame.sh",
-        "GLX and EGL first-frame pixels",
+        "GLX/EGL first-frame and pixmap-export pixels",
     )?);
     command(
         repo,

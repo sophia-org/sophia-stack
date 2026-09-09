@@ -29,7 +29,9 @@ where
         let preferred_modifiers = preferred_modifiers
             .iter()
             .copied()
-            .filter(|modifier| *modifier != u64::MAX)
+            .filter(|modifier| {
+                *modifier != u64::MAX && *modifier != u64::from(gbm::Modifier::Invalid)
+            })
             .collect::<Vec<_>>();
         self.egl
             .bind_api(khronos_egl::OPENGL_API)
@@ -261,7 +263,9 @@ where
         let preferred_modifiers = preferred_modifiers
             .iter()
             .copied()
-            .filter(|modifier| *modifier != u64::MAX)
+            .filter(|modifier| {
+                *modifier != u64::MAX && *modifier != u64::from(gbm::Modifier::Invalid)
+            })
             .collect::<Vec<_>>();
         self.egl
             .bind_api(khronos_egl::OPENGL_API)
@@ -419,7 +423,9 @@ where
         let preferred_modifiers = preferred_modifiers
             .iter()
             .copied()
-            .filter(|modifier| *modifier != u64::MAX)
+            .filter(|modifier| {
+                *modifier != u64::MAX && *modifier != u64::from(gbm::Modifier::Invalid)
+            })
             .collect::<Vec<_>>();
         self.egl
             .bind_api(khronos_egl::OPENGL_API)

@@ -938,7 +938,10 @@ fn worker_pending_export<Owner>() -> LiveRenderedScanoutBufferExport<Owner> {
 fn reduced_preferred_scanout_modifiers(mut modifiers: Vec<u64>) -> Vec<u64> {
     let mut reduced = Vec::new();
     for modifier in modifiers.drain(..) {
-        if modifier == u64::MAX || reduced.contains(&modifier) {
+        if modifier == sophia_protocol::DRM_FORMAT_MOD_INVALID
+            || modifier == u64::MAX
+            || reduced.contains(&modifier)
+        {
             continue;
         }
         reduced.push(modifier);

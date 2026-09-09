@@ -23,7 +23,7 @@ impl XAuthorityRuntime {
                     .or_default()
                     .extend(row.modifiers.into_iter().filter(|modifier| {
                         *modifier != sophia_protocol::DRM_FORMAT_MOD_INVALID
-                            && *modifier != 0x00ff_ffff_ffff_ffff
+                            && *modifier != u64::MAX
                     }));
             }
             for modifiers in canonical.values_mut() {

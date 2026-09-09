@@ -79,6 +79,12 @@ descriptor bounds and passes real GLX/EGL GPU pixel checks. Mason confirmed
 Kitty and Quickshell visibility and responsiveness in the installed release;
 this accepts that regression repair without closing the broader exits above.
 
+The [implicit-modifier investigation](../investigations/n5i1x7iv-implicit-dma-buf-exports-used-the-wrong-drm-modifier-sentinel.md)
+records a second generic defect: legacy DRI3 exports preserved the FD but
+substituted a non-ABI modifier, producing black pixels in a real EGL consumer.
+The corrected export passes private pixel checks; Brave's logged initialization
+failure and physical video acceptance remain separate gates.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

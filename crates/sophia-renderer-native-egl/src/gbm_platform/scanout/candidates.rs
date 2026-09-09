@@ -108,7 +108,10 @@ const LINEAR_SCANOUT_MODIFIERS: [gbm::Modifier; 1] = [gbm::Modifier::Linear];
 fn reduced_gbm_scanout_modifiers(modifiers: &[u64]) -> Vec<gbm::Modifier> {
     let mut reduced = Vec::new();
     for modifier in modifiers.iter().copied().map(gbm::Modifier::from) {
-        if matches!(modifier, gbm::Modifier::Invalid) || reduced.contains(&modifier) {
+        if matches!(modifier, gbm::Modifier::Invalid)
+            || u64::from(modifier) == u64::MAX
+            || reduced.contains(&modifier)
+        {
             continue;
         }
         reduced.push(modifier);

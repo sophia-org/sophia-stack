@@ -18,6 +18,56 @@ fn row(format: u32, modifiers: Vec<u64>) -> XServerFrontendDmaBufImportFormat {
     XServerFrontendDmaBufImportFormat { format, modifiers }
 }
 
+#[test]
+fn legacy_pixmap_export_encodes_the_drm_implicit_modifier() {
+    for byte_order in [XByteOrder::LittleEndian, XByteOrder::BigEndian] {
+        let namespace = NamespaceId::from_raw(51);
+        let pixmap = XResourceId::new(0x200001, 1);
+        let mut runtime = XAuthorityRuntime::new();
+        runtime
+            .create_dri3_pixmap(namespace, pixmap, 1, 256, 3, 1, 256, 32, 32)
+            .unwrap();
+        runtime
+            .attach_dri3_plane_fds(
+                namespace,
+                pixmap,
+                vec![Arc::new(File::open("/dev/null").unwrap().into())],
+            )
+            .unwrap();
+        let result = dispatch_x11_wire_request(
+            XDispatchContext {
+                byte_order,
+                namespace,
+                transaction: TransactionId::from_raw(2),
+                sequence: 2,
+                major_opcode: X_DRI3_MAJOR_OPCODE,
+                client_id: 1,
+            },
+            XWireRequest::Dri3BuffersFromPixmap { pixmap },
+            &mut runtime,
+            &mut XAtomTable::new(),
+            &mut XPropertyTable::new(),
+        );
+        assert_eq!(result.outputs.len(), 1);
+        let output = result.outputs.into_iter().next().unwrap();
+        assert!(matches!(
+            &output,
+            XClientOutput::Reply(XClientReply::Dri3BuffersFromPixmap {
+                modifier: 0x00ff_ffff_ffff_ffff,
+                depth: 32,
+                bits_per_pixel: 32,
+                ..
+            })
+        ));
+        let bytes = encode_x_client_output(byte_order, output);
+        let expected = match byte_order {
+            XByteOrder::LittleEndian => 0x00ff_ffff_ffff_ffff_u64.to_le_bytes(),
+            XByteOrder::BigEndian => 0x00ff_ffff_ffff_ffff_u64.to_be_bytes(),
+        };
+        assert_eq!(&bytes[16..24], &expected);
+    }
+}
+
 fn query(runtime: &mut XAuthorityRuntime, depth: u8) -> Vec<u64> {
     let result = dispatch_x11_wire_request(
         XDispatchContext {

@@ -179,7 +179,10 @@ where
             width: image.buffer.width(),
             height: image.buffer.height(),
             format: image.buffer.format(),
-            modifier: image.buffer.modifier().unwrap_or(u64::MAX),
+            modifier: image
+                .buffer
+                .modifier()
+                .unwrap_or(u64::from(gbm::Modifier::Invalid)),
             plane_count: image.buffer.plane_count(),
             planes,
         }))

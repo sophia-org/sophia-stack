@@ -17,7 +17,7 @@ pub fn common_dma_buf_import_formats(
                 .or_default()
                 .extend(row.modifiers.iter().copied().filter(|modifier| {
                     *modifier != sophia_protocol::DRM_FORMAT_MOD_INVALID
-                        && *modifier != 0x00ff_ffff_ffff_ffff
+                        && *modifier != u64::MAX
                         && (!cross_device || *modifier == 0)
                 }));
         }

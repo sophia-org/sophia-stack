@@ -23,7 +23,7 @@ impl NativeDmaBufFrame<'_> {
             && self.height > 0
             && matches!(self.format, DRM_FORMAT_XRGB8888 | DRM_FORMAT_ARGB8888)
             && self.stride >= self.width.saturating_mul(4)
-            && matches!(self.modifier, 0 | u64::MAX)
+            && (self.modifier == 0 || self.modifier == u64::from(gbm::Modifier::Invalid))
     }
 }
 

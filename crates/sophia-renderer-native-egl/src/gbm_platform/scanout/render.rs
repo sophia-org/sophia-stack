@@ -316,7 +316,7 @@ fn render_native_target_dmabuf(
         EGL_DMA_BUF_PLANE0_PITCH_EXT,
         frame.stride as khronos_egl::Attrib,
     ];
-    if frame.modifier != u64::MAX {
+    if frame.modifier != u64::from(gbm::Modifier::Invalid) {
         attributes.extend_from_slice(&[
             EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
             (frame.modifier & u64::from(u32::MAX)) as khronos_egl::Attrib,
@@ -550,7 +550,7 @@ fn render_native_target_composition(
                             layer_index,
                             layer.target,
                             layer.format,
-                            u64::MAX,
+                            u64::from(gbm::Modifier::Invalid),
                             layer.stride,
                         );
                     }
@@ -621,7 +621,10 @@ fn render_native_target_composition(
                             width: image.buffer.width(),
                             height: image.buffer.height(),
                             format: image.buffer.format(),
-                            modifier: image.buffer.modifier().unwrap_or(u64::MAX),
+                            modifier: image
+                                .buffer
+                                .modifier()
+                                .unwrap_or(u64::from(gbm::Modifier::Invalid)),
                             plane_count,
                             planes,
                         },
@@ -670,7 +673,7 @@ fn render_native_target_composition(
                             layer_index,
                             layer.target,
                             0,
-                            u64::MAX,
+                            u64::from(gbm::Modifier::Invalid),
                             0,
                         );
                     }

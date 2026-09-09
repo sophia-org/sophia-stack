@@ -52,7 +52,8 @@ pub const DMA_BUF_MAX_DIMENSION: i32 = 16_384;
 pub const DMA_BUF_MAX_BYTES: u64 = 256 * 1024 * 1024;
 pub const DRM_FORMAT_XRGB8888: u32 = u32::from_le_bytes(*b"XR24");
 pub const DRM_FORMAT_ARGB8888: u32 = u32::from_le_bytes(*b"AR24");
-pub const DRM_FORMAT_MOD_INVALID: u64 = u64::MAX;
+/// DRM reserves the low 56 bits with vendor NONE for an unspecified layout.
+pub const DRM_FORMAT_MOD_INVALID: u64 = 0x00ff_ffff_ffff_ffff;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct DmaBufPlaneDescriptor {

@@ -18,8 +18,48 @@ use sophia_x_authority::{
 use crate::live_session::{LiveXPixmapAllocator, LiveXRenderDeviceProvider};
 
 #[test]
-#[ignore = "requires SOPHIA_PIXMAP_TEST_DEVICE and GL/Xlib development files; private X server, no visible windows"]
-fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
+#[ignore = "requires SOPHIA_PIXMAP_TEST_DEVICE and EGL/GLES2/Xlib development files; private X server, no visible windows"]
+fn egl_client_binds_cpu_pixmap_rgba_texture() {
+    check_pixmap(None, 0);
+}
+
+#[test]
+#[ignore = "requires SOPHIA_PIXMAP_TEST_DEVICE and EGL/GLES2/Xlib development files; private X server, no visible windows"]
+fn egl_client_binds_cpu_pixmap_from_another_connection() {
+    check_pixmap(Some("--cross-connection"), 1);
+}
+
+#[test]
+#[ignore = "requires SOPHIA_PIXMAP_TEST_DEVICE and EGL/GLES2/GBM/XCB/Xlib development files; private X server, no visible windows"]
+fn egl_client_binds_imported_pixmap_from_another_connection() {
+    check_pixmap(Some("--imported"), 2);
+}
+
+#[test]
+#[ignore = "requires SOPHIA_PIXMAP_TEST_DEVICE and EGL/GLES2/GBM/XCB/Xlib development files; private X server, no visible windows"]
+fn egl_client_binds_imported_pixmap_rgba_texture() {
+    check_pixmap(Some("--imported-same-connection"), 3);
+}
+
+#[test]
+#[ignore = "requires selected render node and GL/EGL/GBM/XCB development files; private X server"]
+fn egl_client_binds_imported_pixmap_with_wire_implicit_modifier() {
+    check_pixmap(Some("--imported-wire-implicit"), 4);
+}
+
+#[test]
+#[ignore = "requires selected render node and GL/EGL/GBM/XCB development files; private X server"]
+fn glx_client_initializes_legacy_imported_pixmap() {
+    check_pixmap(Some("--glx-imported"), 5);
+}
+
+#[test]
+#[ignore = "requires selected render node and GL/EGL/GBM/XCB development files; private X server"]
+fn glx_client_initializes_imported_pixmap_with_wire_implicit_modifier() {
+    check_pixmap(Some("--glx-imported-wire-implicit"), 6);
+}
+
+fn check_pixmap(mode: Option<&str>, case: u32) {
     let node = std::env::var_os("SOPHIA_PIXMAP_TEST_DEVICE").expect("select a DRM render node");
     let device = || {
         OpenOptions::new()
@@ -33,14 +73,24 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
         provider.supports_pixmap_textures(),
         "renderer capability probe failed"
     );
-    let display = 50000 + std::process::id() % 10000;
+    let formats = sophia_backend_live::query_dma_buf_import_formats(device()).unwrap();
+    assert!(!formats.is_empty(), "measured import inventory is empty");
+    let display = 73000 + case * 10000 + std::process::id() % 10000;
     let socket = std::path::PathBuf::from(format!("/tmp/.X11-unix/X{display}"));
     assert!(!socket.exists(), "test display is occupied");
-    let config = XServerFrontendConfig::new(&socket, NamespaceId::from_raw(991))
+    let config = XServerFrontendConfig::new(&socket, NamespaceId::from_raw(994))
         .unwrap()
         .with_render_device_provider(Arc::new(LiveXRenderDeviceProvider {
             device: device(),
-            import_formats: Vec::new(),
+            import_formats: formats
+                .into_iter()
+                .map(
+                    |entry| sophia_x_authority::XServerFrontendDmaBufImportFormat {
+                        format: entry.format,
+                        modifiers: entry.modifiers,
+                    },
+                )
+                .collect(),
         }))
         .with_pixmap_allocator(provider);
     let mut frontend = XServerFrontend::bind(config).unwrap();
@@ -67,19 +117,31 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
         frontend.wait_for_clients()
     });
     let source =
-        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/probes/glx_pixmap.c");
-    let binary =
-        std::env::temp_dir().join(format!("sophia-glx-pixmap-probe-{}", std::process::id()));
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tools/probes/egl_pixmap.c");
+    let binary = std::env::temp_dir().join(format!(
+        "sophia-egl-pixmap-probe-{}-{case}",
+        std::process::id()
+    ));
     let compiled = Command::new("cc")
         .args(["-Wall", "-Wextra", "-Werror"])
         .arg(&source)
         .arg("-o")
         .arg(&binary)
-        .args(["-lX11", "-lGL"])
+        .args([
+            "-lX11",
+            "-lX11-xcb",
+            "-lxcb",
+            "-lxcb-dri3",
+            "-lgbm",
+            "-lEGL",
+            "-lGLESv2",
+        ])
+        .arg("-lGL")
         .status();
     let mut client_result = None;
     if compiled.as_ref().is_ok_and(|status| status.success()) {
         let child = Command::new(&binary)
+            .args(mode)
             .env("DISPLAY", format!(":{display}"))
             .env_remove("XAUTHORITY")
             .env_remove("LD_PRELOAD")
@@ -87,6 +149,7 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
             .env_remove("LIBGL_ALWAYS_INDIRECT")
             .env_remove("DRI_PRIME")
             .env_remove("MESA_LOADER_DRIVER_OVERRIDE")
+            .env_remove("EGL_PLATFORM")
             .spawn();
         if let Ok(mut child) = child {
             let deadline = Instant::now() + Duration::from_secs(15);
@@ -108,17 +171,11 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
     let server_result = worker.join();
     let _ = std::fs::remove_file(&socket);
     let _ = std::fs::remove_file(&binary);
-    assert!(compiled.unwrap().success(), "compile GL client");
+    assert!(compiled.unwrap().success(), "compile EGL client");
     server_result.unwrap().unwrap();
     assert!(
         client_result.is_some_and(|status| status.success()),
-        "GL client failed or timed out; recent (sequence, major, minor): {:?}",
+        "EGL client failed or timed out; recent (sequence, major, minor): {:?}",
         requests.lock().unwrap(),
     );
 }
-
-#[path = "gl_first_frame.rs"]
-mod gl_first_frame;
-
-#[path = "egl_pixmap_export.rs"]
-mod egl_pixmap_export;

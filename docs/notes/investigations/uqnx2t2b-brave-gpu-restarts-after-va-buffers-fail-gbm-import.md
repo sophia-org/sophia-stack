@@ -415,6 +415,11 @@ successful accelerated allocation on the permitted device.
 
 ## Connections
 
+The [implicit-modifier investigation](n5i1x7iv-implicit-dma-buf-exports-used-the-wrong-drm-modifier-sentinel.md)
+records the white-video report on installed `009498fb0aae`, the matched-launch
+EGL initialization errors, and a separately reproduced export-encoding defect.
+Its private EGL pixel repair does not by itself establish Brave acceptance.
+
 `t068` in [todo.md](../../../todo.md) owns this work. The earlier
 [delayed-publication investigation](vwo9wmie-window-switches-reveal-delayed-visual-updates.md)
 concerns Sophia frame scheduling. A browser GPU crash is a separate failure;

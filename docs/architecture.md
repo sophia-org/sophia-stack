@@ -869,8 +869,21 @@ and disposition instead of reading a later head's displayed content.
 Engine settlement may carry that witness only for the exact committed copied
 surface candidate and renderer image/transaction, currently on a single output.
 Stale candidates, different images or formats, and multi-output joins carry none.
-The frontend's current effective allocation preference and client opt-in remain
-separate prerequisites; a retired witness alone does not emit reallocation advice.
+That historical evidence accompanies only its exact copied Complete. The session
+compares the current committed backing, placement and native context with its
+acknowledged allocation snapshot. Native context identities never repeat across
+owner reconstruction or numeric-generation rollback; exhaustion suppresses the
+optional comparison. Physical head identity stays inside the native boundary.
+
+The frontend captures the successful Present's original window incarnation,
+presenter, buffer and layout before the pixmap XID can be reused. At Complete it
+rechecks current window geometry, mapping, context and exact-format membership
+in that presenter's available pinned bundle. The accepted alternative must still
+be preferred and the original must not. A busy authority rejects the optional
+comparison without waiting. The comparison is informational: stale or unavailable
+state preserves ordinary Copy, clock advancement and Idle delivery. Client opt-in
+and reallocation-signal suppression remain separate requirements; no comparison
+result authorizes a later commit or changes the wire completion mode.
 
 The ordinary fallback can prefer the original fourcc without another render.
 A required renderer format is strict; an optional preference may return to normal
@@ -959,8 +972,9 @@ connection and output; absent or different identity retains measured LINEAR only
 The identity is cached at preparation, so queries require no device discovery.
 Preferences grant no device authority and imply no successful atomic scanout test.
 
-Each native head caches its plane-format observation beside its existing
-allocation preferences. Both come from one IN_FORMATS blob read. Strict
+Each physical native head owns its plane-format observation beside its existing
+allocation preferences, so sorting heads cannot detach formats from their owner.
+Both come from one IN_FORMATS blob read. Strict
 evidence distinguishes supported, unsupported and unknown layouts; malformed,
 unreadable, implicit or over-capacity tables cannot prove exclusion. The strict
 snapshot does not narrow the ordinary allocation-preference parser. Plane and

@@ -316,10 +316,19 @@ pub enum LivePresentProtocolFeedback {
 }
 
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LivePresentLayoutComparison {
+    pub candidate: sophia_protocol::SurfaceTransactionKey,
+    pub retired: crate::LiveProductionRetiredLayoutWitness,
+}
+
+#[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LivePresentFeedbackOutcome {
     pub feedback: Vec<LivePresentProtocolFeedback>,
     pub idle_fence_triggered: bool,
+    /// Historical evidence attached to this outcome's exact Complete, never a permit.
+    pub layout_comparison: Option<Box<LivePresentLayoutComparison>>,
 }
 
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
@@ -445,6 +454,7 @@ impl LiveProductionPresentFeedbackCoordinator {
                 disposition: LivePresentBufferDisposition::Retained,
             }],
             idle_fence_triggered: false,
+            layout_comparison: None,
         })
     }
 
@@ -475,6 +485,7 @@ impl LiveProductionPresentFeedbackCoordinator {
                 disposition: LivePresentBufferDisposition::Flipped,
             }],
             idle_fence_triggered: false,
+            layout_comparison: None,
         })
     }
 
@@ -490,6 +501,7 @@ impl LiveProductionPresentFeedbackCoordinator {
             feedback: vec![LivePresentProtocolFeedback::Idle { transaction }],
             idle_fence_triggered: retirement.idle_fence
                 == sophia_renderer_live::LiveIdleFenceStatus::Triggered,
+            layout_comparison: None,
         })
     }
 
@@ -551,6 +563,7 @@ impl LiveProductionPresentFeedbackCoordinator {
                 vec![complete, idle]
             },
             idle_fence_triggered,
+            layout_comparison: None,
         }
     }
 }

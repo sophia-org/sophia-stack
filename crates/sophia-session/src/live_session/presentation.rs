@@ -164,6 +164,15 @@ impl XPresentSessionObserver {
         runtime: &mut LiveProductionVisualRuntime,
         pending: &mut Vec<sophia_backend_live::LivePresentFeedbackOutcome>,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        self.drain_pending_feedback_with_allocation(runtime, pending, None)
+    }
+
+    fn drain_pending_feedback_with_allocation(
+        &mut self,
+        runtime: &mut LiveProductionVisualRuntime,
+        pending: &mut Vec<sophia_backend_live::LivePresentFeedbackOutcome>,
+        allocation: Option<window_allocation::LiveWindowAllocationView<'_>>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         pending.clear();
         runtime.drain_present_feedback_into(pending)?;
         for outcome in pending.drain(..) {
@@ -179,12 +188,24 @@ impl XPresentSessionObserver {
                     );
                 }
             }
-            self.observe_feedback(outcome);
+            let comparison = allocation.as_ref().and_then(|view| {
+                outcome.layout_comparison.as_deref().and_then(|evidence| {
+                    view.comparison(runtime.committed_surfaces(), evidence)
+                })
+            });
+            self.observe_feedback(outcome, comparison);
         }
         Ok(())
     }
 
-    fn observe_feedback(&mut self, outcome: sophia_backend_live::LivePresentFeedbackOutcome) {
+    fn observe_feedback(
+        &mut self,
+        outcome: sophia_backend_live::LivePresentFeedbackOutcome,
+        comparison: Option<(
+            sophia_protocol::TransactionId,
+            sophia_x_authority::XPresentLayoutComparison,
+        )>,
+    ) {
         if outcome.idle_fence_triggered {
             self.idle_fence_triggers = self.idle_fence_triggers.saturating_add(1);
         }
@@ -219,11 +240,34 @@ impl XPresentSessionObserver {
                             XPresentCompletionMode::Skip
                         }
                     };
+                    let comparison = comparison
+                        .filter(|(candidate, _)| {
+                            *candidate == transaction && mode == XPresentCompletionMode::Copy
+                        })
+                        .map(|(_, comparison)| comparison);
                     match self
                         .router
-                        .route_present_complete(transaction, ust, msc, mode)
+                        .route_present_complete_with_layout(
+                            transaction, ust, msc, mode, comparison,
+                        )
                     {
-                        Ok(routed) => {
+                        Ok(route) => {
+                            let routed = route.routed;
+                            if matches!(
+                                route.layout_comparison,
+                                Some(sophia_x_authority::XPresentLayoutComparisonResult::Matched)
+                            )
+                                && let Some(comparison) = comparison
+                            {
+                                crate::session_println!(
+                                    "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction={} output={} format={} original_modifier={} alternative_modifier={}",
+                                    transaction.raw(),
+                                    comparison.native_context.output.raw(),
+                                    comparison.format,
+                                    comparison.original_modifier,
+                                    comparison.alternative_modifier,
+                                );
+                            }
                             self.complete_routed =
                                 self.complete_routed.saturating_add(usize::from(routed));
                             if routed

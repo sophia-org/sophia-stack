@@ -1,6 +1,7 @@
 #[cfg(unix)]
 #[derive(Clone)]
 struct XServerFrontendRouteRegistry {
+    runtime: Arc<std::sync::OnceLock<std::sync::Weak<Mutex<XAuthorityRuntime>>>>,
     clients: Arc<Mutex<BTreeMap<XServerFrontendClientId, XServerFrontendClientRouteSenders>>>,
     surfaces: Arc<Mutex<BTreeMap<SurfaceId, XServerFrontendSurfaceRoute>>>,
     focused_surface: Arc<Mutex<Option<XServerFrontendSurfaceRoute>>>,
@@ -62,6 +63,7 @@ struct XPendingPresent {
     serial: u32,
     idle_fence: Option<XResourceId>,
     phases: crate::XPresentFeedbackPhases,
+    allocation_subject: Option<crate::runtime::XPresentAllocationSubject>,
 }
 
 #[cfg(unix)]
@@ -585,6 +587,7 @@ impl XServerFrontendRouteRegistry {
                 serial,
                 idle_fence,
                 phases: crate::XPresentFeedbackPhases::default(),
+                allocation_subject: None,
             },
         );
         Ok(())
@@ -597,24 +600,59 @@ impl XServerFrontendRouteRegistry {
         msc: u64,
         mode: XPresentCompletionMode,
     ) -> Result<bool, XServerFrontendRouteError> {
-        let presentation = {
+        self.route_present_complete_with_layout(transaction, ust, msc, mode, None)
+            .map(|outcome| outcome.routed)
+    }
+
+    fn route_present_complete_with_layout(
+        &self,
+        transaction: TransactionId,
+        ust: u64,
+        msc: u64,
+        mode: XPresentCompletionMode,
+        comparison: Option<crate::XPresentLayoutComparison>,
+    ) -> Result<crate::XPresentCompleteRouteOutcome, XServerFrontendRouteError> {
+        let (presentation, layout_comparison) = {
+            let authority = comparison
+                .and_then(|_| self.runtime.get())
+                .and_then(std::sync::Weak::upgrade);
+            let runtime = authority.as_ref().and_then(|authority| authority.try_lock().ok());
             let mut pending = self
                 .pending_presentations
                 .entries
                 .lock()
                 .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
             let Some(presentation) = pending.get_mut(&transaction) else {
-                return Ok(false);
+                return Ok(crate::XPresentCompleteRouteOutcome {
+                    routed: false,
+                    layout_comparison: None,
+                });
             };
+            let layout_comparison = comparison.map(|comparison| {
+                let matched = mode == XPresentCompletionMode::Copy
+                    && runtime.as_ref().is_some_and(|runtime| {
+                        presentation.allocation_subject.is_some_and(|subject| {
+                            runtime.compare_present_layout(subject, comparison)
+                        })
+                    });
+                if matched {
+                    crate::XPresentLayoutComparisonResult::Matched
+                } else {
+                    crate::XPresentLayoutComparisonResult::Rejected
+                }
+            });
             if !presentation.phases.observe_complete() {
-                return Ok(false);
+                return Ok(crate::XPresentCompleteRouteOutcome {
+                    routed: false,
+                    layout_comparison: None,
+                });
             }
             let presentation = *presentation;
             if presentation.phases.finished() {
                 pending.remove(&transaction);
                 self.pending_presentations.capacity_changed.notify_all();
             }
-            presentation
+            (presentation, layout_comparison)
         };
         // Every completion advances the presentation clock, and the clock is
         // what answers a NotifyMSC. Ripened deferrals flush here because this
@@ -649,7 +687,10 @@ impl XServerFrontendRouteRegistry {
             })
             .collect::<Vec<_>>();
         if subscriptions.is_empty() {
-            return Ok(false);
+            return Ok(crate::XPresentCompleteRouteOutcome {
+                routed: false,
+                layout_comparison,
+            });
         }
             // A Present subscription belongs to whoever took it, not to
             // whoever presents. A browser subscribes from its GPU process for a
@@ -672,7 +713,10 @@ impl XServerFrontendRouteRegistry {
                 },
             )?;
         }
-        Ok(true)
+        Ok(crate::XPresentCompleteRouteOutcome {
+            routed: true,
+            layout_comparison,
+        })
     }
 
     fn cancel_present(&self, transaction: TransactionId) -> Result<(), XServerFrontendRouteError> {
@@ -844,3 +888,5 @@ impl XServerFrontendRouteRegistry {
 }
 include!("registry/delivery.rs");
 include!("registry/present_msc.rs");
+
+include!("registry/present_layout.rs");

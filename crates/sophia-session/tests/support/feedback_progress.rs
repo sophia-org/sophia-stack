@@ -215,6 +215,7 @@ fn feedback_progress_precedes_no_engine_work_with_a_disarmed_native_deadline() {
             },
         ],
         idle_fence_triggered: false,
+        layout_comparison: None,
     });
     let mut pending = Vec::new();
     let mut skipped = 0;

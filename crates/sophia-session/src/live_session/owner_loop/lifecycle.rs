@@ -701,7 +701,17 @@
         // deadline is armed. Deliver its feedback before an authority-only
         // batch can skip the remainder of this owner turn.
         if let Some(runtime) = runtime.as_mut() {
-            present_observer.drain_pending_feedback(runtime, &mut present_feedback)?;
+            present_observer.drain_pending_feedback_with_allocation(
+                runtime,
+                &mut present_feedback,
+                Some(window_allocation::LiveWindowAllocationView {
+                    publisher: &window_allocation_publisher,
+                    native: native_scanout.as_ref(),
+                    layout: &layout,
+                    outputs: &outputs,
+                    topology_generation: output_topology_owner.publication_generation,
+                }),
+            )?;
             visual_progress.observe_committed(runtime.committed_surfaces());
         }
         if let Some(native) = native_scanout.as_ref() {

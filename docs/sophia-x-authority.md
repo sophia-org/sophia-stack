@@ -882,6 +882,22 @@ matching window preference. Present SuboptimalCopy
 is not emitted until exact alternate-layout flip evidence exists; failed atomic
 validation or IN_FORMATS membership alone is not that evidence.
 
+An optional retired-layout comparison is attached to the exact copied Complete,
+never passed as a reusable permit. Successful DMA Present dispatch captures the
+requested window incarnation, presenting connection and original buffer/layout.
+Later FreePixmap and XID reuse cannot substitute another subject. The session
+first matches current native context and placement to acknowledged preferences;
+the frontend then checks its current viewable window, geometry, accepted snapshot
+generation, available connection bundle and exact-format effective membership.
+Child presentations are not assigned a parent's allocation preference.
+
+Comparison and Complete consumption share the authority-to-pending lock order.
+Authority acquisition is nonblocking: contention or unavailable state rejects
+only the comparison. Locks are released before protocol egress. A match records
+an observation without changing Copy/Flip/Skip, completion clocks or Idle ordering.
+The context crossing this boundary contains an opaque generation and logical
+output only; native head and target identity remain in the backend/session.
+
 Descriptor validation bounds dimensions, logical image bytes, plane count,
 offsets and pitches. Explicit non-linear modifiers may carry opaque auxiliary
 planes whose pitch and extent do not follow the RGB image dimensions. Those

@@ -540,6 +540,7 @@ fn layout_probe_field(key: &str, value: &str) -> bool {
             value,
             "Tested"
                 | "RetiredCopy"
+                | "PreferenceMatched"
                 | "MissingRequestEvidence"
                 | "SelectionMismatch"
                 | "GeometryMismatch"

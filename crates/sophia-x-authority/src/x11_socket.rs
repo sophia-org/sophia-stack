@@ -317,3 +317,5 @@ fn is_x11_client_disconnect(error: &std::io::Error) -> bool {
 mod routing_tests;
 include!("x11_socket/connection/observations.rs");
 include!("x11_socket/connection/io.rs");
+#[path = "../tests/support/present_layout_comparison.rs"]
+mod present_layout_comparison_tests;

@@ -20,6 +20,7 @@ fn feedback(transaction: u64) -> LivePresentFeedbackOutcome {
             LivePresentProtocolFeedback::Idle { transaction },
         ],
         idle_fence_triggered: false,
+        layout_comparison: None,
     }
 }
 

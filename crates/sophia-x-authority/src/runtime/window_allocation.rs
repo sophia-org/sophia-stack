@@ -12,6 +12,7 @@ struct XEffectiveWindowAllocationPreference<'a> {
     screen_modifiers: &'a [u64],
     window_modifiers: &'a [u64],
     same_device: bool,
+    preference: &'a crate::XWindowAllocationPreference,
 }
 
 impl XAuthorityRuntime {
@@ -64,6 +65,9 @@ impl XAuthorityRuntime {
         for mut window in snapshot.windows {
             if !window.surface.is_valid()
                 || replacement.contains_key(&window.surface)
+                || window.context.is_some_and(|context| {
+                    context.generation == 0 || context.output == sophia_protocol::OutputId::INVALID
+                })
                 || window.identity.is_some_and(|identity| {
                     rustix::fs::major(identity.device_number) != window.device.major
                         || rustix::fs::minor(identity.device_number) != window.device.minor
@@ -158,6 +162,9 @@ impl XAuthorityRuntime {
             screen_modifiers,
             window_modifiers: &row.modifiers,
             same_device: identity.is_some() && identity == preference.identity,
+            preference,
         })
     }
 }
+
+include!("window_allocation/present.rs");

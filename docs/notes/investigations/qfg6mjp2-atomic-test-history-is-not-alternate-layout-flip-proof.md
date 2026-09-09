@@ -373,6 +373,67 @@ a monotonic context identity at that boundary. A mismatch must suppress optional
 advice without delaying ordinary Copy. No installation, physical paired-test
 acceptance or normal-launch acceptance is claimed here.
 
+## Current preference comparison after 820f7694
+
+The retired witness now travels with its exact copied Complete. Backend settlement
+requires one matching Complete and leaves the existing feedback order, disposition
+and idle-fence outcome unchanged. The session compares the current committed
+surface/backing, unambiguous placement and native context against its acknowledged
+preference snapshot. An asynchronous snapshot awaiting acknowledgement cannot
+stand in for accepted state. Both normal owner-loop feedback drains perform this
+comparison; teardown remains deliberately conservative.
+
+Native allocation contexts use a nonrepeating process-wide generation. Owner
+reconstruction, device/topology transitions, numeric rollback and head loss
+invalidate that context. Exhaustion disables optional evidence without disabling
+ordinary rendering. The scalar context query performs no capability discovery or
+list cloning. Physical head and target identities remain in backend/session;
+the frontend receives only an opaque context generation and logical output.
+
+The frontend captures the successful DMA Present's requested window incarnation,
+presenting connection and original buffer/layout while the authority owns the
+dispatch. A later pixmap free or XID reuse cannot change those facts. Immediately
+before consuming Complete, it checks current mapping, geometry, accepted
+generation, device availability and exact-format membership in the presenter's
+pinned screen/window intersection. It does not borrow a parent's preference for
+a child Present or the preference of a Complete subscriber. The alternative must
+remain preferred and the original must not. This is a current-state comparison,
+not request-time preference history or permission for a later flip.
+
+The authority lock is attempted without waiting. Missing, stale, unavailable,
+poisoned or busy state rejects only the optional comparison; ordinary Copy,
+completion-clock advancement and Idle still proceed. Successful comparison emits
+the bounded `PreferenceMatched` diagnostic, not SuboptimalCopy. One rare boxed
+record carries evidence; normal completions allocate no additional evidence or
+format lists. Frontend membership uses the same canonical borrowed resolver as
+DRI3 queries.
+
+Review also found a capability-owner defect: construction sorted heads and their
+exporters while retaining plane-format snapshots in discovery order. A reordered
+head could therefore publish another head's formats. The snapshot now belongs to
+the physical head record and moves with it. Tests deliberately reorder heads and
+give their format sets different values.
+
+Twenty-two new tests cover native context identity and head association, exact
+feedback attachment, current owner snapshots and frontend comparison. The frontend
+suite includes real socket Present capture, window/pixmap XID reuse, independent
+Configure/Unmap changes, busy-authority completion, device loss, Idle-first order
+and runtime binding lifetime. Focused backend, session and frontend suites pass.
+Evidence and the final candidate manifest are retained in
+`.artifacts/t070-completion-preferences/`.
+
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` passed with exit 0 on
+31 unchanged Rust files. It covered all-feature workspace tests and Clippy,
+format/layout/conformance checks, twenty archived regressions, hardware buffer-age
+pixel equivalence, and real GLX/EGL first-frame and pixmap-export pixels. The
+initial focused Clippy run found two test-table type-complexity warnings; a shared
+test type alias resolved them before the successful full gate.
+
+Physical paired-test/retirement acceptance remains open. These deterministic
+tests do not acquire DRM master or prove that this host produces a qualifying
+alternative in a normal scene. No installation, live-session restart or
+SuboptimalCopy signaling is part of this checkpoint.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

@@ -420,6 +420,10 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     let protocol_routing = client_routing.clone();
     let (route_registration, input_receiver, control_channels, protocol_receiver) =
         if let Some(routing) = client_routing {
+            if let Err(error) = routing.bind_runtime(&state.runtime) {
+                let _ = state.release_client(client);
+                return Err(error);
+            }
             let admission = admission_lease.as_ref().map(|lease| lease.context());
             let (registration, channels) = match routing
                 .register_client_with_admission(client, admission)
@@ -1488,6 +1492,16 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                 }),
                             })
                         });
+                    if queued_present
+                        && let Some(routing) = protocol_routing.as_ref()
+                        && let Some(present) = present_submission.as_ref()
+                        && let Some((window, pixmap, _, _)) = pending_present
+                        && let Some(subject) = runtime.present_allocation_subject(
+                            namespace, client.raw(), window, pixmap, present,
+                        )
+                    {
+                        routing.record_present_allocation_subject(subject);
+                    }
                     let software_present_submission = dispatch_succeeded
                         .then_some(present_request)
                         .flatten()

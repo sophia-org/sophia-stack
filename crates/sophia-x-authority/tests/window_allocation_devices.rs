@@ -157,6 +157,7 @@ fn preference(
     XWindowAllocationPreference {
         surface,
         identity,
+        context: None,
         device: XDrmDeviceHint {
             major: rustix::fs::major(number),
             minor: rustix::fs::minor(number),

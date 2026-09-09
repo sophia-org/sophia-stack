@@ -205,13 +205,17 @@ prove AR24 layout support. Native identity and submission context are invalidate
 on owner/topology changes, including rollback to a previous numeric generation.
 
 These are observations, not a reusable flip permit or an emitted reallocation
-hint. The current frontend preference identity, membership of the exact tested
-alternative in that connection's effective window preferences, and physical
-acceptance remain gates. Window preferences publish independently measured XR24
-and AR24 rows, intersected with the connection's pinned import capabilities.
-An unavailable bundle offers no preferences. Publication alone does not join a
-retired comparison to the frontend's current effective preference identity.
-The native path conservatively withholds evidence for multi-output joins.
+hint. Window preferences publish independently measured XR24 and AR24 rows,
+intersected with the connection's pinned import capabilities. An unavailable
+bundle offers no preferences. The completion join now compares a retired pair
+against the owner's current native/placement context and acknowledged snapshot,
+then the frontend's current exact Present subject and effective membership.
+Native context identities do not repeat across reconstruction or rollback.
+Contention, changed state and unavailable devices suppress the optional match
+without delaying ordinary Copy. The native path conservatively withholds evidence
+for multi-output joins, and the frontend does not substitute parent preferences
+for child presentations. Physical paired-test/retirement acceptance remains open;
+only then may the deferred signaling obligations proceed.
 
 ## Implementation checkpoints
 

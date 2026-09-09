@@ -194,6 +194,18 @@ impl XServerFrontendControlRouter {
 
 #[cfg(unix)]
 impl XServerFrontendProtocolRouter {
+    pub fn route_present_complete_with_layout(
+        &self,
+        transaction: TransactionId,
+        ust: u64,
+        msc: u64,
+        mode: XPresentCompletionMode,
+        comparison: Option<crate::XPresentLayoutComparison>,
+    ) -> Result<crate::XPresentCompleteRouteOutcome, XServerFrontendRouteError> {
+        self.registry
+            .route_present_complete_with_layout(transaction, ust, msc, mode, comparison)
+    }
+
     pub fn route_present_complete(
         &self,
         transaction: TransactionId,
@@ -344,6 +356,7 @@ impl XServerFrontendRouteBroker {
         let (raster_sender, raster_receiver) = sync_channel(capacities.control.get());
         Self {
             registry: XServerFrontendRouteRegistry {
+                runtime: Arc::new(std::sync::OnceLock::new()),
                 clients: Arc::new(Mutex::new(BTreeMap::new())),
                 surfaces: Arc::new(Mutex::new(BTreeMap::new())),
                 focused_surface: Arc::new(Mutex::new(None)),

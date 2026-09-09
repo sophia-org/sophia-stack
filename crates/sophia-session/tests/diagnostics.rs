@@ -361,6 +361,11 @@ fn paired_layout_observations_survive_without_resource_payloads() {
         reduced_record(&format!("{retired} xid=123 device_path=/private/card")),
         Some(retired.to_owned())
     );
+    let matched = "sophia_live_layout_probe schema=2 status=PreferenceMatched transaction=71 output=2 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    assert_eq!(
+        reduced_record(&format!("{matched} xid=123 device_path=/private/card")),
+        Some(matched.to_owned())
+    );
     for field in [
         "status=secret",
         "original_status=secret",

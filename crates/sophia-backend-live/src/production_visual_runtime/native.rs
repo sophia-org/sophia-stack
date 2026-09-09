@@ -856,7 +856,7 @@ impl LiveProductionVisualRuntime {
         let direct = retirement.direct;
         let (production, presentation_feedback) =
             (&mut self.production, &mut self.presentation_feedback);
-        let completion = production
+        let mut completion = production
             .settle_prepared_retirement(submitted.prepared, |commit| match commit.outcome {
                 // A direct frame completes without idling: the buffer the
                 // client handed over is the buffer the screen is scanning, and
@@ -874,6 +874,9 @@ impl LiveProductionVisualRuntime {
                 }
             })
             .map_err(|error| format!("page flip protocol settlement failed: {error:?}"))?;
+        let layout_witness = layout_identity.and_then(|identity| {
+            identity.settle_feedback(retirement, &completion.commit, &mut completion.evidence)
+        });
         self.outputs
             .project_committed(&completion.committed_surfaces);
         self.route_present_feedback(completion.evidence);
@@ -906,8 +909,6 @@ impl LiveProductionVisualRuntime {
             return Ok(None);
         }
         let source_size = submitted.displayed_layer.size;
-        let layout_witness =
-            layout_identity.and_then(|identity| identity.settle(retirement, &completion.commit));
         let target = submitted.displayed_layer.placement.target;
         let clip = submitted.displayed_layer.placement.clip;
         let replaced = replace_displayed_surface(

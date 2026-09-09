@@ -15,6 +15,7 @@ fn context() -> LayoutWitnessContext {
         output: OutputId::from_raw(1),
         head: RenderHeadId::from_raw(2),
         target_generation: 4,
+        context_generation: 5,
     }
 }
 
@@ -95,6 +96,7 @@ fn matching_physical_retirement_transfers_a_submitted_witness_once() {
     assert_eq!(completed.device, context().device);
     assert_eq!(completed.head, context().head);
     assert_eq!(completed.target_generation, context().target_generation);
+    assert_eq!(completed.context_generation, context().context_generation);
     assert!(
         state
             .take_completed(Some(context()), 8, content(9).frame())
@@ -173,6 +175,10 @@ fn retirement_must_match_the_frame_cycle_context_and_submitted_source() {
         },
         LayoutWitnessContext {
             target_generation: 5,
+            ..context()
+        },
+        LayoutWitnessContext {
+            context_generation: 6,
             ..context()
         },
     ] {
@@ -290,6 +296,7 @@ fn payload(frame: u64, direct: bool) -> LiveProductionNativeRetirementContent {
             device: context().device,
             head: context().head,
             target_generation: context().target_generation,
+            context_generation: context().context_generation,
         }),
     }
 }

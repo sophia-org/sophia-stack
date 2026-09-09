@@ -51,6 +51,7 @@ fn preferences(runtime: &XAuthorityRuntime, generation: u64) -> XWindowAllocatio
             surface: SURFACE,
             device: DEVICE,
             identity: None,
+            context: None,
             formats: vec![XServerFrontendDmaBufImportFormat {
                 format: FORMAT,
                 modifiers: vec![3, 2, 2, 9, 0],

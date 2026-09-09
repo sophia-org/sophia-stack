@@ -201,3 +201,23 @@ query. The full repository/GPU gate passed on unchanged Rust sources; the manife
 and logs are in `.artifacts/t070-exact-format-preferences/`. The completion/preference
 join and physical acceptance remain open. No install or live-session restart
 was performed.
+
+## Retired comparisons against current preferences
+
+The checkpoint based on `820f7694` joins exact copied-Complete evidence with
+current native and frontend allocation state. Nonrepeating native context
+generations reject reconstruction and rollback reuse. The frontend retains the
+successful Present's original subject, then compares current mapping, geometry,
+device availability and exact-format effective membership before consuming its
+completion. Busy or stale state suppresses only the optional match; ordinary
+Copy, completion clocks and Idle remain unchanged. Both normal feedback drains
+carry the comparison. No wire mode changes.
+
+The native review also fixed plane-format snapshots becoming detached from their
+physical heads during sorting. Head records now own those capabilities. The
+[investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#current-preference-comparison-after-820f7694)
+records the ownership, current-state checks, twenty-two new tests and remaining
+physical gate. The full repository/GPU gate passed on 31 unchanged Rust files.
+Source hashes, validation logs and signed candidate identity are
+retained in `.artifacts/t070-completion-preferences/`. No installation or
+live-session restart was performed; t069/t070 remain open.

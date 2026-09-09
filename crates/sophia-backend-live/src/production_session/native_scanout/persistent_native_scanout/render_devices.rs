@@ -1,6 +1,7 @@
 use super::*;
 use std::fs::File;
 use std::io;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 mod identity;
 
@@ -18,11 +19,20 @@ pub struct LiveOutputAllocationFormatPreference {
     pub modifiers: Vec<u64>,
 }
 
+/// Native allocation identity; restoring a target does not restore its generation.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LiveOutputAllocationContext {
+    pub generation: u64,
+    pub head: sophia_engine::RenderHeadId,
+    pub target_generation: u64,
+}
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiveOutputAllocationPreference {
     pub output: OutputId,
     pub device_number: u64,
     pub identity: Option<LiveRenderDeviceNodeIdentity>,
+    pub context: Option<LiveOutputAllocationContext>,
     pub formats: Vec<LiveOutputAllocationFormatPreference>,
 }
 
@@ -55,29 +65,93 @@ fn allocation_format_preferences(
 }
 
 pub(super) struct LiveRenderDeviceState {
-    head_formats: Vec<crate::LibdrmNativePlaneFormatCapabilities>,
     group_devices: Vec<Option<LiveRenderDeviceNodeIdentity>>,
+    context_generation: Option<u64>,
     pub(super) generation: u64,
     pub(super) pending: BTreeMap<usize, u64>,
     pub(super) applied: BTreeMap<usize, u64>,
+}
+
+// Process-wide identities survive native-owner reconstruction without wrapping.
+static NEXT_ALLOCATION_CONTEXT: AtomicU64 = AtomicU64::new(1);
+
+fn next_allocation_context(counter: &AtomicU64) -> Option<u64> {
+    counter
+        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |current| {
+            current.checked_add(1)
+        })
+        .ok()
 }
 
 impl LiveRenderDeviceState {
     pub(super) fn group_identity(&self, group: usize) -> Option<LiveRenderDeviceNodeIdentity> {
         self.group_devices.get(group).copied().flatten()
     }
-    pub(super) fn group_identity_known(&self, group: usize) -> bool {
-        self.group_devices.get(group).is_some_and(Option::is_some)
-    }
-
-    pub(super) fn new(head_formats: Vec<crate::LibdrmNativePlaneFormatCapabilities>) -> Self {
+    pub(super) fn new() -> Self {
         Self {
-            head_formats,
             group_devices: Vec::new(),
+            context_generation: next_allocation_context(&NEXT_ALLOCATION_CONTEXT),
             generation: 0,
             pending: BTreeMap::new(),
             applied: BTreeMap::new(),
         }
+    }
+
+    pub(super) fn invalidate_context(&mut self) {
+        self.context_generation = next_allocation_context(&NEXT_ALLOCATION_CONTEXT);
+    }
+
+    fn output_context(
+        &self,
+        heads: &[LiveProductionNativeHead],
+        output: OutputId,
+        preparing: bool,
+    ) -> Option<(LiveOutputAllocationContext, LiveRenderDeviceNodeIdentity)> {
+        if preparing {
+            return None;
+        }
+        let mut members = heads.iter().filter(|head| head.output.id == output);
+        let head = members.next()?;
+        if !head.enabled || members.next().is_some() {
+            return None;
+        }
+        Some((
+            LiveOutputAllocationContext {
+                generation: self.context_generation?,
+                head: head.head,
+                target_generation: head.target_generation,
+            },
+            self.group_identity(head.group)?,
+        ))
+    }
+
+    fn output_preference(
+        &self,
+        heads: &[LiveProductionNativeHead],
+        output: OutputId,
+        preparing: bool,
+    ) -> Option<LiveOutputAllocationPreference> {
+        let mut members = heads
+            .iter()
+            .filter(|head| head.enabled && head.output.id == output);
+        let head = members.next()?;
+        if members.next().is_some() {
+            return None;
+        }
+        let identity = self.group_identity(head.group)?;
+        let formats = allocation_format_preferences(&head.format_capabilities.snapshot);
+        if formats.is_empty() {
+            return None;
+        }
+        Some(LiveOutputAllocationPreference {
+            output,
+            device_number: identity.device_number,
+            identity: Some(identity),
+            context: self
+                .output_context(heads, output, preparing)
+                .map(|(context, _)| context),
+            formats,
+        })
     }
 }
 
@@ -119,35 +193,32 @@ impl LiveProductionNativeScanout {
         self.logical_outputs
             .iter()
             .filter_map(|output| {
-                let indices = self.head_indices(output.id);
-                if indices.len() != 1 {
-                    return None;
-                }
-                let index = indices[0];
-                let head = &self.heads[index];
-                if !head.enabled {
-                    return None;
-                }
-                let identity = self
-                    .render_devices
-                    .group_devices
-                    .get(head.group)
-                    .copied()
-                    .flatten()?;
-                let formats = allocation_format_preferences(
-                    &self.render_devices.head_formats.get(index)?.snapshot,
-                );
-                if formats.is_empty() {
-                    return None;
-                }
-                Some(LiveOutputAllocationPreference {
-                    output: output.id,
-                    device_number: identity.device_number,
-                    identity: Some(identity),
-                    formats,
-                })
+                self.render_devices.output_preference(
+                    &self.heads,
+                    output.id,
+                    self.output_topology_preparation.is_some(),
+                )
             })
             .collect()
+    }
+
+    /// Current single-head identity without allocating or rebuilding format rows.
+    pub fn output_allocation_context(
+        &self,
+        output: OutputId,
+    ) -> Option<(LiveOutputAllocationContext, LiveRenderDeviceNodeIdentity)> {
+        if !self
+            .logical_outputs
+            .iter()
+            .any(|current| current.id == output)
+        {
+            return None;
+        }
+        self.render_devices.output_context(
+            &self.heads,
+            output,
+            self.output_topology_preparation.is_some(),
+        )
     }
 
     /// Replaces source-device candidates without replacing output or image ownership.

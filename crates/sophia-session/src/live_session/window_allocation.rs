@@ -11,6 +11,9 @@ pub(super) struct LiveWindowAllocationPublisher {
     )>,
 }
 
+#[path = "../../tests/support/window_allocation_comparison.rs"]
+mod tests;
+
 fn contains_rect(outer: Rect, inner: Rect) -> bool {
     inner.width > 0
         && inner.height > 0
@@ -20,6 +23,16 @@ fn contains_rect(outer: Rect, inner: Rect) -> bool {
             <= i64::from(outer.x) + i64::from(outer.width)
         && i64::from(inner.y) + i64::from(inner.height)
             <= i64::from(outer.y) + i64::from(outer.height)
+}
+
+fn frontend_context(
+    output: sophia_protocol::OutputId,
+    context: sophia_backend_live::LiveOutputAllocationContext,
+) -> sophia_x_authority::XWindowAllocationContext {
+    sophia_x_authority::XWindowAllocationContext {
+        generation: context.generation,
+        output,
+    }
 }
 
 pub(super) fn window_allocation_rows(
@@ -60,6 +73,9 @@ pub(super) fn window_allocation_rows(
                         device_number: identity.device_number,
                     }
                 }),
+                context: preference
+                    .context
+                    .map(|context| frontend_context(*output, context)),
                 formats: preference
                     .formats
                     .iter()
@@ -73,7 +89,128 @@ pub(super) fn window_allocation_rows(
         .collect()
 }
 
+pub(super) struct LiveWindowAllocationView<'a> {
+    pub publisher: &'a LiveWindowAllocationPublisher,
+    pub native: Option<&'a LiveProductionNativeScanout>,
+    pub layout: &'a PersistentLiveLayout,
+    pub outputs: &'a [sophia_engine::HeadlessOutput],
+    pub topology_generation: u64,
+}
+
+impl LiveWindowAllocationView<'_> {
+    pub(super) fn comparison(
+        &self,
+        surfaces: &[sophia_protocol::CommittedSurfaceState],
+        evidence: &sophia_backend_live::LivePresentLayoutComparison,
+    ) -> Option<(
+        sophia_protocol::TransactionId,
+        sophia_x_authority::XPresentLayoutComparison,
+    )> {
+        if self.layout.pending.is_some()
+            || !self
+                .layout
+                .mapped_surfaces
+                .contains(&evidence.candidate.surface)
+        {
+            return None;
+        }
+        let surface = surfaces
+            .iter()
+            .find(|surface| surface.surface == evidence.candidate.surface)?;
+        let bounds = wm_output_bounds(self.outputs);
+        let mut matches = bounds
+            .iter()
+            .filter(|(_, bounds)| contains_rect(*bounds, surface.geometry));
+        let (output, _) = matches.next()?;
+        if matches.next().is_some() {
+            return None;
+        }
+        let (context, device) = self.native?.output_allocation_context(*output)?;
+        self.publisher.compare_retired(
+            evidence,
+            surface,
+            self.topology_generation,
+            *output,
+            context,
+            device,
+        )
+    }
+}
+
 impl LiveWindowAllocationPublisher {
+    fn compare_retired(
+        &self,
+        evidence: &sophia_backend_live::LivePresentLayoutComparison,
+        surface: &sophia_protocol::CommittedSurfaceState,
+        topology_generation: u64,
+        output: sophia_protocol::OutputId,
+        context: sophia_backend_live::LiveOutputAllocationContext,
+        device: sophia_backend_live::LiveRenderDeviceNodeIdentity,
+    ) -> Option<(
+        sophia_protocol::TransactionId,
+        sophia_x_authority::XPresentLayoutComparison,
+    )> {
+        let applied = self.applied.as_ref()?;
+        let retired = evidence.retired;
+        let witness = retired.witness;
+        let trace = witness.alternative.trace?;
+        let sophia_protocol::BufferSource::DmaBuf { handle } = evidence.candidate.target_buffer
+        else {
+            return None;
+        };
+        if applied.topology_generation != topology_generation
+            || surface.surface != evidence.candidate.surface
+            || surface.buffer() != evidence.candidate.target_buffer
+            || trace.output != output
+            || trace.head != context.head
+            || retired.head != context.head
+            || retired.target_generation != context.target_generation
+            || retired.context_generation != context.generation
+            || retired.device != device
+        {
+            return None;
+        }
+        let native_context = frontend_context(output, context);
+        let device_identity = sophia_x_authority::XRenderDeviceIdentity {
+            device: device.device,
+            inode: device.inode,
+            device_number: device.device_number,
+        };
+        let preference = applied
+            .windows
+            .iter()
+            .find(|row| row.surface == surface.surface)?;
+        if preference.context != Some(native_context)
+            || preference.identity != Some(device_identity)
+        {
+            return None;
+        }
+        let row = preference
+            .formats
+            .iter()
+            .find(|row| row.format == witness.format)?;
+        if !row.modifiers.contains(&witness.alternative_modifier)
+            || row.modifiers.contains(&witness.original_modifier)
+        {
+            return None;
+        }
+        Some((
+            evidence.candidate.transaction,
+            sophia_x_authority::XPresentLayoutComparison {
+                surface: surface.surface,
+                buffer: sophia_protocol::BufferHandle::from_raw(handle),
+                format: witness.format,
+                original_modifier: witness.original_modifier,
+                alternative_modifier: witness.alternative_modifier,
+                preference_generation: applied.generation,
+                topology_generation,
+                native_context,
+                device_identity,
+                geometry: surface.geometry,
+            },
+        ))
+    }
+
     pub(super) fn poll(
         &mut self,
         now: Instant,

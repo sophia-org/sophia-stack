@@ -15,8 +15,8 @@ mod persistent_native_scanout {
     mod output_capabilities;
     mod render_devices;
     pub use render_devices::{
-        LiveOutputAllocationFormatPreference, LiveOutputAllocationPreference,
-        LiveRenderDeviceNodeIdentity,
+        LiveOutputAllocationContext, LiveOutputAllocationFormatPreference,
+        LiveOutputAllocationPreference, LiveRenderDeviceNodeIdentity,
     };
     mod renderer_handoff;
     mod renderer_images;
@@ -241,6 +241,7 @@ mod persistent_native_scanout {
         pub enabled: bool,
         pub group: usize,
         pub selection: crate::LibdrmNativePrimaryPlaneSelection,
+        format_capabilities: crate::LibdrmNativePlaneFormatCapabilities,
         /// Where the cursor should be on this head, not yet committed.
         ///
         /// A cell, not a queue: latest wins and supersedes in place. A
@@ -764,7 +765,6 @@ mod persistent_native_scanout {
             let mut groups = Vec::new();
             let mut heads = Vec::new();
             let mut exporters = Vec::new();
-            let mut head_formats = Vec::new();
             for session in sessions.sessions.drain(..) {
                 let group = groups.len();
                 for ((selection, output_id), head_id) in session
@@ -786,7 +786,6 @@ mod persistent_native_scanout {
                     let formats = session.scanout_format_capabilities_for_selection(selection);
                     let modifiers = formats.preferred_xrgb8888_modifiers.clone();
                     let snapshot = formats.snapshot.clone();
-                    head_formats.push(formats);
                     exporters.push(
                         crate::NativeGbmRenderedScanoutBufferDiscoveryExporter::new(discovery)
                             .with_preferred_modifiers(modifiers)
@@ -797,6 +796,7 @@ mod persistent_native_scanout {
                         enabled: true,
                         group,
                         selection,
+                        format_capabilities: formats,
                         scale: target.scale,
                         refresh_millihz: target.refresh_millihz,
                         transform: target.transform,
@@ -948,7 +948,7 @@ mod persistent_native_scanout {
                 nonzero_exports: 0,
                 exporters,
                 image_import_devices: Vec::new(),
-                render_devices: render_devices::LiveRenderDeviceState::new(head_formats),
+                render_devices: render_devices::LiveRenderDeviceState::new(),
                 output_lifecycles,
                 output_cohorts: BTreeMap::new(),
                 deferred_mirror_generations: BTreeMap::new(),
@@ -2894,6 +2894,10 @@ mod persistent_native_scanout {
             index: usize,
             retire: crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireReport,
         ) {
+            if retire.status == crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus::HeadLost
+            {
+                self.invalidate_layout_probes();
+            }
             self.observe_layout_witness_retire(index, retire);
             use crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus as Status;
             match retire.status {
@@ -3884,8 +3888,9 @@ mod persistent_native_scanout {
 
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 pub use persistent_native_scanout::{
-    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LiveOutputAllocationFormatPreference,
-    LiveOutputAllocationPreference, LivePersistentRenderMetrics, LiveProductionCompletionTimestamp,
+    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LiveOutputAllocationContext,
+    LiveOutputAllocationFormatPreference, LiveOutputAllocationPreference,
+    LivePersistentRenderMetrics, LiveProductionCompletionTimestamp,
     LiveProductionCpuFrameQueueStatus, LiveProductionDirectScanoutTotals,
     LiveProductionHeadCompositionFrame, LiveProductionKmsCompletionSource,
     LiveProductionMirrorGenerationQueue, LiveProductionMirrorGroupBegin,

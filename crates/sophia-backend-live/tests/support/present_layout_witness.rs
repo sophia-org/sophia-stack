@@ -87,6 +87,7 @@ fn retirement() -> LiveProductionNativeFrameRetirement {
         ust: 1_000,
         msc: 4,
         layout_witness: Some(LiveProductionRetiredLayoutWitness {
+            context_generation: 1,
             witness: LiveScanoutLayoutWitness {
                 source_image: renderer_image_for_present(TRANSACTION),
                 alternative: LiveRendererFrameCorrelation {
@@ -113,6 +114,24 @@ fn retirement() -> LiveProductionNativeFrameRetirement {
     }
 }
 
+fn copied_feedback() -> crate::LivePresentFeedbackOutcome {
+    crate::LivePresentFeedbackOutcome {
+        feedback: vec![
+            crate::LivePresentProtocolFeedback::Idle {
+                transaction: TRANSACTION,
+            },
+            crate::LivePresentProtocolFeedback::Complete {
+                transaction: TRANSACTION,
+                ust: 1_000,
+                msc: 4,
+                disposition: crate::LivePresentBufferDisposition::Copied,
+            },
+        ],
+        idle_fence_triggered: true,
+        layout_comparison: None,
+    }
+}
+
 #[test]
 fn a_copied_layout_comparison_belongs_to_its_exact_committed_present() {
     let mut runtime = runtime();
@@ -123,7 +142,22 @@ fn a_copied_layout_comparison_belongs_to_its_exact_committed_present() {
         .apply_prepared_surface_commit(submitted.prepared);
     assert_eq!(commit.outcome, TransactionOutcome::Committed);
     let retired = retirement();
-    assert_eq!(identity.settle(retired, &commit), retired.layout_witness);
+    let mut feedback = copied_feedback();
+    let before = feedback.clone();
+    assert_eq!(
+        identity.settle_feedback(retired, &commit, &mut feedback),
+        retired.layout_witness
+    );
+    assert_eq!(feedback.feedback, before.feedback);
+    assert_eq!(feedback.idle_fence_triggered, before.idle_fence_triggered);
+    let comparison = feedback.layout_comparison.unwrap();
+    assert_eq!(comparison.candidate.surface, SURFACE);
+    assert_eq!(comparison.candidate.transaction, TRANSACTION);
+    assert_eq!(
+        comparison.candidate.target_buffer,
+        BufferSource::DmaBuf { handle: 91 }
+    );
+    assert_eq!(Some(comparison.retired), retired.layout_witness);
 }
 
 #[test]
@@ -140,7 +174,54 @@ fn retirement_of_a_stale_engine_candidate_cannot_publish_a_layout_comparison() {
         .production
         .apply_prepared_surface_commit(old.prepared);
     assert_eq!(stale.outcome, TransactionOutcome::RejectedStaleSurface);
-    assert!(identity.settle(retirement(), &stale).is_none());
+    let mut feedback = copied_feedback();
+    let before = feedback.clone();
+    assert!(
+        identity
+            .settle_feedback(retirement(), &stale, &mut feedback)
+            .is_none()
+    );
+    assert_eq!(feedback, before);
+}
+
+#[test]
+fn layout_evidence_never_relabels_an_unrelated_or_noncopy_completion() {
+    use crate::{LivePresentBufferDisposition as D, LivePresentProtocolFeedback as F};
+    for case in 0..6 {
+        let mut runtime = runtime();
+        let submitted = submitted(&runtime, &[OUTPUT]);
+        let identity = SubmittedLayoutIdentity::from_submitted(&submitted).unwrap();
+        let commit = runtime
+            .production
+            .apply_prepared_surface_commit(submitted.prepared);
+        assert_eq!(commit.outcome, TransactionOutcome::Committed);
+        let mut feedback = copied_feedback();
+        match case {
+            0 => {
+                if let F::Complete { transaction, .. } = &mut feedback.feedback[1] {
+                    *transaction = TransactionId::from_raw(72);
+                }
+            }
+            1..=3 => {
+                if let F::Complete { disposition, .. } = &mut feedback.feedback[1] {
+                    *disposition = [D::Retained, D::Flipped, D::Skipped][case - 1];
+                }
+            }
+            4 => {
+                feedback.feedback.pop();
+            }
+            5 => feedback.feedback.push(feedback.feedback[1]),
+            _ => unreachable!(),
+        }
+        let before = feedback.clone();
+        assert!(
+            identity
+                .settle_feedback(retirement(), &commit, &mut feedback)
+                .is_none(),
+            "case {case}"
+        );
+        assert_eq!(feedback, before, "case {case}");
+    }
 }
 
 #[test]

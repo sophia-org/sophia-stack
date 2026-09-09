@@ -23,6 +23,7 @@ fn window_preferences_follow_exact_placement_and_clear_on_ambiguity_or_withdrawa
     let preferences = [
         LiveOutputAllocationPreference {
             output: left,
+            context: None,
             device_number: rustix::fs::makedev(226, 128),
             identity: Some(LiveRenderDeviceNodeIdentity {
                 device: 4,
@@ -36,6 +37,7 @@ fn window_preferences_follow_exact_placement_and_clear_on_ambiguity_or_withdrawa
         },
         LiveOutputAllocationPreference {
             output: right,
+            context: None,
             device_number: rustix::fs::makedev(226, 129),
             identity: None,
             formats: vec![LiveOutputAllocationFormatPreference {
@@ -132,6 +134,7 @@ fn window_preferences_preserve_independent_formats_and_never_invent_an_opaque_ro
     );
     let mut preference = LiveOutputAllocationPreference {
         output,
+        context: None,
         device_number: rustix::fs::makedev(226, 128),
         identity: Some(LiveRenderDeviceNodeIdentity {
             device: 4,

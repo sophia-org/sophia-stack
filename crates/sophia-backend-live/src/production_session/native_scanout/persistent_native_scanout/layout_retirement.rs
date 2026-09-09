@@ -7,6 +7,7 @@ pub struct LiveProductionRetiredLayoutWitness {
     pub device: LiveRenderDeviceNodeIdentity,
     pub head: sophia_engine::RenderHeadId,
     pub target_generation: u64,
+    pub context_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -23,6 +24,7 @@ struct LayoutWitnessContext {
     output: OutputId,
     head: sophia_engine::RenderHeadId,
     target_generation: u64,
+    context_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -106,6 +108,7 @@ impl NativeLayoutWitnessState {
                 device: completed.context.device,
                 head: completed.context.head,
                 target_generation: completed.context.target_generation,
+                context_generation: completed.context.context_generation,
             })
     }
 
@@ -118,14 +121,16 @@ impl NativeLayoutWitnessState {
 impl LiveProductionNativeScanout {
     fn layout_witness_context(&self, index: usize) -> Option<LayoutWitnessContext> {
         let head = self.heads.get(index)?;
-        if !head.enabled || self.output_topology_preparation.is_some() {
+        let (context, device) = self.output_allocation_context(head.output.id)?;
+        if context.head != head.head {
             return None;
         }
         Some(LayoutWitnessContext {
-            device: self.render_devices.group_identity(head.group)?,
+            device,
             output: head.output.id,
-            head: head.head,
-            target_generation: head.target_generation,
+            head: context.head,
+            target_generation: context.target_generation,
+            context_generation: context.generation,
         })
     }
 

@@ -56,6 +56,42 @@ impl SubmittedLayoutIdentity {
             && trace.head == retired.head)
         .then_some(retired)
     }
+
+    pub(super) fn settle_feedback(
+        self,
+        retirement: LiveProductionNativeFrameRetirement,
+        commit: &TransactionCommit,
+        feedback: &mut crate::LivePresentFeedbackOutcome,
+    ) -> Option<LiveProductionRetiredLayoutWitness> {
+        feedback.layout_comparison = None;
+        let candidate = self.candidate;
+        let retired = self.settle(retirement, commit)?;
+        let mut completions = feedback
+            .feedback
+            .iter()
+            .filter_map(|feedback| match feedback {
+                crate::LivePresentProtocolFeedback::Complete {
+                    transaction,
+                    disposition,
+                    ..
+                } => Some((*transaction, *disposition)),
+                crate::LivePresentProtocolFeedback::Idle { .. } => None,
+            });
+        if completions.next()
+            != Some((
+                candidate.transaction,
+                crate::LivePresentBufferDisposition::Copied,
+            ))
+            || completions.next().is_some()
+        {
+            return None;
+        }
+        feedback.layout_comparison = Some(Box::new(crate::LivePresentLayoutComparison {
+            candidate,
+            retired,
+        }));
+        Some(retired)
+    }
 }
 
 #[path = "../../../tests/support/present_layout_witness.rs"]

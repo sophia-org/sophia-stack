@@ -2,6 +2,7 @@ use super::*;
 
 impl LiveProductionNativeScanout {
     pub(super) fn invalidate_layout_probes(&mut self) {
+        self.render_devices.invalidate_context();
         for head in &mut self.heads {
             head.layout_witness.invalidate();
         }
@@ -37,7 +38,9 @@ impl LiveProductionNativeScanout {
                         && head.scanout_submission.is_none()
                         && head.prepared_scanout.is_none()
                 })
-            && self.render_devices.group_identity_known(group);
+            && self
+                .output_allocation_context(self.heads[index].output.id)
+                .is_some();
         self.exporters[index].set_layout_probe_available(available);
     }
 

@@ -74,8 +74,10 @@ offscreen pixel evidence, and the remaining frontend migration boundary.
 
 The [first-buffer regression investigation](../investigations/09ywbgwt-measured-modifiers-exposed-an-rgb-stride-check-on-compression-metadata.md)
 records a real Mesa client rejected before Present because descriptor validation
-applied RGB image geometry to compression metadata. Its repair must retain
-descriptor bounds and pass real-client GPU pixel checks before physical promotion.
+applied RGB image geometry to compression metadata. Repair `009498fb` retains
+descriptor bounds and passes real GLX/EGL GPU pixel checks. Mason confirmed
+Kitty and Quickshell visibility and responsiveness in the installed release;
+this accepts that regression repair without closing the broader exits above.
 
 ## Connections
 

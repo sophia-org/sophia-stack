@@ -2,7 +2,7 @@
 id: 09ywbgwt
 date: 2026-09-08
 kind: investigation
-status: awaiting-physical-acceptance
+status: closed
 tags: [investigation, rendering, x11]
 ---
 # Measured modifiers exposed an RGB stride check on compression metadata
@@ -94,14 +94,29 @@ positions remain unchanged.
 `SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` passed in full: workspace
 tests, formatting, clippy without warnings, archive verification, buffer-age
 pixel equivalence, both client first-frame pixel checks and verifier fixtures.
-The candidate is the commit containing this repair, based on `5affd852`.
+The repair is signed commit `009498fb0aae5baedc2b98a1142f06ba448c5de6`,
+based on `5affd852`.
 Before/after logs, the standalone hardware gate and the full check are retained
-under `.artifacts/t069-first-frame-20260908/`; packaged source and binary identity
-will be recorded with the immutable release. New note links resolve. The
+under `.artifacts/t069-first-frame-20260908/`; the immutable release manifest
+records packaged source and binary identity. New note links resolve. The
 notebook-wide broken-link query still lists two unchanged pre-existing notes.
 
-The physical normal-login gate for [t069](../../../todo.md) remains distinct
-from private-server GPU tests. No live session was changed by this investigation.
+## Physical acceptance
+
+Session `00000001788913317427-5bb740cc-5302-444b-bf91-7f8204bb0f09`, started
+on 2026-09-08, runs installed release `0.1.0-009498fb0aae`. The running
+process and `/opt/sophia/current` independently identify that release. A
+read-only sample recorded 914 retired frames for surface `4194318` and 96 each
+for `2097170` and `2097173`, with recording active, no discarded records and no
+storage errors. The identity and sample are retained in the evidence directory's
+`live-session.json`.
+
+Mason explicitly confirmed that Kitty and the Quickshell bar are visible and
+responsive in this session. This accepts the blank-app regression repair.
+It does not establish Brave video, cross-device migration, device-loss recovery
+or the other exits of [t069](../../../todo.md), which remains open. The
+investigation's probes and diagnostics did not inject live input or restart the
+desktop.
 
 ## Connections
 

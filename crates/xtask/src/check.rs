@@ -47,6 +47,11 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
         "tools/check_buffer_age_equivalence.sh",
         "buffer-age pixel equivalence",
     )?);
+    report.push(hardware_proof(
+        repo,
+        "tools/check_client_first_frame.sh",
+        "GLX and EGL first-frame pixels",
+    )?);
     command(
         repo,
         "tools/run_sophia_terminal_gate_tty3.sh",

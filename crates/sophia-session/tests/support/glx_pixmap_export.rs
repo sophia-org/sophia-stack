@@ -116,3 +116,6 @@ fn direct_glx_client_reads_live_and_retained_pixmap_exports() {
         requests.lock().unwrap(),
     );
 }
+
+#[path = "gl_first_frame.rs"]
+mod gl_first_frame;

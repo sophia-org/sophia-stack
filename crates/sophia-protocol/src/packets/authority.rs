@@ -115,8 +115,23 @@ impl DmaBufDescriptor {
             .ok_or(DmaBufDescriptorError::BufferTooLarge)?;
         let height =
             u64::try_from(self.size.height).map_err(|_| DmaBufDescriptorError::BufferTooLarge)?;
+        if width_bytes * height > DMA_BUF_MAX_BYTES {
+            return Err(DmaBufDescriptorError::BufferTooLarge);
+        }
         for plane in self.planes.iter().take(plane_count).flatten() {
             let stride = u64::from(plane.stride);
+            if stride == 0 {
+                return Err(DmaBufDescriptorError::InvalidStride);
+            }
+            if stride > DMA_BUF_MAX_BYTES || u64::from(plane.offset) >= DMA_BUF_MAX_BYTES {
+                return Err(DmaBufDescriptorError::BufferTooLarge);
+            }
+            // Explicit modifiers can change the layout and add metadata planes
+            // without RGB row geometry. The importer validates their extents;
+            // linear and legacy implicit descriptors retain packed-row bounds.
+            if !matches!(self.modifier, 0 | DRM_FORMAT_MOD_INVALID) {
+                continue;
+            }
             if stride < width_bytes {
                 return Err(DmaBufDescriptorError::InvalidStride);
             }

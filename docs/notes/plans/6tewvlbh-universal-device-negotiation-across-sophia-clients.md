@@ -72,6 +72,11 @@ The [cross-device capture checkpoint](../milestones/j11gjkh1-generic-cross-devic
 records submitted-buffer transfer, worker and inventory lifetime repairs,
 offscreen pixel evidence, and the remaining frontend migration boundary.
 
+The [first-buffer regression investigation](../investigations/09ywbgwt-measured-modifiers-exposed-an-rgb-stride-check-on-compression-metadata.md)
+records a real Mesa client rejected before Present because descriptor validation
+applied RGB image geometry to compression metadata. Its repair must retain
+descriptor bounds and pass real-client GPU pixel checks before physical promotion.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

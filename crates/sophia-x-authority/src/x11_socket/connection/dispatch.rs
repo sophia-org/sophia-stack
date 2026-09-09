@@ -708,6 +708,27 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         }
                         _ => None,
                     };
+                    // Explicit modifiers keep opaque plane geometry, so no row
+                    // arithmetic bounds an auxiliary plane. The received
+                    // descriptors do, and are read before the pure dispatch:
+                    // before this request allocates or publishes anything.
+                    let dri3_plane_offset_refused = match &request {
+                        crate::XWireRequest::Dri3PixmapFromBuffers {
+                            num_buffers,
+                            offsets,
+                            modifier,
+                            ..
+                        } if dri3_modifier_is_opaque(*modifier) => {
+                            let planes = usize::from(*num_buffers)
+                                .min(received_fds.len())
+                                .min(sophia_protocol::DMA_BUF_MAX_PLANES);
+                            dri3_plane_offset_outside_descriptor(
+                                &received_fds[..planes],
+                                &offsets[..planes],
+                            )
+                        }
+                        _ => None,
+                    };
                     let dri3_fence_request = match &request {
                         crate::XWireRequest::Dri3FenceFromFd {
                             fence,
@@ -1008,6 +1029,24 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                     resource_id: dri3_recovered_pixmap.map_or(0, |id| id.local.raw() as u32),
                                     minor_code: request_minor_code,
                                     major_code: major_opcode,
+                                })],
+                                metadata_candidates: Vec::new(),
+                            }
+                        }
+                        _ if dri3_plane_offset_refused.is_some() => {
+                            let offset =
+                                dri3_plane_offset_refused.expect("guarded by the match arm");
+                            runtime.begin_dispatch();
+                            XDispatchResult {
+                                response: None,
+                                outputs: vec![crate::XClientOutput::Error(crate::XClientError {
+                                    code: crate::XErrorCode::BadValue,
+                                    sequence: dispatch_context.sequence,
+                                    resource_id: offset,
+                                    minor_code: u16::from(
+                                        crate::X_DRI3_PIXMAP_FROM_BUFFERS_MINOR_OPCODE,
+                                    ),
+                                    major_code: crate::X_DRI3_MAJOR_OPCODE,
                                 })],
                                 metadata_candidates: Vec::new(),
                             }

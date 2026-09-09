@@ -883,6 +883,30 @@ The direct XLibre+xmonad desktop-comparison profile is the sole active xmonad
 exception. It is an external baseline measured beside Sophia and never receives
 a Sophia policy socket.
 
+## Client buffer negotiation and pixels
+
+`cargo xtask check` runs the GLX and EGL first-frame proof when a writable DRM
+render node is available. It reports the hardware gate as unavailable on a
+host without one; a skipped test is not pixel evidence.
+
+```sh
+tools/check_client_first_frame.sh
+SOPHIA_PIXMAP_TEST_DEVICE=/dev/dri/renderD128 SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 \
+    tools/check_client_first_frame.sh
+```
+
+The test starts a private X frontend with the production render-device and
+pixmap providers and measured modifier capabilities. Separate Mesa GLX and EGL
+clients draw known colors. Each accepted DRI3 import must reach a correlated
+Present, native renderer capture and exact pixel readback; the retained pixels
+must also survive client exit and frontend teardown. The optional auxiliary
+requirement pins the compressed-plane regression on hardware that produces
+such buffers. Ordinary runs report whether that layout was exercised.
+
+This needs GL/EGL/Xlib development files and uses only a render node. It does
+not acquire DRM master, drive KMS, or connect to the live desktop. Normal-login
+and physical scanout acceptance remain separate gates.
+
 ## Atomic Scanout Evidence
 
 The production-shaped scanout preflight and evidence verifiers require atomic

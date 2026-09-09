@@ -1070,6 +1070,7 @@ dependencies = [
  "sophia-portal",
  "sophia-protocol",
  "sophia-renderer-live",
+ "sophia-renderer-native-egl",
  "sophia-runtime",
  "sophia-wm-demo",
  "sophia-x-authority",

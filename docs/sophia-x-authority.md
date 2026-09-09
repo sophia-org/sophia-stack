@@ -856,6 +856,14 @@ measured on every device; equal tiled modifier numbers alone do not establish
 cross-device compatibility. These are import capabilities, not allocation or
 scanout guarantees. Renderer import still validates each submitted descriptor.
 
+Descriptor validation bounds dimensions, logical image bytes, plane count,
+offsets and pitches. Explicit non-linear modifiers may carry opaque auxiliary
+planes whose pitch and extent do not follow the RGB image dimensions. Those
+planes are checked against their received FD lengths before X resource creation;
+the native importer validates the layout itself. Linear and legacy implicit
+descriptors retain packed-row checks. A metadata plane must never be rejected
+solely because its pitch is smaller than an image row.
+
 Legacy `BufferFromPixmap` exports require one plane, offset zero and a stride
 representable by the protocol's 16-bit field. A nonzero offset or oversized
 stride is refused with `BadPixmap`, rather than silently changing the layout.

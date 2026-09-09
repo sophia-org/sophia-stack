@@ -18,6 +18,38 @@ fn dri3_buffer_size_from_descriptor(fd: impl std::os::fd::AsFd) -> Option<u32> {
         .filter(|size| *size != 0)
 }
 
+/// Whether a DRI3 modifier keeps its plane geometry opaque to this server.
+///
+/// Linear and `DRM_FORMAT_MOD_INVALID` stay on the descriptor validator's
+/// existing packed-row contract. Every explicit modifier keeps opaque plane
+/// geometry, which no row arithmetic here interprets.
+#[cfg(unix)]
+fn dri3_modifier_is_opaque(modifier: u64) -> bool {
+    const DRM_FORMAT_MOD_LINEAR: u64 = 0;
+    modifier != sophia_protocol::DRM_FORMAT_MOD_INVALID && modifier != DRM_FORMAT_MOD_LINEAR
+}
+
+/// The first plane offset no descriptor is known to contain.
+///
+/// Each offset must fall strictly inside a positive descriptor length within
+/// the protocol cap; no height is applied and no extent inferred. `fstat`
+/// bounds it without mapping the buffer or moving the shared file position,
+/// and an unreadable length refuses normally.
+#[cfg(unix)]
+fn dri3_plane_offset_outside_descriptor(fds: &[OwnedFd], offsets: &[u32]) -> Option<u32> {
+    fds.iter().zip(offsets).find_map(|(fd, offset)| {
+        let within = rustix::fs::fstat(fd)
+            .ok()
+            .and_then(|metadata| u64::try_from(metadata.st_size).ok())
+            .is_some_and(|size| {
+                size != 0
+                    && size <= sophia_protocol::DMA_BUF_MAX_BYTES
+                    && u64::from(*offset) < size
+            });
+        (!within).then_some(*offset)
+    })
+}
+
 #[cfg(unix)]
 pub fn read_x11_setup_request(
     stream: &mut UnixStream,

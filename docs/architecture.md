@@ -862,36 +862,50 @@ An import refused by the output device can use a bounded renderer transfer.
 Backend discovery admits at most sixteen initialized DRM devices from the
 actual seat, including devices without connected heads, and passes independently
 owned render FDs to each native worker. Paths, executable names and vendor
-heuristics do not enter Engine. Each worker initializes auxiliary contexts only
-when needed and retains them until its native owner is destroyed.
+heuristics do not enter Engine. Auxiliary contexts are initialized lazily.
 
-The renderer tries direct capture first. A device that can sample the submitted
-descriptor may render it into an explicitly linear XR24/AR24 bridge; the output
-device then captures that bridge into its own immutable image. Both imports
-validate the actual FDs. A bounded set of previously transferred layouts changes
-attempt order on later images without granting authority or caching buffer
-validity. The temporary bridge remains alive through destination submission;
-GPU access uses DMA-BUF implicit synchronization. No image enters the retained
-store until destination capture succeeds and the existing image budget admits
-it. Repaints of the same immutable identity do not repeat the transfer.
+The renderer first tries the actual incoming FDs on the destination. Cached
+successful source-device hints can order later fallback attempts but cannot
+skip direct import or establish buffer provenance. A source device that can
+sample the buffer renders it into an explicit linear XR24/AR24 bridge. The
+output device captures that bridge into its own immutable image. At most three
+internal bridge buffers are pooled per context, charged by measured allocation
+size to the existing image budget. Destination GPU completion is polled before
+reuse. Externally exported destination images are never recycled through this
+pool: their descriptors can outlive local references. Repaints of the same
+immutable image reuse its retained texture without repeating the transfer.
 
-The session subscribes to topology events before its initial device snapshot.
-Kernel removal/unbind notices revoke device inventory; processed udev notices
-reconcile additions and seat assignments after database initialization. These
-notices use the existing native-owner suspension and reconstruction path, even
-when connected-head geometry is unchanged. An uninitialized device is never
-admitted through the default seat. Running udev is required for processed
-admission updates; opening its monitor socket does not prove daemon delivery.
-On teardown, consumer imports and retained buffers precede EGL display
-termination. Reliable worker shutdown cannot be lost to a full command queue;
-it does not provide cancellation of a blocked kernel driver call.
+The session subscribes before its initial device snapshot. Render inventory
+notices compare exact device identities against that baseline separately from
+connector/output changes. Identical udev replay causes no reconstruction;
+failed inventory observations remain pending and retry at a bounded cadence.
+Uninitialized devices are not admitted through the default seat. Replacement
+render contexts and frontend bundles are prepared outside the owner loop, then
+installed through exact generation acknowledgements. Preparation, queue
+saturation and source-context refresh retain their pending obligations on
+bounded deferral. Source inventory changes preserve destination contexts and
+retained images; only completed internal bridge allocations may be discarded.
+
+Each authenticated frontend connection pins one immutable bundle containing its
+render device, measured import capabilities and allocator. A replacement is the
+default for new connections only. Backings retain the originating bundle until
+publication and release finish. Device loss marks that bundle unavailable and
+cannot redirect an existing connection to a different GPU. The advertised
+pixmap-texture capability remains fixed for the frontend's lifetime. Cached
+per-output allocation preferences become optional per-window DRI3 preferences;
+they grant no device authority and imply no successful atomic scanout test.
+
+Worker shutdown uses an independent cancellation flag and never waits for an
+unfinished thread or a full command queue. A bounded lifecycle registry retains
+unfinished workers; a replacement on the same exact device identity waits for
+its predecessor to finish. This bounds owner-side work and retained workers,
+but cannot cancel a blocked driver call. Consumer imports and retained buffers
+are destroyed before their EGL display.
 
 This transfer applies only to buffers submitted to Sophia and readable by an
 admitted device. It cannot repair a client-internal import before submission.
-The frontend's original DRI3 provider and pixmap allocator remain tied to their
-construction device: loss of that device can refuse new exports/opens rather
-than transparently migrate clients to another GPU. Native worker reconstruction
-must not be reported as replacement of those frontend resources.
+Successful server negotiation and offscreen pixel tests therefore do not alone
+establish normal application launches without a device override.
 
 Renderer maintenance remains worker-owned. Shutdown cache clearing uses a
 bounded request/acknowledgement and returns the updated resource counters

@@ -4,3 +4,6 @@ large-source crates/sophia-x-authority/src/x11_socket/connection/dispatch.rs
 
 # Private allocation-adoption race; rationale in docs/style-guide.md.
 inline-tests crates/sophia-renderer-live/src/shared_pixmap/service.rs
+
+# External device-preparation race tests; rationale in docs/style-guide.md.
+inline-tests crates/sophia-session/src/live_session/render_devices.rs

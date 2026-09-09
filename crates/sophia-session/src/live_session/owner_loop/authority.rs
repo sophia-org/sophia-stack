@@ -908,6 +908,11 @@
             )?,
         }
 
+        if let (Some(runtime), Some(native)) = (runtime.as_ref(), native_scanout.as_ref()) {
+            window_allocation_publisher.poll(Instant::now(), output_topology_owner.publication_generation,
+                runtime, native, &layout, &outputs, frontend_service_sender)?;
+        }
+
         if !physical_input_completion_reported
             && input_pixel_change
             && input_text_match

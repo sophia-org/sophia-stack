@@ -19,6 +19,7 @@ use std::sync::mpsc::{Receiver, SyncSender};
 /// same mode sharing a pool would hand one screen's content to the other.
 struct WorkerOutputState {
     reply: SyncSender<WorkerResult>,
+    claim: Arc<OutputClaim>,
     frame_slots: LiveRendererFrameSlotPool,
     slot_damage: WorkerSlotDamage,
     leases: BTreeMap<LiveRendererWorkerLeaseId, WorkerLeaseBuffer>,
@@ -29,9 +30,11 @@ impl WorkerOutputState {
     fn new(
         reply: SyncSender<WorkerResult>,
         frame_slot_metrics: LiveRendererFrameSlotMetricsHandle,
+        claim: Arc<OutputClaim>,
     ) -> Self {
         Self {
             reply,
+            claim,
             frame_slots: LiveRendererFrameSlotPool::with_metrics(frame_slot_metrics),
             slot_damage: WorkerSlotDamage::new(),
             leases: BTreeMap::new(),
@@ -44,9 +47,13 @@ pub(super) fn run_worker<D>(
     device: io::Result<D>,
     import_devices: Vec<std::os::fd::OwnedFd>,
     command_receiver: Receiver<WorkerCommand>,
+    control: Arc<WorkerControl>,
 ) where
     D: AsFd + Send + 'static,
 {
+    if control.is_shutdown() {
+        return;
+    }
     let report = NativeGbmRenderedScanoutContext::from_backend_device_result(device);
     let context_status = report.status;
     let mut context = report.context;
@@ -66,13 +73,25 @@ pub(super) fn run_worker<D>(
     let mut next_lease_id = 1_u64;
     let mut reported_transfers = 0_u64;
 
-    while let Ok(command) = command_receiver.recv() {
+    while !control.is_shutdown() {
+        outputs.retain(|_, state| !state.claim.is_detached());
+        let Ok(command) = command_receiver.recv() else {
+            break;
+        };
+        if control.is_shutdown() {
+            break;
+        }
+        outputs.retain(|_, state| !state.claim.is_detached());
         match command {
             WorkerCommand::Register {
                 output,
                 reply,
                 frame_slot_metrics,
+                claim,
             } => {
+                if claim.is_detached() {
+                    continue;
+                }
                 // Two outputs answering to one key would share slots, leases,
                 // and a reply route while believing each was its own. The key
                 // is composed to make that impossible; this says so out loud
@@ -85,13 +104,21 @@ pub(super) fn run_worker<D>(
                     );
                     continue;
                 }
-                outputs.insert(output, WorkerOutputState::new(reply, frame_slot_metrics));
+                outputs.insert(
+                    output,
+                    WorkerOutputState::new(reply, frame_slot_metrics, claim),
+                );
             }
-            WorkerCommand::Deregister { output } => {
+            WorkerCommand::Deregister { output, claim } => {
                 // Dropping the state returns this output's buffers and slots
                 // together. Nothing else may reclaim them: they are leased
                 // against its incarnations, not the device's.
-                outputs.remove(&output);
+                if outputs
+                    .get(&output)
+                    .is_some_and(|state| Arc::ptr_eq(&state.claim, &claim))
+                {
+                    outputs.remove(&output);
+                }
             }
             WorkerCommand::Render {
                 output,
@@ -177,7 +204,7 @@ pub(super) fn run_worker<D>(
                 // another output because there is no route to one.
                 if state
                     .reply
-                    .send(WorkerResult {
+                    .try_send(WorkerResult {
                         output,
                         request_id,
                         context_status,
@@ -189,6 +216,18 @@ pub(super) fn run_worker<D>(
                 {
                     outputs.remove(&output);
                 }
+            }
+            WorkerCommand::ReplaceImageImportDevices {
+                generation,
+                devices,
+                completion_sender,
+            } => {
+                let result = context.as_mut().map_or(
+                    Err(LiveRendererScanoutBufferExportDetail::BackendDeviceUnavailable),
+                    |context| context.replace_image_import_devices(devices),
+                );
+                let _ =
+                    completion_sender.try_send(inventory_replacement_result(generation, result));
             }
             WorkerCommand::Evict {
                 image_id,

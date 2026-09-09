@@ -1,10 +1,36 @@
 impl<T: std::os::fd::AsFd> NativeGbmRenderedScanoutContext<T> {
+    fn probe_renderer_image_import(
+        &self,
+        frame: NativeMultiPlaneDmaBufFrame<'_>,
+    ) -> Result<(), NativeGbmScanoutBufferExportDetail> {
+        // Import the actual descriptors before allocating capture storage. A
+        // previous layout success is only an ordering hint for fallback devices.
+        let image = create_dma_buf_image(&self.egl, self.display, frame)?;
+        self.egl
+            .destroy_image(self.display, image)
+            .map_err(|_| NativeGbmScanoutBufferExportDetail::EglImageDestroyFailed)
+    }
+
     fn render_renderer_image_snapshot(
         &mut self,
         image_id: NativeRendererImageId,
         source: NativeMultiPlaneDmaBufFrame<'_>,
         linear_bridge: bool,
     ) -> Result<NativeGbmOwnedScanoutBuffer, NativeGbmScanoutBufferExportDetail> {
+        self.render_renderer_image_snapshot_with_completion(image_id, source, linear_bridge, false)
+            .map(|(buffer, _)| buffer)
+    }
+
+    fn render_renderer_image_snapshot_with_completion(
+        &mut self,
+        image_id: NativeRendererImageId,
+        source: NativeMultiPlaneDmaBufFrame<'_>,
+        linear_bridge: bool,
+        completion_required: bool,
+    ) -> Result<
+        (NativeGbmOwnedScanoutBuffer, Option<khronos_egl::Sync>),
+        NativeGbmScanoutBufferExportDetail,
+    > {
         let format = match source.format {
             0x3432_5258 => gbm::Format::Xrgb8888,
             0x3432_5241 => gbm::Format::Argb8888,
@@ -111,8 +137,13 @@ impl<T: std::os::fd::AsFd> NativeGbmRenderedScanoutContext<T> {
                         && (!linear_bridge
                             || (buffer.modifier() == Some(0) && buffer.plane_count() == 1)) =>
                 {
+                    let completion = if completion_required {
+                        self.capture_completion(&persistent)
+                    } else {
+                        Ok(None)
+                    };
                     self.destroy_renderer_image_capture_target(persistent);
-                    return Ok(buffer);
+                    return completion.map(|completion| (buffer, completion));
                 }
                 Ok(_) => {
                     last_detail = NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor;
@@ -127,6 +158,42 @@ impl<T: std::os::fd::AsFd> NativeGbmRenderedScanoutContext<T> {
             self.destroy_renderer_image_capture_target(persistent);
         }
         Err(import_failure.unwrap_or(last_detail))
+    }
+
+    fn capture_completion(
+        &self,
+        target: &PersistentCompositionTarget,
+    ) -> Result<Option<khronos_egl::Sync>, NativeGbmScanoutBufferExportDetail> {
+        use khronos_egl as egl;
+        self.egl
+            .make_current(
+                self.display,
+                Some(target.surface.egl_surface()),
+                Some(target.surface.egl_surface()),
+                Some(target.target.egl_context),
+            )
+            .map_err(|_| NativeGbmScanoutBufferExportDetail::EglMakeCurrentFailed)?;
+        // The fence follows the destination copy. A zero-time flush submits it
+        // without waiting; the owning worker polls before reusing source storage.
+        let result = unsafe {
+            self.egl
+                .create_sync(self.display, egl::SYNC_FENCE as u32, &[egl::ATTRIB_NONE])
+        }
+        .map_err(|_| NativeGbmScanoutBufferExportDetail::CompositionFinishFailed)
+        .and_then(|sync| {
+            match unsafe {
+                self.egl
+                    .client_wait_sync(self.display, sync, egl::SYNC_FLUSH_COMMANDS_BIT, 0)
+            } {
+                Ok(_) => Ok(Some(sync)),
+                Err(_) => {
+                    let _ = unsafe { self.egl.destroy_sync(self.display, sync) };
+                    Err(NativeGbmScanoutBufferExportDetail::CompositionFinishFailed)
+                }
+            }
+        });
+        let _ = self.egl.make_current(self.display, None, None, None);
+        result
     }
 
     fn destroy_renderer_image_capture_target(&mut self, target: PersistentCompositionTarget) {

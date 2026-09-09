@@ -249,6 +249,34 @@ where
         self.context_status = None;
     }
 
+    pub fn request_image_import_device_replacement(
+        &self,
+        generation: u64,
+        devices: Vec<std::os::fd::OwnedFd>,
+    ) -> std::io::Result<()> {
+        self.worker
+            .as_ref()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "renderer worker is not enabled",
+                )
+            })?
+            .request_image_import_device_replacement(generation, devices)
+    }
+
+    pub fn poll_image_import_device_replacement(&self) -> std::io::Result<Option<u64>> {
+        self.worker
+            .as_ref()
+            .ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    "renderer worker is not enabled",
+                )
+            })?
+            .poll_image_import_device_replacement()
+    }
+
     /// Arms the next CPU export as a direct-GBM-only bootstrap.
     ///
     /// This is intentionally incompatible with either renderer owner. Mirror

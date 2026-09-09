@@ -9,6 +9,8 @@ mod persistent_native_scanout {
     mod cursor;
     mod frame_damage;
     mod output_capabilities;
+    mod render_devices;
+    pub use render_devices::LiveOutputAllocationPreference;
     mod renderer_handoff;
     mod renderer_images;
     mod state;
@@ -88,6 +90,7 @@ mod persistent_native_scanout {
         >,
         /// Seat-admitted render nodes retained for this native owner's lifetime.
         image_import_devices: Vec<std::fs::File>,
+        render_devices: render_devices::LiveRenderDeviceState,
         /// Primary presentation and last-head ownership for mirror generations.
         output_lifecycles: BTreeMap<OutputId, LiveProductionMirrorGroupLifecycle>,
         /// Engine-owned prepare/submit/flip barrier for the active generation
@@ -595,6 +598,7 @@ mod persistent_native_scanout {
             #[cfg(not(feature = "drm-hotplug"))]
             let image_import_devices = Vec::new();
             scanout.image_import_devices = image_import_devices;
+            scanout.refresh_allocation_devices();
             Ok(scanout)
         }
 
@@ -748,6 +752,7 @@ mod persistent_native_scanout {
             let mut groups = Vec::new();
             let mut heads = Vec::new();
             let mut exporters = Vec::new();
+            let mut head_modifiers = Vec::new();
             for session in sessions.sessions.drain(..) {
                 let group = groups.len();
                 for ((selection, output_id), head_id) in session
@@ -766,12 +771,12 @@ mod persistent_native_scanout {
                     // shared buffer that needed it: a head scanning out its own
                     // buffer is constrained only by its own plane.
                     let discovery = session.render_device_discovery()?;
+                    let modifiers =
+                        session.preferred_xrgb8888_scanout_modifiers_for_selection(selection);
+                    head_modifiers.push(modifiers.clone());
                     exporters.push(
                         crate::NativeGbmRenderedScanoutBufferDiscoveryExporter::new(discovery)
-                            .with_preferred_modifiers(
-                                session
-                                    .preferred_xrgb8888_scanout_modifiers_for_selection(selection),
-                            ),
+                            .with_preferred_modifiers(modifiers),
                     );
                     heads.push(LiveProductionNativeHead {
                         head: head_id,
@@ -928,6 +933,7 @@ mod persistent_native_scanout {
                 nonzero_exports: 0,
                 exporters,
                 image_import_devices: Vec::new(),
+                render_devices: render_devices::LiveRenderDeviceState::new(head_modifiers),
                 output_lifecycles,
                 output_cohorts: BTreeMap::new(),
                 deferred_mirror_generations: BTreeMap::new(),
@@ -3174,6 +3180,10 @@ mod persistent_native_scanout {
                             self.image_import_device_fds()?,
                         )?,
                     );
+                    self.render_devices.pending.remove(&group);
+                    self.render_devices
+                        .applied
+                        .insert(group, self.render_devices.generation);
                 }
                 let core = self.groups[group]
                     .renderer_core
@@ -3185,6 +3195,10 @@ mod persistent_native_scanout {
                 let image_import_devices = self.image_import_device_fds()?;
                 self.exporters[index]
                     .enable_worker_with_image_import_devices(image_import_devices)?;
+                self.render_devices.pending.remove(&index);
+                self.render_devices
+                    .applied
+                    .insert(index, self.render_devices.generation);
             }
             Ok(())
         }
@@ -3823,13 +3837,13 @@ mod persistent_native_scanout {
 
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 pub use persistent_native_scanout::{
-    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LivePersistentRenderMetrics,
-    LiveProductionCompletionTimestamp, LiveProductionCpuFrameQueueStatus,
-    LiveProductionDirectScanoutTotals, LiveProductionHeadCompositionFrame,
-    LiveProductionKmsCompletionSource, LiveProductionMirrorGenerationQueue,
-    LiveProductionMirrorGroupBegin, LiveProductionMirrorGroupLifecycle,
-    LiveProductionMirrorHeadTransition, LiveProductionNativeFrameRetirement,
-    LiveProductionNativeHead, LiveProductionNativeScanout,
+    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LiveOutputAllocationPreference,
+    LivePersistentRenderMetrics, LiveProductionCompletionTimestamp,
+    LiveProductionCpuFrameQueueStatus, LiveProductionDirectScanoutTotals,
+    LiveProductionHeadCompositionFrame, LiveProductionKmsCompletionSource,
+    LiveProductionMirrorGenerationQueue, LiveProductionMirrorGroupBegin,
+    LiveProductionMirrorGroupLifecycle, LiveProductionMirrorHeadTransition,
+    LiveProductionNativeFrameRetirement, LiveProductionNativeHead, LiveProductionNativeScanout,
     LiveProductionNativeTopologyApplyCoordinator, LiveProductionNativeTopologyApplyPhase,
     LiveProductionNativeTopologyApplyTransition, LiveProductionNativeTopologyCandidateResource,
     LiveProductionNativeTopologyCurrentHead, LiveProductionNativeTopologyDisposition,

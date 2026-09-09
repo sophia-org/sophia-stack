@@ -21,6 +21,9 @@ use std::sync::{Arc, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
 
+mod lifecycle;
+use lifecycle::{DeviceIdentity, OutputClaim, WorkerControl, WorkerRegistry, WorkerThread};
+
 const WORKER_COMMAND_CAPACITY: usize = 32;
 const WORKER_RESULT_CAPACITY: usize = 2;
 const WORKER_FREE_CPU_BUFFER_CAPACITY: usize = 3;
@@ -130,7 +133,9 @@ impl Drop for NativeGbmRendererWorkerScanoutLease {
 /// reference goes.
 pub struct NativeGbmRendererWorkerCore {
     command_sender: SyncSender<WorkerCommand>,
-    thread: std::sync::Mutex<Option<thread::JoinHandle<()>>>,
+    _thread: WorkerThread,
+    control: Arc<WorkerControl>,
+    inventory_replacement: std::sync::Mutex<Option<Receiver<io::Result<u64>>>>,
     release_enqueue_failures: Arc<AtomicUsize>,
 }
 
@@ -155,15 +160,97 @@ impl NativeGbmRendererWorkerCore {
                 "renderer import device capacity exceeded",
             ));
         }
+        let device = device?;
+        let identity = DeviceIdentity::from_device(&device)?;
+        let reservation = WorkerRegistry::shared().reserve(identity)?;
+        let control = Arc::new(WorkerControl::default());
+        let service_control = Arc::clone(&control);
         let (command_sender, command_receiver) = sync_channel(WORKER_COMMAND_CAPACITY);
-        let thread = thread::Builder::new()
-            .name("sophia-render-gpu".to_owned())
-            .spawn(move || run_worker(device, import_devices, command_receiver))?;
+        let thread = reservation.start(|| {
+            thread::Builder::new()
+                .name("sophia-render-gpu".to_owned())
+                .spawn(move || {
+                    run_worker(
+                        Ok(device),
+                        import_devices,
+                        command_receiver,
+                        service_control,
+                    )
+                })
+        })?;
         Ok(Arc::new(Self {
             command_sender,
-            thread: std::sync::Mutex::new(Some(thread)),
+            _thread: thread,
+            control,
+            inventory_replacement: std::sync::Mutex::new(None),
             release_enqueue_failures: Arc::new(AtomicUsize::new(0)),
         }))
+    }
+
+    /// Queue one inventory generation; the caller retains its original descriptors until acknowledged.
+    pub fn request_image_import_device_replacement(
+        &self,
+        generation: u64,
+        devices: Vec<std::os::fd::OwnedFd>,
+    ) -> io::Result<()> {
+        if devices.len() > sophia_renderer_live::NATIVE_IMAGE_IMPORT_DEVICE_CAPACITY {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "renderer import device capacity exceeded",
+            ));
+        }
+        let mut pending = self
+            .inventory_replacement
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if pending.is_some() {
+            return Err(io::Error::new(
+                io::ErrorKind::WouldBlock,
+                "renderer inventory replacement pending",
+            ));
+        }
+        let (completion_sender, completion_receiver) = sync_channel(1);
+        self.command_sender
+            .try_send(WorkerCommand::ReplaceImageImportDevices {
+                generation,
+                devices,
+                completion_sender,
+            })
+            .map_err(|error| match error {
+                TrySendError::Full(_) => {
+                    io::Error::new(io::ErrorKind::WouldBlock, "renderer command queue full")
+                }
+                TrySendError::Disconnected(_) => {
+                    io::Error::new(io::ErrorKind::BrokenPipe, "renderer worker disconnected")
+                }
+            })?;
+        *pending = Some(completion_receiver);
+        Ok(())
+    }
+
+    /// Return the applied generation without waiting; a busy bridge reports WouldBlock for retry.
+    pub fn poll_image_import_device_replacement(&self) -> io::Result<Option<u64>> {
+        let mut pending = self
+            .inventory_replacement
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let Some(receiver) = pending.as_ref() else {
+            return Ok(None);
+        };
+        match receiver.try_recv() {
+            Ok(result) => {
+                *pending = None;
+                result.map(Some)
+            }
+            Err(TryRecvError::Empty) => Ok(None),
+            Err(TryRecvError::Disconnected) => {
+                *pending = None;
+                Err(io::Error::new(
+                    io::ErrorKind::BrokenPipe,
+                    "renderer inventory acknowledgement disconnected",
+                ))
+            }
+        }
     }
 
     /// Attach one output. Its results come back on a channel of its own, which
@@ -175,20 +262,21 @@ impl NativeGbmRendererWorkerCore {
     ) -> NativeGbmRendererWorker {
         let (reply, result_receiver) = sync_channel(WORKER_RESULT_CAPACITY);
         let frame_slot_metrics = LiveRendererFrameSlotMetricsHandle::default();
-        // A full command queue at attach time would leave an output whose
-        // results have nowhere to go, so the registration is not allowed to be
-        // dropped silently: the worker treats an unknown output as a fault.
+        let claim = Arc::new(OutputClaim::default());
+        // A refused registration quarantines its facade before it can render.
         let registered = self
             .command_sender
-            .send(WorkerCommand::Register {
+            .try_send(WorkerCommand::Register {
                 output,
                 reply,
                 frame_slot_metrics: frame_slot_metrics.clone(),
+                claim: Arc::clone(&claim),
             })
             .is_ok();
         NativeGbmRendererWorker {
             core: Arc::clone(self),
             output,
+            claim,
             result_receiver,
             next_request_id: 1,
             in_flight: None,
@@ -204,17 +292,14 @@ impl NativeGbmRendererWorkerCore {
 
 impl Drop for NativeGbmRendererWorkerCore {
     fn drop(&mut self) {
-        let _ = self.command_sender.send(WorkerCommand::Shutdown);
-        if let Ok(mut thread) = self.thread.lock()
-            && let Some(thread) = thread.take()
-        {
-            let _ = thread.join();
-        }
+        self.control.shutdown();
+        let _ = self.command_sender.try_send(WorkerCommand::Shutdown);
     }
 }
 
 pub(super) struct NativeGbmRendererWorker {
     core: Arc<NativeGbmRendererWorkerCore>,
+    claim: Arc<OutputClaim>,
     output: LiveRendererWorkerOutputKey,
     result_receiver: Receiver<WorkerResult>,
     next_request_id: u64,
@@ -228,6 +313,19 @@ pub(super) struct NativeGbmRendererWorker {
 }
 
 impl NativeGbmRendererWorker {
+    pub fn request_image_import_device_replacement(
+        &self,
+        generation: u64,
+        devices: Vec<std::os::fd::OwnedFd>,
+    ) -> io::Result<()> {
+        self.core
+            .request_image_import_device_replacement(generation, devices)
+    }
+
+    pub fn poll_image_import_device_replacement(&self) -> io::Result<Option<u64>> {
+        self.core.poll_image_import_device_replacement()
+    }
+
     /// One worker owning its own thread, which is one output's worth of
     /// device state. This is what every head had before outputs could share a
     /// core, and it is what a session still gets when sharing is off.
@@ -567,23 +665,15 @@ impl NativeGbmRendererWorker {
 
 impl Drop for NativeGbmRendererWorker {
     fn drop(&mut self) {
-        // Detach only. The thread belongs to the core, which may still be
-        // serving other outputs of the same device; it shuts down when the
-        // last reference to it goes. Draining while the queue is full keeps a
-        // worker blocked on this output's replies from wedging the detach.
-        let mut deregister = WorkerCommand::Deregister {
-            output: self.output,
-        };
-        loop {
-            match self.core.command_sender.try_send(deregister) {
-                Ok(()) | Err(TrySendError::Disconnected(_)) => break,
-                Err(TrySendError::Full(command)) => {
-                    deregister = command;
-                    while self.result_receiver.try_recv().is_ok() {}
-                    thread::yield_now();
-                }
-            }
-        }
+        self.claim.detach();
+        // The claim survives a full queue; this command only wakes an idle service.
+        let _ = self
+            .core
+            .command_sender
+            .try_send(WorkerCommand::Deregister {
+                output: self.output,
+                claim: Arc::clone(&self.claim),
+            });
     }
 }
 
@@ -612,10 +702,12 @@ enum WorkerCommand {
         output: LiveRendererWorkerOutputKey,
         reply: SyncSender<WorkerResult>,
         frame_slot_metrics: LiveRendererFrameSlotMetricsHandle,
+        claim: Arc<OutputClaim>,
     },
     /// Detach an output and free everything it still holds.
     Deregister {
         output: LiveRendererWorkerOutputKey,
+        claim: Arc<OutputClaim>,
     },
     Render {
         output: LiveRendererWorkerOutputKey,
@@ -623,6 +715,11 @@ enum WorkerCommand {
         target: LiveGbmEglFrameTargetRecord,
         frame: PendingRenderedFrame,
         preferred_modifiers: Vec<u64>,
+    },
+    ReplaceImageImportDevices {
+        generation: u64,
+        devices: Vec<std::os::fd::OwnedFd>,
+        completion_sender: SyncSender<io::Result<u64>>,
     },
     Evict {
         image_id: LiveRendererImageId,
@@ -684,6 +781,22 @@ enum WorkerOutcome {
     },
     Deferred(PendingRenderedFrame),
     Failed(LiveRendererScanoutBufferExportDetail),
+}
+
+fn inventory_replacement_result(
+    generation: u64,
+    result: Result<bool, LiveRendererScanoutBufferExportDetail>,
+) -> io::Result<u64> {
+    match result {
+        Ok(true) => Ok(generation),
+        Ok(false) => Err(io::Error::new(
+            io::ErrorKind::WouldBlock,
+            "renderer bridge still in use",
+        )),
+        Err(detail) => Err(io::Error::other(format!(
+            "renderer inventory replacement failed: {detail:?}"
+        ))),
+    }
 }
 
 fn reduce_worker_command_send_error<T>(

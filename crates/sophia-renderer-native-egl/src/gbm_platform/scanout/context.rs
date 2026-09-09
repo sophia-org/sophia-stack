@@ -68,7 +68,8 @@ pub struct NativeGbmRenderedScanoutContext<T: std::os::fd::AsFd> {
     renderer_image_bytes: u64,
     import_devices: Option<Vec<NativeImageImportDevice>>,
     transfer_stats: NativeImageTransferStats,
-    transferred_layouts: std::collections::BTreeSet<(u32, u64)>,
+    image_bridges: Vec<NativeImageBridgeSlot>,
+    transfer_sources: std::collections::BTreeMap<(u32, u64), usize>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -235,7 +236,8 @@ where
             renderer_image_bytes: 0,
             import_devices: None,
             transfer_stats: NativeImageTransferStats::default(),
-            transferred_layouts: std::collections::BTreeSet::new(),
+            image_bridges: Vec::new(),
+            transfer_sources: std::collections::BTreeMap::new(),
             buffer_age_supported,
             next_target_generation: 1,
             last_render_buffer_age: None,
@@ -634,6 +636,7 @@ include!("context/render_once.rs");
 include!("context/renderer_images.rs");
 include!("context/image_capture.rs");
 include!("context/image_transfer.rs");
+include!("context/image_bridge.rs");
 impl<T> NativeGbmRenderedScanoutContext<T>
 where
     T: std::os::fd::AsFd,
@@ -700,6 +703,7 @@ where
         // EGL display and its dynamically loaded entry points still exist.
         self.renderer_images.clear();
         self.renderer_image_bytes = 0;
+        self.destroy_image_bridges();
         self.import_devices.take();
         let _ = self.egl.terminate(self.display);
         trace_native_lifecycle("egl_display_terminated");

@@ -57,6 +57,7 @@ pub(crate) struct PersistentXrgb8888GlPipeline {
     /// every one of those sites goes through `apply_scissor`, which intersects
     /// its own clip with this one. `None` is an unconfined full repaint.
     ambient_clip: Cell<Option<GlCompositionRect>>,
+    image_target: bool,
     width: u32,
     height: u32,
 }
@@ -130,6 +131,17 @@ impl PersistentXrgb8888GlPipeline {
     ) -> Result<Self, NativeEglDrawSmokeStatus> {
         let result = unsafe { Self::new_inner(gl, width, height) };
         result.map_err(|_| NativeEglDrawSmokeStatus::GlUnavailable)
+    }
+
+    /// DMA-BUF image storage starts at GL's bottom row, unlike a window target.
+    pub(crate) unsafe fn new_image_target(
+        gl: glow::Context,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, NativeEglDrawSmokeStatus> {
+        let mut pipeline = unsafe { Self::new(gl, width, height) }?;
+        pipeline.image_target = true;
+        Ok(pipeline)
     }
 
     unsafe fn new_inner(gl: glow::Context, width: u32, height: u32) -> Result<Self, String> {
@@ -242,6 +254,7 @@ impl PersistentXrgb8888GlPipeline {
             sharp_mixed_draws: Cell::new(0),
             linear_fallback_draws: Cell::new(0),
             ambient_clip: Cell::new(None),
+            image_target: false,
             width,
             height,
         })
@@ -755,6 +768,11 @@ impl PersistentXrgb8888GlPipeline {
         let right = -1.0 + 2.0 * (target.x + target.width) as f32 / self.width as f32;
         let top = 1.0 - 2.0 * target.y as f32 / self.height as f32;
         let bottom = 1.0 - 2.0 * (target.y + target.height) as f32 / self.height as f32;
+        let (top, bottom) = if self.image_target {
+            (-top, -bottom)
+        } else {
+            (top, bottom)
+        };
         let vertices: [f32; 16] = [
             left, bottom, 0.0, 1.0, right, bottom, 1.0, 1.0, left, top, 0.0, 0.0, right, top, 1.0,
             0.0,

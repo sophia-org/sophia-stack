@@ -8,6 +8,8 @@ use std::{
 
 mod import_cache;
 pub(crate) use import_cache::create_dma_buf_image;
+#[path = "scanout/context/image_transfer_policy.rs"]
+mod image_transfer_policy;
 mod types;
 
 pub use import_cache::*;

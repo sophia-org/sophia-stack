@@ -1,4 +1,5 @@
 use std::fs::{self, File, OpenOptions};
+use std::os::unix::fs::MetadataExt;
 use std::os::unix::fs::OpenOptionsExt;
 use std::path::{Path, PathBuf};
 
@@ -80,6 +81,66 @@ pub fn discover_seat_render_devices(
     selected.sort_by(|left, right| left.sysfs_node.cmp(&right.sysfs_node));
     // The complete selection is bounded before the first descriptor is opened.
     selected.into_iter().map(open_candidate).collect()
+}
+
+/// Captures render-device membership and identity without opening the devices.
+/// This is used for hotplug comparison; persistent device files are opened only
+/// by `discover_seat_render_devices` after the comparison has settled.
+pub fn snapshot_seat_render_inventory(
+    seat: &str,
+) -> Result<Vec<LiveRenderDeviceIdentitySnapshot>, LiveRenderDeviceInventoryError> {
+    use LiveRenderDeviceInventoryError as E;
+    if seat.is_empty()
+        || seat.len() > 64
+        || !seat.is_ascii()
+        || seat.bytes().any(|byte| byte <= b' ')
+    {
+        return Err(E::InvalidSeat);
+    }
+    let mut enumerator = udev::Enumerator::new().map_err(|_| E::DiscoveryUnavailable)?;
+    enumerator
+        .match_subsystem("drm")
+        .and_then(|()| enumerator.match_sysname("card[0-9]*"))
+        .map_err(|_| E::DiscoveryUnavailable)?;
+    let mut selected = Vec::new();
+    for card in enumerator
+        .scan_devices()
+        .map_err(|_| E::DiscoveryUnavailable)?
+    {
+        if !is_node_name(card.sysname(), "card")
+            || !seat_matches(seat, card.is_initialized(), card.property_value("ID_SEAT"))
+        {
+            continue;
+        }
+        let Ok(physical) = fs::canonicalize(card.syspath().join("device")) else {
+            continue;
+        };
+        if let Some(candidate) = selection::render_sibling(Path::new("/sys/class/drm"), &physical)?
+        {
+            admit_candidate(&mut selected, candidate)?;
+        }
+    }
+    selected.sort_by(|left, right| left.sysfs_node.cmp(&right.sysfs_node));
+    selected
+        .into_iter()
+        .map(|candidate| {
+            let name = candidate.sysfs_node.file_name().ok_or(E::InvalidDevice)?;
+            let path = Path::new("/dev/dri").join(name);
+            let metadata = fs::metadata(&path).map_err(|_| E::OpenFailed)?;
+            let physical = fs::canonicalize(candidate.sysfs_node.join("device"))
+                .map_err(|_| E::IdentityChanged)?;
+            let device_number = metadata.rdev();
+            if device_number != candidate.device_number {
+                return Err(E::IdentityChanged);
+            }
+            Ok(LiveRenderDeviceIdentitySnapshot {
+                device: metadata.dev(),
+                inode: metadata.ino(),
+                device_number,
+                physical_device: physical,
+            })
+        })
+        .collect()
 }
 
 fn open_candidate(

@@ -21,7 +21,16 @@ use sophia_renderer_native_egl::{
 
 const WIDTH: u32 = 1920;
 const HEIGHT: u32 = 1080;
-const WARM_CAPTURES: u32 = 20;
+fn warm_captures() -> u32 {
+    let count = std::env::var("SOPHIA_TRANSFER_BENCHMARK_FRAMES").map_or(20, |value| {
+        value.parse().expect("numeric benchmark frame count")
+    });
+    assert!(
+        (1..=600).contains(&count),
+        "benchmark frame count must be 1..=600"
+    );
+    count
+}
 const MAX_MODIFIER_ATTEMPTS: usize = 64;
 
 fn open(path: &Path) -> File {
@@ -242,7 +251,30 @@ fn composed_pixels(
     path: &Path,
     id: NativeRendererImageId,
 ) -> Vec<u8> {
-    let layers = [NativeCompositionLayer::RendererImage(
+    composed_pixels_with_background(context, path, id, None)
+}
+
+fn composed_pixels_with_background(
+    context: &mut NativeGbmRenderedScanoutContext<File>,
+    path: &Path,
+    id: NativeRendererImageId,
+    background: Option<[u8; 3]>,
+) -> Vec<u8> {
+    let mut layers = Vec::new();
+    if let Some(color) = background {
+        layers.push(NativeCompositionLayer::Solid(
+            sophia_renderer_native_egl::NativeSolidCompositionLayer {
+                target: NativeCompositionRect {
+                    x: 0,
+                    y: 0,
+                    width: WIDTH as i32,
+                    height: HEIGHT as i32,
+                },
+                color,
+            },
+        ));
+    }
+    layers.push(NativeCompositionLayer::RendererImage(
         NativeRendererImageCompositionLayer {
             image_id: id,
             target: NativeCompositionRect {
@@ -255,7 +287,7 @@ fn composed_pixels(
             alpha: 1.0,
             sampling: NativeCompositionSampling::ExactNearest,
         },
-    )];
+    ));
     let report = context.export_composed_owned_scanout_buffer_with_modifiers(
         NativeCompositionFrame {
             width: WIDTH,
@@ -308,10 +340,12 @@ fn measure_warm_captures(
     format: gbm::Format,
 ) {
     let baseline = target.image_transfer_stats();
+    let target_allocations = target.persistent_render_stats().dmabuf_target_creations;
+    let captures = warm_captures();
     let live_images = target.persistent_render_stats().snapshot_live_entries;
     let mut capture_us = Vec::new();
     let mut through_readback_us = Vec::new();
-    for sequence in 1..=WARM_CAPTURES {
+    for sequence in 1..=captures {
         let pixels = expected(sequence);
         // The preceding destination readback completed its capture before this
         // source write. CPU preparation is outside both timing measurements.
@@ -344,6 +378,22 @@ fn measure_warm_captures(
         target.image_transfer_stats().device_initializations,
         baseline.device_initializations
     );
+    let after = target.image_transfer_stats();
+    assert_eq!(
+        after.bridge_allocations, baseline.bridge_allocations,
+        "completed scratch is reused"
+    );
+    assert_eq!(
+        after.bridge_reuses,
+        baseline.bridge_reuses + u64::from(captures)
+    );
+    assert_eq!(after.bridge_live_slots, 1);
+    assert_eq!(after.bridge_live_bytes, baseline.bridge_live_bytes);
+    assert_eq!(
+        target.persistent_render_stats().dmabuf_target_creations,
+        target_allocations + captures as usize,
+        "direct refusal allocates no throwaway target"
+    );
     let percentile = |values: &[u128], percent: usize| {
         let mut ordered = values.to_vec();
         ordered.sort_unstable();
@@ -358,7 +408,7 @@ fn measure_warm_captures(
         format as u32,
         WIDTH,
         HEIGHT,
-        WARM_CAPTURES,
+        captures,
         percentile(&capture_us, 50),
         percentile(&capture_us, 95),
         percentile(&through_readback_us, 50),
@@ -503,5 +553,94 @@ fn device_inventory_rejects_overflow_without_consuming_its_single_assignment() {
         target.image_transfer_stats().device_initializations,
         0,
         "inventory registration must remain lazy"
+    );
+}
+
+#[test]
+#[ignore = "requires two selected GPUs with incompatible explicit images; opens no windows"]
+fn a_local_image_still_imports_directly_and_source_refresh_preserves_retained_pixels() {
+    let paths = nodes();
+    let foreign_id = NativeRendererImageId::from_raw(901);
+    let local_id = NativeRendererImageId::from_raw(902);
+    let (mut source, mut target) =
+        discriminating_source(&paths[1], &paths[0], gbm::Format::Argb8888, foreign_id);
+    let foreign = source.frame();
+    let error = target
+        .capture_renderer_image(foreign_id, foreign)
+        .expect_err("fixture needs incompatible foreign image");
+    assert!(
+        import_failure(error),
+        "actual foreign FD refusal: {error:?}"
+    );
+    target
+        .set_image_import_devices(vec![open(&paths[1]).into()])
+        .unwrap();
+    target.capture_renderer_image(foreign_id, foreign).unwrap();
+    assert_pixels(
+        &composed_pixels(&mut target, &paths[0], foreign_id),
+        &expected(0),
+        "foreign image",
+    );
+    let before = target.image_transfer_stats();
+    let device = gbm::Device::new(open(&paths[0])).unwrap();
+    let local = Source::from_buffer(
+        device
+            .create_buffer_object::<()>(
+                WIDTH,
+                HEIGHT,
+                gbm::Format::Argb8888,
+                gbm::BufferObjectFlags::RENDERING,
+            )
+            .unwrap(),
+    );
+    let local_frame = local.frame();
+    target
+        .capture_renderer_image(local_id, local_frame)
+        .unwrap();
+    assert_eq!(
+        target.image_transfer_stats().captures,
+        before.captures,
+        "a layout hint cannot force a foreign copy"
+    );
+    assert_eq!(target.image_transfer_stats().attempts, before.attempts);
+    assert_pixels(
+        &composed_pixels(&mut target, &paths[0], local_id),
+        &expected(0),
+        "local image",
+    );
+    let alpha_id = NativeRendererImageId::from_raw(903);
+    let mut alpha_pixels = expected(3);
+    for pixel in alpha_pixels.chunks_exact_mut(4) {
+        pixel[0] /= 2;
+        pixel[1] /= 2;
+        pixel[2] /= 2;
+        pixel[3] = 128;
+    }
+    source.write_pixels(&alpha_pixels);
+    target
+        .capture_renderer_image(alpha_id, source.frame())
+        .unwrap();
+    let mut over_white = alpha_pixels.clone();
+    for pixel in over_white.chunks_exact_mut(4) {
+        pixel[0] += 127;
+        pixel[1] += 127;
+        pixel[2] += 127;
+        pixel[3] = 255;
+    }
+    assert_pixels(
+        &composed_pixels_with_background(&mut target, &paths[0], alpha_id, Some([255; 3])),
+        &over_white,
+        "bridge retains premultiplied alpha",
+    );
+    assert!(
+        target.replace_image_import_devices(Vec::new()).unwrap(),
+        "readback completed scratch use"
+    );
+    assert_eq!(target.image_transfer_stats().bridge_live_slots, 0);
+    assert_eq!(target.image_transfer_stats().bridge_live_bytes, 0);
+    assert_pixels(
+        &composed_pixels(&mut target, &paths[0], foreign_id),
+        &expected(0),
+        "source inventory removal preserves captured image",
     );
 }

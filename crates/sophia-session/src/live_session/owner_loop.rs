@@ -32,6 +32,7 @@ struct SessionLoopResources<'a> {
 }
 
 struct SessionLoopStartup<'a> {
+    client_render_devices: Option<render_devices::LiveRenderDeviceCoordinator>,
     output_topology_monitor: Option<sophia_backend_live::LiveDrmTopologyMonitor>,
     xauthority: &'a std::path::Path,
     protocol_router: XServerFrontendProtocolRouter,
@@ -278,6 +279,7 @@ fn run_session_loop_inner(
     } = resources;
     let SessionLoopStartup {
         mut output_topology_monitor,
+        mut client_render_devices,
         xauthority,
         protocol_router,
         input_proof_result,
@@ -287,6 +289,7 @@ fn run_session_loop_inner(
         output_notifications,
     } = startup;
     let started = Instant::now();
+    let mut render_inventory_service_at = started;
     let config_watcher = config
         .core_config_source
         .path
@@ -407,6 +410,7 @@ fn run_session_loop_inner(
     } else {
         None
     };
+    let mut window_allocation_publisher = window_allocation::LiveWindowAllocationPublisher::default();
     let mut last_authority_update = started;
     let mut injection_checksum = None;
     let mut physical_input_ready_at: Option<Instant> = None;

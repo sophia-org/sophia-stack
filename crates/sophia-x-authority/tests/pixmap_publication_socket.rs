@@ -220,7 +220,8 @@ impl XServerFrontendPixmapAllocator for Provider {
         handle: BufferHandle,
     ) -> Result<(), XServerFrontendPixmapAllocationError> {
         if self.always_refuse_release.load(Ordering::Acquire)
-            || self.refuse_release.swap(false, Ordering::AcqRel) {
+            || self.refuse_release.swap(false, Ordering::AcqRel)
+        {
             let _ = self.release_events.send(Release::Refused(handle));
             return Err(XServerFrontendPixmapAllocationError::Unavailable);
         }
@@ -845,18 +846,37 @@ fn a_lost_provider_does_not_block_cleanup_of_a_healthy_generation() {
     let mut old = fixture.connect();
     let (pixmap, _) = old.create();
     let _old_backing = old.export(pixmap);
-    fixture.provider.always_refuse_release.store(true, Ordering::Release);
+    fixture
+        .provider
+        .always_refuse_release
+        .store(true, Ordering::Release);
     drop(old);
-    assert!(matches!(fixture.releases.recv_timeout(WAIT).unwrap(), Release::Refused(_)));
+    assert!(matches!(
+        fixture.releases.recv_timeout(WAIT).unwrap(),
+        Release::Refused(_)
+    ));
     let (replacement, releases) = Provider::new();
     fixture.install(2, replacement.clone());
     let mut new = fixture.connect();
     let (pixmap, _) = new.create();
     let _new_backing = new.export(pixmap);
-    let handle = *replacement.state.lock().unwrap().buffers.keys().next().unwrap();
+    let handle = *replacement
+        .state
+        .lock()
+        .unwrap()
+        .buffers
+        .keys()
+        .next()
+        .unwrap();
     drop(new);
-    assert_eq!(releases.recv_timeout(WAIT).unwrap(), Release::Completed(handle));
+    assert_eq!(
+        releases.recv_timeout(WAIT).unwrap(),
+        Release::Completed(handle)
+    );
     assert!(replacement.state.lock().unwrap().buffers.is_empty());
     assert!(!fixture.provider.state.lock().unwrap().buffers.is_empty());
-    fixture.provider.always_refuse_release.store(false, Ordering::Release);
+    fixture
+        .provider
+        .always_refuse_release
+        .store(false, Ordering::Release);
 }

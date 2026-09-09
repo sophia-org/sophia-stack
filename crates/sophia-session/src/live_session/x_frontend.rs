@@ -52,6 +52,13 @@ pub(super) struct LiveXPixmapAllocator {
 
 #[cfg(feature = "native-session")]
 impl LiveXPixmapAllocator {
+    pub(super) fn without_pixmap_textures(device: std::fs::File) -> Self {
+        Self {
+            device,
+            shared: None,
+        }
+    }
+
     pub(super) fn new(device: std::fs::File) -> Self {
         let shared = device
             .try_clone()

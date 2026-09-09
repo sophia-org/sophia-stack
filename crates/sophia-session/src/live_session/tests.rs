@@ -1496,3 +1496,6 @@ fn a_cause_naming_a_withdrawn_surface_is_not_submitted() {
 
 #[path = "../../tests/support/application_lease_routing.rs"]
 mod application_lease_routing;
+
+#[path = "../../tests/support/window_allocation.rs"]
+mod window_allocation;

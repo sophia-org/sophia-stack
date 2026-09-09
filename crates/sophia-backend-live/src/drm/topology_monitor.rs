@@ -1,9 +1,11 @@
+use super::render_inventory::{LiveRenderDeviceIdentitySnapshot, snapshot_seat_render_inventory};
 use std::ffi::OsStr;
 use std::io;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError, sync_channel};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
@@ -36,6 +38,10 @@ pub struct LiveDrmTopologyMonitorStats {
 /// its monitor socket alone does not establish that the service delivers events.
 pub struct LiveDrmTopologyMonitor {
     ready: Receiver<()>,
+    inventory_ready: Receiver<()>,
+    inventory_baseline: Option<(String, Vec<LiveRenderDeviceIdentitySnapshot>)>,
+    inventory_dirty: bool,
+    inventory_retry_at: Option<Instant>,
     health: Receiver<Result<(), String>>,
     stop: Arc<AtomicBool>,
     latest_sequence: Arc<AtomicU64>,
@@ -45,9 +51,17 @@ pub struct LiveDrmTopologyMonitor {
     worker: Option<JoinHandle<()>>,
 }
 
+fn inventory_changed(
+    previous: &[LiveRenderDeviceIdentitySnapshot],
+    current: &[LiveRenderDeviceIdentitySnapshot],
+) -> bool {
+    previous != current
+}
+
 impl LiveDrmTopologyMonitor {
     pub fn open() -> io::Result<Self> {
         let (notice_sender, ready) = sync_channel(1);
+        let (inventory_sender, inventory_ready) = sync_channel(1);
         let (startup_sender, startup_receiver) = sync_channel(1);
         let (health_sender, health) = sync_channel(1);
         let stop = Arc::new(AtomicBool::new(false));
@@ -86,6 +100,7 @@ impl LiveDrmTopologyMonitor {
                 kernel,
                 processed,
                 notice_sender,
+                inventory_sender,
                 &worker_stop,
                 &worker_sequence,
                 &worker_observed,
@@ -96,6 +111,10 @@ impl LiveDrmTopologyMonitor {
         match startup_receiver.recv_timeout(std::time::Duration::from_secs(2)) {
             Ok(Ok(())) => Ok(Self {
                 ready,
+                inventory_ready,
+                inventory_baseline: None,
+                inventory_dirty: false,
+                inventory_retry_at: None,
                 health,
                 stop,
                 latest_sequence,
@@ -117,6 +136,62 @@ impl LiveDrmTopologyMonitor {
                 ))
             }
         }
+    }
+
+    /// Establishes the membership baseline after subscriptions are active.
+    pub fn initialize_render_inventory(&mut self, seat: &str) -> io::Result<()> {
+        let snapshot = snapshot_seat_render_inventory(seat)
+            .map_err(|error| io::Error::other(error.to_string()))?;
+        self.inventory_baseline = Some((seat.to_owned(), snapshot));
+        Ok(())
+    }
+
+    /// Returns a notice only when the settled render-device identities differ
+    /// from the baseline. Event bursts are coalesced before comparison.
+    pub fn poll_render_inventory_notice(&mut self) -> io::Result<bool> {
+        self.poll_render_inventory_with(Instant::now(), |seat| {
+            snapshot_seat_render_inventory(seat)
+                .map_err(|error| io::Error::other(error.to_string()))
+        })
+    }
+
+    fn poll_render_inventory_with(
+        &mut self,
+        now: Instant,
+        snapshot: impl FnOnce(&str) -> io::Result<Vec<LiveRenderDeviceIdentitySnapshot>>,
+    ) -> io::Result<bool> {
+        self.worker_error()?;
+        if self.inventory_ready.try_recv().is_ok() {
+            self.inventory_dirty = true;
+        }
+        if !self.inventory_dirty || self.inventory_retry_at.is_some_and(|retry| now < retry) {
+            return Ok(false);
+        }
+        let Some((seat, previous)) = self.inventory_baseline.as_ref() else {
+            return Ok(false);
+        };
+        let current = match snapshot(seat) {
+            Ok(current) => current,
+            Err(error) => {
+                self.inventory_retry_at = Some(now + Duration::from_millis(250));
+                return Err(error);
+            }
+        };
+        self.inventory_retry_at = None;
+        self.inventory_dirty = false;
+        if !inventory_changed(previous, &current) {
+            return Ok(false);
+        }
+        self.inventory_baseline = Some((seat.clone(), current));
+        Ok(true)
+    }
+
+    /// Returns the last successfully compared inventory without reopening or
+    /// rescanning any device.
+    pub fn render_inventory_snapshot(&self) -> Option<&[LiveRenderDeviceIdentitySnapshot]> {
+        self.inventory_baseline
+            .as_ref()
+            .map(|(_, snapshot)| snapshot.as_slice())
     }
 
     pub fn poll_notice(&mut self) -> io::Result<Option<LiveDrmTopologyRescanNotice>> {
@@ -169,6 +244,7 @@ fn run_drm_topology_monitor(
     kernel: udev::MonitorSocket,
     processed: udev::MonitorSocket,
     sender: SyncSender<()>,
+    inventory_sender: SyncSender<()>,
     stop: &AtomicBool,
     latest_sequence: &AtomicU64,
     observed: &AtomicU64,
@@ -195,6 +271,29 @@ fn run_drm_topology_monitor(
             (TopologyEventSource::Processed, &processed),
         ] {
             for event in monitor.iter().take(DRM_TOPOLOGY_MONITOR_BATCH_MAX_EVENTS) {
+                let inventory_change = match source {
+                    TopologyEventSource::Kernel => event.sysname().to_str().is_some_and(|name| {
+                        (name.starts_with("card") || name.starts_with("renderD"))
+                            && matches!(
+                                event.event_type(),
+                                udev::EventType::Remove | udev::EventType::Unbind
+                            )
+                    }),
+                    TopologyEventSource::Processed => {
+                        event.sysname().to_str().is_some_and(|name| {
+                            (name.starts_with("card") || name.starts_with("renderD"))
+                                && matches!(
+                                    event.event_type(),
+                                    udev::EventType::Add
+                                        | udev::EventType::Bind
+                                        | udev::EventType::Change
+                                )
+                        })
+                    }
+                };
+                if inventory_change {
+                    let _ = inventory_sender.try_send(());
+                }
                 if !topology_event_requires_rescan(
                     source,
                     event.event_type(),

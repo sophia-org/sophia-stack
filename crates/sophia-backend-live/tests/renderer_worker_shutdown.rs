@@ -1,151 +1,194 @@
 #![cfg(all(target_os = "linux", feature = "libdrm-events", feature = "gbm-probe"))]
 
-use sophia_backend_live::{
-    LiveRendererWorkerOutputKey, NativeGbmRenderedScanoutBufferDiscoveryExporter,
-    NativeGbmRendererWorkerCore, RenderDeviceDiscoveryBackend,
-};
-use std::{
-    fs::File,
-    io,
-    os::fd::{AsFd, BorrowedFd},
-    process::{Child, Command, Stdio},
-    sync::{
-        Mutex,
-        atomic::{AtomicBool, Ordering},
-        mpsc,
-    },
-    thread,
-    time::{Duration, Instant},
-};
+#[path = "../src/scanout/rendered_scanout/exporter/worker/lifecycle.rs"]
+mod lifecycle;
 
-const DEADLINE: Duration = Duration::from_secs(5);
-const CHILD: &str = "SOPHIA_TEST_RENDERER_SHUTDOWN_CHILD";
-const DROP_THREAD: &str = "renderer-drop";
+use lifecycle::{DeviceIdentity, OutputClaim, WORKER_CAPACITY, WorkerControl, WorkerRegistry};
+use sophia_backend_live::NativeGbmRendererWorkerCore;
+use std::fs::File;
+use std::io;
+use std::sync::{Arc, mpsc};
+use std::thread;
+use std::time::{Duration, Instant};
 
-struct GatedDevice {
-    file: File,
-    first_access: AtomicBool,
-    entered: mpsc::SyncSender<()>,
-    resume: Mutex<mpsc::Receiver<()>>,
-}
+const DEADLINE: Duration = Duration::from_secs(2);
 
-impl AsFd for GatedDevice {
-    fn as_fd(&self) -> BorrowedFd<'_> {
-        if !self.first_access.swap(true, Ordering::SeqCst) {
-            self.entered.send(()).unwrap();
-            self.resume.lock().unwrap().recv_timeout(DEADLINE).unwrap();
-        }
-        self.file.as_fd()
-    }
-}
-
-struct UnusedDiscovery;
-
-impl RenderDeviceDiscoveryBackend for UnusedDiscovery {
-    type Device = File;
-
-    fn open_render_device(&self) -> io::Result<File> {
-        panic!("attaching a shared worker must not open another device")
-    }
-}
-
-fn wait_for_drop_to_block() {
-    let deadline = Instant::now() + DEADLINE;
-    loop {
-        for entry in std::fs::read_dir("/proc/self/task").unwrap() {
-            let path = entry.unwrap().path();
-            if std::fs::read_to_string(path.join("comm"))
-                .is_ok_and(|name| name.trim() == DROP_THREAD)
-                && std::fs::read_to_string(path.join("wchan"))
-                    .is_ok_and(|wait| wait.contains("futex"))
-            {
-                return;
-            }
-        }
-        assert!(Instant::now() < deadline, "core destruction never blocked");
-        thread::yield_now();
-    }
-}
-
-fn exercise_full_queue_shutdown() {
-    let (entered, init_started) = mpsc::sync_channel(1);
-    let (resume, init_resume) = mpsc::sync_channel(1);
-    let core = NativeGbmRendererWorkerCore::spawn(Ok(GatedDevice {
-        file: File::open("/dev/null").unwrap(),
-        first_access: AtomicBool::new(false),
-        entered,
-        resume: Mutex::new(init_resume),
-    }))
-    .unwrap();
-    init_started.recv_timeout(DEADLINE).unwrap();
-
-    // Startup is held before command service; each pair queues Register + Deregister.
-    for key in 1..=16 {
-        let mut exporter = NativeGbmRenderedScanoutBufferDiscoveryExporter::new(UnusedDiscovery);
-        exporter.set_output(LiveRendererWorkerOutputKey::from_raw(key));
-        exporter.attach_shared_worker(&core);
-        drop(exporter);
-    }
-
-    let (finished, dropped) = mpsc::sync_channel(1);
-    let destruction = thread::Builder::new()
-        .name(DROP_THREAD.to_owned())
-        .spawn(move || {
-            drop(core);
-            finished.send(()).unwrap();
-        })
-        .unwrap();
-    // The destructor's send/join is its first blocking operation. Observing it
-    // prevents startup from draining the queue before Shutdown is attempted.
-    wait_for_drop_to_block();
-    resume.send(()).unwrap();
-    dropped
-        .recv_timeout(DEADLINE)
-        .expect("full queue lost Shutdown");
-    destruction.join().unwrap();
-}
-
-struct ChildGuard(Child);
-
-impl Drop for ChildGuard {
-    fn drop(&mut self) {
-        if !matches!(self.0.try_wait(), Ok(Some(_))) {
-            let _ = self.0.kill();
-        }
-        let _ = self.0.wait();
+fn device(id: u64) -> DeviceIdentity {
+    DeviceIdentity {
+        device: 1,
+        inode: id,
+        special_device: 226 << 8,
     }
 }
 
 #[test]
-fn a_full_command_queue_cannot_discard_worker_shutdown() {
-    if std::env::var_os(CHILD).is_some() {
-        exercise_full_queue_shutdown();
-        return;
-    }
-    // Isolate the failure: a lost shutdown must not strand the test harness.
-    let mut child = ChildGuard(
-        Command::new(std::env::current_exe().unwrap())
-            .args([
-                "--exact",
-                "a_full_command_queue_cannot_discard_worker_shutdown",
-                "--nocapture",
-            ])
-            .env(CHILD, "1")
-            .stdin(Stdio::null())
-            .stdout(Stdio::inherit())
-            .stderr(Stdio::inherit())
-            .spawn()
-            .unwrap(),
+fn a_stalled_worker_close_returns_before_the_driver_does() {
+    let registry = Arc::new(WorkerRegistry::default());
+    let control = Arc::new(WorkerControl::default());
+    let worker_control = Arc::clone(&control);
+    let (resume, gate) = mpsc::sync_channel(1);
+    let (entered, running) = mpsc::sync_channel(1);
+    let worker = registry
+        .reserve(device(1))
+        .unwrap()
+        .start(|| {
+            thread::Builder::new().spawn(move || {
+                entered.send(()).unwrap();
+                gate.recv_timeout(DEADLINE * 4).unwrap();
+                assert!(worker_control.is_shutdown());
+            })
+        })
+        .unwrap();
+    running.recv_timeout(DEADLINE).unwrap();
+    let (closed, close_result) = mpsc::sync_channel(1);
+    let closer = thread::spawn(move || {
+        control.shutdown();
+        drop(worker);
+        closed.send(()).unwrap();
+    });
+    let result = close_result.recv_timeout(DEADLINE);
+    // Always release the fake driver, even if a regression made close wait.
+    resume.send(()).unwrap();
+    closer.join().unwrap();
+    assert!(result.is_ok(), "worker close waited for the fake driver");
+}
+
+#[test]
+fn an_unfinished_predecessor_refuses_only_its_exact_device() {
+    let registry = Arc::new(WorkerRegistry::default());
+    let (resume, gate) = mpsc::sync_channel(1);
+    let worker = registry
+        .reserve(device(2))
+        .unwrap()
+        .start(|| {
+            thread::Builder::new().spawn(move || {
+                gate.recv_timeout(DEADLINE * 4).unwrap();
+            })
+        })
+        .unwrap();
+    drop(worker);
+    assert_eq!(
+        registry.reserve(device(2)).err().unwrap().kind(),
+        io::ErrorKind::WouldBlock
     );
-    let deadline = Instant::now() + DEADLINE * 3;
+    let mut changed_inode = device(2);
+    changed_inode.inode += 1;
+    assert!(registry.reserve(changed_inode).is_ok());
+    let mut changed_device = device(2);
+    changed_device.device += 1;
+    assert!(registry.reserve(changed_device).is_ok());
+    let mut changed_special = device(2);
+    changed_special.special_device += 1;
+    assert!(registry.reserve(changed_special).is_ok());
+    resume.send(()).unwrap();
+}
+
+#[test]
+fn a_finished_retired_worker_is_reaped_before_replacement() {
+    let registry = Arc::new(WorkerRegistry::default());
+    let (resume, gate) = mpsc::sync_channel(1);
+    let worker = registry
+        .reserve(device(3))
+        .unwrap()
+        .start(|| {
+            thread::Builder::new().spawn(move || {
+                gate.recv_timeout(DEADLINE * 4).unwrap();
+            })
+        })
+        .unwrap();
+    drop(worker);
+    assert!(registry.reserve(device(3)).is_err());
+    resume.send(()).unwrap();
+    let deadline = Instant::now() + DEADLINE;
     loop {
-        if let Some(status) = child.0.try_wait().unwrap() {
-            assert!(status.success(), "shutdown child failed: {status}");
-            return;
+        if registry.reserve(device(3)).is_ok() {
+            break;
         }
-        if Instant::now() >= deadline {
-            panic!("shutdown child exceeded its deadline");
-        }
-        thread::sleep(Duration::from_millis(5));
+        assert!(
+            Instant::now() < deadline,
+            "finished predecessor was not reaped"
+        );
+        thread::yield_now();
     }
+}
+
+#[test]
+fn reservations_and_retired_threads_share_the_fixed_capacity() {
+    let registry = Arc::clone(WorkerRegistry::shared());
+    let (resume, gate) = mpsc::sync_channel(1);
+    let retired = registry
+        .reserve(device(1))
+        .unwrap()
+        .start(|| {
+            thread::Builder::new().spawn(move || {
+                gate.recv_timeout(DEADLINE * 4).unwrap();
+            })
+        })
+        .unwrap();
+    drop(retired);
+    let reservations: Vec<_> = (2..=WORKER_CAPACITY as u64)
+        .map(|id| registry.reserve(device(id)).unwrap())
+        .collect();
+    assert_eq!(
+        registry.reserve(device(100)).err().unwrap().kind(),
+        io::ErrorKind::WouldBlock
+    );
+    drop(reservations);
+    assert!(registry.reserve(device(100)).is_ok());
+    resume.send(()).unwrap();
+}
+
+#[test]
+fn a_failed_spawn_releases_its_reserved_capacity() {
+    let registry = Arc::new(WorkerRegistry::default());
+    let reservations: Vec<_> = (1..WORKER_CAPACITY as u64)
+        .map(|id| registry.reserve(device(id)).unwrap())
+        .collect();
+    let result = registry
+        .reserve(device(100))
+        .unwrap()
+        .start(|| Err(io::Error::other("injected thread creation failure")));
+    assert!(result.is_err());
+    assert!(registry.reserve(device(101)).is_ok());
+    drop(reservations);
+}
+
+#[test]
+fn malformed_or_missing_devices_are_refused_before_thread_creation() {
+    for path in ["/dev/null", "/dev/zero", "/etc/hosts"] {
+        let file = File::open(path).unwrap();
+        assert_eq!(
+            DeviceIdentity::from_device(&file).unwrap_err().kind(),
+            io::ErrorKind::InvalidInput
+        );
+        assert_eq!(
+            NativeGbmRendererWorkerCore::spawn(Ok(file))
+                .err()
+                .unwrap()
+                .kind(),
+            io::ErrorKind::InvalidInput
+        );
+    }
+    assert_eq!(
+        NativeGbmRendererWorkerCore::spawn::<File>(Err(io::Error::from(io::ErrorKind::NotFound)))
+            .err()
+            .unwrap()
+            .kind(),
+        io::ErrorKind::NotFound
+    );
+}
+
+#[test]
+fn output_detach_is_exact_and_survives_a_full_wakeup_queue() {
+    let (wake, receive) = mpsc::sync_channel(1);
+    wake.send(()).unwrap();
+    let old = Arc::new(OutputClaim::default());
+    let replacement = Arc::new(OutputClaim::default());
+    let neighbour = Arc::new(OutputClaim::default());
+    old.detach();
+    assert!(wake.try_send(()).is_err());
+    assert!(old.is_detached());
+    assert!(!replacement.is_detached());
+    assert!(!neighbour.is_detached());
+    receive.recv().unwrap();
 }

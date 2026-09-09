@@ -1,4 +1,39 @@
 {
+    if let Some(devices) = client_render_devices.as_mut() {
+        let now = Instant::now();
+        if let Some(monitor) = output_topology_monitor.as_mut() {
+            match monitor.poll_render_inventory_notice() {
+                Ok(true) => {
+                    if let Some(snapshot) = monitor.render_inventory_snapshot() {
+                        devices.observe_inventory(snapshot, now)?;
+                        let (generation, inventory) = devices.observed_inventory();
+                        tracing::info!(generation, devices=inventory.len(), "render-device inventory changed");
+                    }
+                }
+                Ok(false) => {}
+                Err(error) => tracing::warn!(%error, "render inventory comparison deferred"),
+            }
+        }
+        devices.poll(now, frontend_service_sender)?;
+        if now >= render_inventory_service_at {
+            render_inventory_service_at = now + Duration::from_millis(250);
+            if let (Some(native), Some((generation, inventory))) =
+                (native_scanout.as_mut(), devices.admitted_inventory())
+            {
+                if generation > native.image_import_inventory_generation() {
+                    let files = inventory.iter().map(|device| device.file.try_clone())
+                        .collect::<std::io::Result<Vec<_>>>();
+                    match files.and_then(|files| native.request_image_import_inventory(generation, files)) {
+                        Ok(()) => {}
+                        Err(error) => tracing::warn!(generation, %error, "renderer device inventory handoff deferred"),
+                    }
+                }
+                if let Err(error) = native.poll_image_import_inventory() {
+                    tracing::warn!(%error, "renderer device inventory acknowledgement deferred");
+                }
+            }
+        }
+    }
     let polled_monitor_notice = output_topology_monitor
         .as_mut()
         .map(sophia_backend_live::LiveDrmTopologyMonitor::poll_notice)

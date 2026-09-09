@@ -98,6 +98,7 @@ use native_session_evidence::{NativeEvidenceSnapshot, NativeSessionEvidence};
 mod policy_transport_worker;
 mod process_supervision;
 mod proof_artifacts;
+mod render_devices;
 mod shutdown;
 mod startup_readiness;
 mod x_frontend;
@@ -129,15 +130,16 @@ use startup_readiness::{
     startup_native_recovery_reason, startup_output_evidence, startup_submission_requirement,
     startup_surface_visual_detail,
 };
-#[cfg(feature = "native-session")]
-use x_frontend::LiveXPixmapAllocator;
-use x_frontend::{LiveXAdmissionPolicy, LiveXRenderDeviceProvider};
+use x_frontend::LiveXAdmissionPolicy;
+#[cfg(test)]
+use x_frontend::{LiveXPixmapAllocator, LiveXRenderDeviceProvider};
 
 include!("live_session/config.rs");
 include!("live_session/input.rs");
 include!("live_session/input_capacity.rs");
 include!("live_session/client_keys.rs");
 include!("live_session/policy.rs");
+mod window_allocation;
 include!("live_session/presentation.rs");
 include!("live_session/startup.rs");
 include!("live_session/wm.rs");
@@ -375,10 +377,15 @@ pub(crate) fn run_persistent_xterm_session(
     };
     // Subscribe before inventory discovery so a device change during startup
     // remains queued for authoritative reconstruction in the owner loop.
-    let output_topology_monitor = config
+    let mut output_topology_monitor = config
         .native_scanout
         .then(sophia_backend_live::LiveDrmTopologyMonitor::open)
         .transpose()?;
+    if let (Some(monitor), Some(controller)) =
+        (output_topology_monitor.as_mut(), seat_controller.as_ref())
+    {
+        monitor.initialize_render_inventory(controller.device_opener().name())?;
+    }
     let mut native_scanout = seat_controller
         .as_ref()
         .map(|controller| {
@@ -621,35 +628,19 @@ pub(crate) fn run_persistent_xterm_session(
             // before MapNotify, VisibilityNotify, and Expose.
             .with_policy_map_deferred(policy_map_mode.frontend_deferred())
             .with_admission_policy(admission_policy);
+    let mut client_render_devices = None;
     if !config.software_client_rendering
         && let Some(native_scanout) = native_scanout.as_ref()
     {
-        let import_formats = match native_scanout.dma_buf_import_formats() {
-            Ok(formats) => formats
-                .into_iter()
-                .map(
-                    |row| sophia_x_authority::XServerFrontendDmaBufImportFormat {
-                        format: row.format,
-                        modifiers: row.modifiers,
-                    },
-                )
-                .collect(),
-            Err(reason) => {
-                tracing::warn!(?reason, "explicit DMA-BUF import capabilities unavailable");
-                Vec::new()
-            }
-        };
-        frontend_config =
-            frontend_config.with_render_device_provider(Arc::new(LiveXRenderDeviceProvider {
-                device: native_scanout.clone_render_device_file()?,
-                import_formats,
-            }));
-        #[cfg(feature = "native-session")]
-        {
-            frontend_config = frontend_config.with_pixmap_allocator(Arc::new(
-                LiveXPixmapAllocator::new(native_scanout.clone_render_device_file()?),
-            ));
-        }
+        let seat = seat_controller
+            .as_ref()
+            .ok_or("native client device lost its seat")?
+            .device_opener()
+            .name()
+            .to_owned();
+        let (bundle, coordinator) = render_devices::initial(native_scanout, &seat)?;
+        frontend_config = frontend_config.with_device_bundle(bundle);
+        client_render_devices = Some(coordinator);
     }
     let (authority_sender, authority_receiver) = sync_channel(SESSION_AUTHORITY_CAPACITY);
     let (control_ack_sender, control_ack_receiver) = sync_channel(SESSION_CONTROL_CAPACITY);
@@ -1066,6 +1057,7 @@ pub(crate) fn run_persistent_xterm_session(
         },
         SessionLoopStartup {
             output_topology_monitor,
+            client_render_devices,
             xauthority: xauthority.path(),
             protocol_router,
             input_proof_result: input_proof_result.as_ref(),

@@ -134,6 +134,11 @@ is mounted inside the service module to control cancellation between reply
 enqueue and receipt. A GPU-backed public call cannot deterministically place
 that race. The production API remains unchanged; all test bodies stay outside
 `src`.
+The session device coordinator similarly mounts external
+`tests/support/render_device_coordinator.rs` inside its private owner module.
+These tests control preparation and frontend acknowledgements independently to
+exercise overtaken device generations without acquiring or removing real GPUs.
+The mount is recorded in the layout exceptions; no test bodies enter `src`.
 
 ## TEA Policy Style
 

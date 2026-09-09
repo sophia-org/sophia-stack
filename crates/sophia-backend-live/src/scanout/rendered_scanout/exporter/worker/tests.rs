@@ -56,6 +56,7 @@ fn worker_channel() -> (SyncSender<WorkerCommand>, std::thread::JoinHandle<()>) 
             Err(std::io::Error::other("no render device in this test")),
             Vec::new(),
             command_receiver,
+            std::sync::Arc::new(super::WorkerControl::default()),
         )
     });
     (commands, thread)
@@ -65,12 +66,25 @@ fn register(
     commands: &SyncSender<WorkerCommand>,
     output: LiveRendererWorkerOutputKey,
 ) -> Receiver<WorkerResult> {
+    register_claim(
+        commands,
+        output,
+        std::sync::Arc::new(super::OutputClaim::default()),
+    )
+}
+
+fn register_claim(
+    commands: &SyncSender<WorkerCommand>,
+    output: LiveRendererWorkerOutputKey,
+    claim: std::sync::Arc<super::OutputClaim>,
+) -> Receiver<WorkerResult> {
     let (reply, results) = sync_channel(2);
     commands
         .send(WorkerCommand::Register {
             output,
             reply,
             frame_slot_metrics: super::LiveRendererFrameSlotMetricsHandle::default(),
+            claim,
         })
         .expect("worker accepts a registration");
     results
@@ -191,11 +205,15 @@ fn a_deregistered_output_is_served_no_further() {
     let (commands, thread) = worker_channel();
     let leaving = LiveRendererWorkerOutputKey::from_raw(5);
     let staying = LiveRendererWorkerOutputKey::from_raw(6);
-    let leaving_results = register(&commands, leaving);
+    let claim = std::sync::Arc::new(super::OutputClaim::default());
+    let leaving_results = register_claim(&commands, leaving, std::sync::Arc::clone(&claim));
     let staying_results = register(&commands, staying);
 
     commands
-        .send(WorkerCommand::Deregister { output: leaving })
+        .send(WorkerCommand::Deregister {
+            output: leaving,
+            claim,
+        })
         .expect("worker accepts a deregistration");
     render(&commands, leaving, 21);
     render(&commands, staying, 22);
@@ -213,3 +231,8 @@ fn a_deregistered_output_is_served_no_further() {
     drop(commands);
     let _ = thread.join();
 }
+
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/support/renderer_worker_lifecycle.rs"
+));

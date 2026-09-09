@@ -231,34 +231,34 @@ where
             .and_then(|pixels| pixels.checked_mul(4))
             .ok_or(NativeGbmScanoutBufferExportDetail::InvalidTarget)?;
         if self.renderer_images.len() >= DEFAULT_NATIVE_RENDERER_IMAGE_CAPACITY
-            || self.renderer_image_bytes.saturating_add(estimated_bytes)
+            || self
+                .renderer_image_bytes
+                .saturating_add(self.image_bridge_bytes())
+                .saturating_add(estimated_bytes)
                 > DEFAULT_NATIVE_RENDERER_IMAGE_BYTE_BUDGET
         {
             return Err(NativeGbmScanoutBufferExportDetail::RendererImageStoreFull);
         }
-        let layout = (frame.format, frame.modifier);
-        let buffer = if self.transferred_layouts.contains(&layout) {
-            // A successful layout chooses an attempt order, never authorizes
-            // another buffer. Every capture still imports its actual FDs.
-            self.transfer_renderer_image(
-                image_id, frame, NativeGbmScanoutBufferExportDetail::DmaBufImportFailed,
-            ).or_else(|_| self.render_renderer_image_snapshot(image_id, frame, false))?
-        } else {
-            match self.render_renderer_image_snapshot(image_id, frame, false) {
-                Ok(buffer) => buffer,
-                Err(detail) if image_import_failure(detail) => {
-                    self.transfer_renderer_image(image_id, frame, detail)?
-                }
-                Err(detail) => return Err(detail),
-            }
-        };
+        let buffer = image_transfer_policy::capture_direct_or_transfer(
+            self,
+            |context| {
+                context
+                    .probe_renderer_image_import(frame)
+                    .and_then(|()| context.render_renderer_image_snapshot(image_id, frame, false))
+            },
+            image_import_failure,
+            |context, detail| context.transfer_renderer_image(image_id, frame, detail),
+        )?;
         if buffer.format() != frame.format {
             return Err(NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor);
         }
         let bytes = u64::from(buffer.pitch())
             .checked_mul(u64::from(buffer.height()))
             .ok_or(NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor)?;
-        if self.renderer_image_bytes.saturating_add(bytes)
+        if self
+            .renderer_image_bytes
+            .saturating_add(self.image_bridge_bytes())
+            .saturating_add(bytes)
             > DEFAULT_NATIVE_RENDERER_IMAGE_BYTE_BUDGET
         {
             return Err(NativeGbmScanoutBufferExportDetail::RendererImageStoreFull);

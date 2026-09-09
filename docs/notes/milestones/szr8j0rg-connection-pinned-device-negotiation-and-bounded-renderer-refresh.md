@@ -82,3 +82,19 @@ SuboptimalCopy remains disabled. The [five conditions](../plans/6tewvlbh-univers
 are tracked in t070–t074; a sufficient exact alternate-layout flip proof precedes
 opt-in plumbing and deduplication. Failed TEST_ONLY and IN_FORMATS absence alone
 do not establish that counterfactual.
+
+## Installed playback observation
+
+Mason installed `76ed2fddf31a` and reported Brave Origin open with video playing
+in session `00000001788951558950-1cb15054-f8c5-4096-b573-a10d6c7acbcd` on
+2026-09-09. The session manifest and live Sophia executables match that release.
+The recorder was running with zero discarded records and storage errors;
+completed frame retirements continued during the observation.
+
+The browser and GPU process both retained
+`--render-node-override=/dev/dri/renderD128`. This accepts the reported playback
+on the new installed candidate with the existing override. It does not establish
+normal launch behavior without the adapter, hardware video decoding, or device
+loss/recovery. Browser stderr was `/dev/null`, so no browser error-log result is
+claimed. Retained diagnostic facts are in
+`.artifacts/t069-validation/installed-76ed2fdd-observation.json`.

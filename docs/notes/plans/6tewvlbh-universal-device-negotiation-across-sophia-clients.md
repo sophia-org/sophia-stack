@@ -85,6 +85,12 @@ substituted a non-ABI modifier, producing black pixels in a real EGL consumer.
 The corrected export passes private pixel checks; Brave's logged initialization
 failure and physical video acceptance remain separate gates.
 
+The later [default-visual investigation](../investigations/g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)
+traces the surviving initialization failure to alpha-zero GL configurations
+on the default X visual. The XLibre-compatible correction separates native X
+depth from GL color bits and passes default-visual texture and window pixel
+tests. Installed browser acceptance remains required.
+
 ## Connections
 
 The [Brave GPU investigation](../investigations/uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

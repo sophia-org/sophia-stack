@@ -173,15 +173,13 @@ impl XAuthorityRuntime {
                     width: size.width,
                     height: size.height,
                 },
-                depth: config.depth(),
+                depth: config.color_bits(),
             });
         }
         // A GLX pixmap answers for the pixels it wraps, so it reports the
         // pixmap's extent. Without this it is a drawable that cannot be made
         // current, which is the one thing it exists to be.
-        if let Ok((size, fbconfig, _)) = self.glx_pixmap_attributes(namespace, drawable)
-            && let Some(config) = crate::x_glx_fb_config(fbconfig, self.pixmap_textures_supported())
-        {
+        if let Ok((size, depth)) = self.glx_pixmap_geometry(namespace, drawable) {
             return Ok(XDrawableFacts {
                 kind: XDrawableKind::Pixmap,
                 geometry: Rect {
@@ -190,7 +188,7 @@ impl XAuthorityRuntime {
                     width: size.width,
                     height: size.height,
                 },
-                depth: config.depth(),
+                depth,
             });
         }
         Err(window_error)

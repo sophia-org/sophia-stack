@@ -36,8 +36,8 @@ echo "CPU and imported pixmap texture pixels on $node"
 test_args=(--quiet --offline -p sophia-session --all-features --lib
     glx_pixmap_export::egl_pixmap_export::)
 listed="$(cargo test "${test_args[@]}" -- --ignored --list)"
-[[ "$(printf '%s\n' "$listed" | grep -c ': test$')" == 7 ]] || {
-    echo "Expected all seven pixmap export cases; refusing a partial proof." >&2
+[[ "$(printf '%s\n' "$listed" | grep -c ': test$')" == 8 ]] || {
+    echo "Expected all eight pixmap export cases; refusing a partial proof." >&2
     exit 1
 }
 SOPHIA_PIXMAP_TEST_DEVICE="$node" cargo test "${test_args[@]}" -- --ignored --nocapture

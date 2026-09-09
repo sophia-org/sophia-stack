@@ -59,6 +59,12 @@ fn glx_client_initializes_imported_pixmap_with_wire_implicit_modifier() {
     check_pixmap(Some("--glx-imported-wire-implicit"), 6);
 }
 
+#[test]
+#[ignore = "requires selected render node and GL/EGL/GBM/XCB development files; private X server"]
+fn default_visual_context_binds_depth32_imported_pixmap_with_alpha() {
+    check_pixmap(Some("--glx-default-visual-imported"), 7);
+}
+
 fn check_pixmap(mode: Option<&str>, case: u32) {
     let node = std::env::var_os("SOPHIA_PIXMAP_TEST_DEVICE").expect("select a DRM render node");
     let device = || {

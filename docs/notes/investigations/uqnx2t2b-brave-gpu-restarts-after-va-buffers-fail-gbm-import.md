@@ -415,6 +415,11 @@ successful accelerated allocation on the permitted device.
 
 ## Connections
 
+The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)
+records the white-video reproduction on `7dd74c5c5183` and a GLX call trace
+identifying the display's alpha-zero configuration restriction. Its correction
+passes private pixel tests; installed accelerated-video acceptance remains open.
+
 The [implicit-modifier investigation](n5i1x7iv-implicit-dma-buf-exports-used-the-wrong-drm-modifier-sentinel.md)
 records the white-video report on installed `009498fb0aae`, the matched-launch
 EGL initialization errors, and a separately reproduced export-encoding defect.

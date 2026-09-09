@@ -443,9 +443,8 @@ fn dispatch_glx_request(
                     pixmap,
                     glx_pixmap,
                 } => {
-                    // The older constructor names a visual. Resolve it through
-                    // the same catalog so its depth and its successor's cannot
-                    // disagree.
+                    // The visual-based constructor requires native X depth;
+                    // the FBConfig constructor may also wrap full RGBA storage.
                     let supported = runtime.pixmap_textures_supported();
                     let config = crate::x_glx_fb_configs(supported)
                         .iter()
@@ -457,6 +456,18 @@ fn dispatch_glx_request(
                             visual,
                             crate::X_GLX_CREATE_GLX_PIXMAP_MINOR_OPCODE,
                         )],
+                        Some(config) if runtime
+                            .pixmap_depth(context.namespace, pixmap)
+                            .is_ok_and(|depth| depth != config.visual_depth) =>
+                        {
+                            vec![XClientOutput::Error(crate::XClientError {
+                                code: XErrorCode::BadMatch,
+                                sequence: context.sequence,
+                                resource_id: pixmap.local.raw() as u32,
+                                minor_code: crate::X_GLX_CREATE_GLX_PIXMAP_MINOR_OPCODE.into(),
+                                major_code: context.major_opcode,
+                            })]
+                        }
                         Some(config) => runtime
                             .create_glx_pixmap(
                                 context.namespace,

@@ -137,7 +137,7 @@ impl XAuthorityRuntime {
         }
     }
 
-    /// Wraps a namespace-validated pixmap with a configuration of matching depth.
+    /// Wraps RGB visual storage or a full RGBA color buffer of the configuration.
     pub fn create_glx_pixmap(
         &mut self,
         namespace: NamespaceId,
@@ -161,7 +161,7 @@ impl XAuthorityRuntime {
             .pixmaps
             .get(&pixmap)
             .ok_or(XAuthorityRuntimeError::UnknownResource)?;
-        if record.depth != config.depth() {
+        if record.depth != config.visual_depth && record.depth != config.color_bits() {
             return Err(XAuthorityRuntimeError::WrongResourceKind);
         }
         // Texture attributes are fixed against the backing extent at creation.
@@ -242,6 +242,25 @@ impl XAuthorityRuntime {
     }
 
     /// Queries the live or retained backing after the original pixmap XID is freed.
+    pub(crate) fn glx_pixmap_geometry(
+        &self,
+        namespace: NamespaceId,
+        glx_pixmap: crate::XResourceId,
+    ) -> Result<(Size, u8), XAuthorityRuntimeError> {
+        let (backing, _) = self.glx_pixmap(namespace, glx_pixmap)?;
+        let pixmap = self
+            .pixmaps
+            .get(&backing)
+            .or_else(|| {
+                self.retained_pixmap_backings
+                    .get(&backing)
+                    .map(|held| &held.pixmap)
+            })
+            .ok_or(XAuthorityRuntimeError::UnknownResource)?;
+        Ok((pixmap.size, pixmap.depth))
+    }
+
+    /// Texture attributes stay attached to the retained pixmap identity.
     pub fn glx_pixmap_attributes(
         &self,
         namespace: NamespaceId,

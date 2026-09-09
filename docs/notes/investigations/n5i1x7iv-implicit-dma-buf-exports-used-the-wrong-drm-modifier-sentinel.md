@@ -79,6 +79,11 @@ evidence manifest records the candidate identity and file hashes.
 Physical accelerated-video acceptance remains open under `t068`; this repair
 does not close `t069`'s broader generic-device requirement.
 
+The user reproduced white video after installing `7dd74c5c5183`. The subsequent
+GLX trace identified a separate [default-visual configuration failure](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md).
+The implicit-modifier pixel repair remains valid, but it did not resolve that
+earlier initialization stage.
+
 ## Connections
 
 The [Brave investigation](uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md)

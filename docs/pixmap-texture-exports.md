@@ -28,6 +28,15 @@ RGBA texture binding. Indirect GL rendering remains outside the contract. The Me
 mask includes 1D, but the local Mesa direct-GLX client does not decode that target.
 Hardware qualification covers 2D and rectangle sampling only.
 
+Native X visual depth and GL color-buffer size are separate. The default
+depth-24 TrueColor visual supports RGBA8 GL buffers; its windows remain opaque.
+Both GLX configuration-query versions agree on those color bits. Modern GLX
+pixmaps may wrap either the native RGB storage or a full RGBA buffer, and report
+the backing's actual depth, including after FreePixmap. The legacy visual-based
+constructor requires the native visual depth. Tests cover selecting the first
+default-visual configuration, retained depth-32 texture alpha, and opaque
+depth-24 window pixels.
+
 ## Identity and ownership
 
 Wire XIDs stay inside the X frontend. A GLX pixmap retains its backing identity,

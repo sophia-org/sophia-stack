@@ -312,9 +312,12 @@ fn advertised_rgb_and_rgba_bindings_agree_with_pixmap_creation() {
     let mut opaque_rgba_cases = 0;
     for attributes in configurations {
         let config = config_attribute(&attributes, X_GLX_FBCONFIG_ID_ATTRIBUTE);
-        let alpha = config_attribute(&attributes, X_GLX_ALPHA_SIZE_ATTRIBUTE);
-        let depth =
-            u8::try_from(config_attribute(&attributes, X_GLX_BUFFER_SIZE_ATTRIBUTE)).unwrap();
+        let visual = config_attribute(&attributes, X_GLX_VISUAL_ID_ATTRIBUTE);
+        let depth = if visual == X_SETUP_DEFAULT_VISUAL {
+            24
+        } else {
+            32
+        };
         for (index, capability, format) in [
             (
                 0,
@@ -329,7 +332,7 @@ fn advertised_rgb_and_rgba_bindings_agree_with_pixmap_creation() {
         ] {
             let advertised = config_attribute(&attributes, capability);
             assert!(advertised <= 1, "binding capability must be boolean");
-            if alpha == 0 && format == X_GLX_TEXTURE_FORMAT_RGBA_VALUE && advertised == 1 {
+            if depth == 24 && format == X_GLX_TEXTURE_FORMAT_RGBA_VALUE && advertised == 1 {
                 opaque_rgba_cases += 1;
             }
             let pixmap = XResourceId::new(0x3000 + u64::from(config) * 10 + index * 2, 1);
@@ -382,4 +385,225 @@ fn advertised_rgb_and_rgba_bindings_agree_with_pixmap_creation() {
         opaque_rgba_cases > 0,
         "opaque RGBA must exercise the advertised compatibility row"
     );
+}
+
+fn advertised_configs(client: &mut Client) -> Vec<Vec<(u32, u32)>> {
+    match client
+        .send(XWireRequest::GlxGetFbConfigs { screen: 0 })
+        .as_slice()
+    {
+        [XClientOutput::Reply(XClientReply::GlxFbConfigs { configs, .. })] => configs.clone(),
+        other => panic!("unexpected configuration reply: {other:?}"),
+    }
+}
+
+fn assert_pixmap_geometry(client: &mut Client, drawable: XResourceId, depth: u8) {
+    let outputs = client.send_with_opcode(14, XWireRequest::GetGeometry { drawable });
+    assert!(
+        matches!(outputs.as_slice(),
+            [XClientOutput::Reply(XClientReply::GetGeometry { depth: actual, geometry, .. })]
+            if *actual == depth && geometry.width == 3 && geometry.height == 2),
+        "drawable must report its actual backing depth {depth} and extent: {outputs:?}"
+    );
+}
+
+#[test]
+fn default_visual_stays_depth24_while_its_first_glx_config_has_rgba8() {
+    for supported in [false, true] {
+        let mut client = Client::new(supported);
+        let root = XResourceId::new(u64::from(X_SETUP_DEFAULT_ROOT), 1);
+        let geometry = client.send_with_opcode(14, XWireRequest::GetGeometry { drawable: root });
+        assert!(matches!(
+            geometry.as_slice(),
+            [XClientOutput::Reply(XClientReply::GetGeometry {
+                depth: 24,
+                ..
+            })]
+        ));
+        let attributes =
+            client.send_with_opcode(3, XWireRequest::GetWindowAttributes { window: root });
+        assert!(matches!(attributes.as_slice(),
+            [XClientOutput::Reply(XClientReply::GetWindowAttributes { visual, .. })]
+            if *visual == X_SETUP_DEFAULT_VISUAL));
+
+        let configs = advertised_configs(&mut client);
+        let first = configs
+            .iter()
+            .find(|attributes| {
+                config_attribute(attributes, X_GLX_VISUAL_ID_ATTRIBUTE) == X_SETUP_DEFAULT_VISUAL
+            })
+            .expect("default visual must have a GLX configuration");
+        assert_eq!(config_attribute(first, X_GLX_FBCONFIG_ID_ATTRIBUTE), 1);
+        for attribute in [
+            X_GLX_RED_SIZE_ATTRIBUTE,
+            X_GLX_GREEN_SIZE_ATTRIBUTE,
+            X_GLX_BLUE_SIZE_ATTRIBUTE,
+            X_GLX_ALPHA_SIZE_ATTRIBUTE,
+        ] {
+            assert_eq!(config_attribute(first, attribute), 8);
+        }
+        assert_eq!(config_attribute(first, X_GLX_BUFFER_SIZE_ATTRIBUTE), 32);
+    }
+}
+
+#[test]
+fn legacy_visual_configs_agree_with_the_first_modern_config_for_each_visual() {
+    for supported in [false, true] {
+        let mut client = Client::new(supported);
+        let modern = advertised_configs(&mut client);
+        let legacy = match client
+            .send(XWireRequest::GlxGetVisualConfigs { screen: 0 })
+            .as_slice()
+        {
+            [XClientOutput::Reply(XClientReply::GlxVisualConfigs { configs, .. })] => {
+                configs.clone()
+            }
+            other => panic!("unexpected legacy configuration reply: {other:?}"),
+        };
+        assert_eq!(legacy.len(), 2);
+        for visual in [X_SETUP_DEFAULT_VISUAL, X_SETUP_ARGB_VISUAL] {
+            let old = legacy
+                .iter()
+                .find(|row| row[0] == visual)
+                .expect("legacy visual");
+            let current = modern
+                .iter()
+                .find(|row| config_attribute(row, X_GLX_VISUAL_ID_ATTRIBUTE) == visual)
+                .expect("modern visual");
+            for (slot, attribute) in [
+                (3, X_GLX_RED_SIZE_ATTRIBUTE),
+                (4, X_GLX_GREEN_SIZE_ATTRIBUTE),
+                (5, X_GLX_BLUE_SIZE_ATTRIBUTE),
+                (6, X_GLX_ALPHA_SIZE_ATTRIBUTE),
+                (11, X_GLX_DOUBLEBUFFER_ATTRIBUTE),
+                (13, X_GLX_BUFFER_SIZE_ATTRIBUTE),
+                (14, X_GLX_DEPTH_SIZE_ATTRIBUTE),
+                (15, X_GLX_STENCIL_SIZE_ATTRIBUTE),
+            ] {
+                assert_eq!(
+                    old[slot],
+                    config_attribute(current, attribute),
+                    "visual {visual:#x}, legacy slot {slot}, attribute {attribute:#x}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn modern_default_visual_pixmaps_accept_rgb24_and_argb32_and_retain_actual_depth() {
+    let mut client = Client::new(true);
+    let configs = advertised_configs(&mut client)
+        .into_iter()
+        .filter(|row| config_attribute(row, X_GLX_VISUAL_ID_ATTRIBUTE) == X_SETUP_DEFAULT_VISUAL)
+        .collect::<Vec<_>>();
+    assert_eq!(configs.len(), 2);
+    for row in configs {
+        let fbconfig = config_attribute(&row, X_GLX_FBCONFIG_ID_ATTRIBUTE);
+        for depth in [24, 32] {
+            let pixmap =
+                XResourceId::new(0x5000 + u64::from(fbconfig) * 100 + u64::from(depth) * 2, 1);
+            let glx_pixmap = XResourceId::new(pixmap.local.raw() + 1, 1);
+            client.create_pixmap(pixmap, depth);
+            let outputs = client.send(XWireRequest::GlxCreatePixmap {
+                screen: 0,
+                fbconfig,
+                pixmap,
+                glx_pixmap,
+                target: Some(X_GLX_TEXTURE_2D_VALUE),
+                format: Some(X_GLX_TEXTURE_FORMAT_RGBA_VALUE),
+                mipmap: Some(false),
+            });
+            assert!(
+                outputs.is_empty(),
+                "config {fbconfig}, depth {depth}: {outputs:?}"
+            );
+            assert_pixmap_geometry(&mut client, glx_pixmap, depth);
+            assert!(
+                client
+                    .send_with_opcode(54, XWireRequest::FreePixmap { pixmap })
+                    .is_empty()
+            );
+            assert_pixmap_geometry(&mut client, glx_pixmap, depth);
+            client.create_pixmap(pixmap, if depth == 24 { 32 } else { 24 });
+            assert_pixmap_geometry(&mut client, glx_pixmap, depth);
+        }
+    }
+}
+
+#[test]
+fn legacy_default_visual_pixmaps_require_the_native_depth() {
+    for depth in [24, 32] {
+        let mut client = Client::new(true);
+        let pixmap = XResourceId::new(0x6000, 1);
+        let glx_pixmap = XResourceId::new(0x6001, 1);
+        client.create_pixmap(pixmap, depth);
+        let outputs = client.send(XWireRequest::GlxCreateGlxPixmap {
+            screen: 0,
+            visual: X_SETUP_DEFAULT_VISUAL,
+            pixmap,
+            glx_pixmap,
+        });
+        if depth == 24 {
+            assert!(
+                outputs.is_empty(),
+                "legacy native-depth pixmap: {outputs:?}"
+            );
+            assert_pixmap_geometry(&mut client, glx_pixmap, depth);
+        } else {
+            assert!(
+                matches!(outputs.as_slice(), [XClientOutput::Error(_)]),
+                "legacy visual constructor accepted non-native depth: {outputs:?}"
+            );
+            assert!(
+                client
+                    .runtime
+                    .glx_pixmap(NamespaceId::from_raw(71), glx_pixmap)
+                    .is_err()
+            );
+            assert_pixmap_geometry(&mut client, pixmap, depth);
+        }
+    }
+}
+
+#[test]
+fn glx_pixmaps_refuse_unsupported_core_depths_without_creating_an_alias() {
+    for depth in [1, 8, 16] {
+        for legacy in [false, true] {
+            let mut client = Client::new(true);
+            let pixmap = XResourceId::new(0x7000, 1);
+            let glx_pixmap = XResourceId::new(0x7001, 1);
+            client.create_pixmap(pixmap, depth);
+            let request = if legacy {
+                XWireRequest::GlxCreateGlxPixmap {
+                    screen: 0,
+                    visual: X_SETUP_DEFAULT_VISUAL,
+                    pixmap,
+                    glx_pixmap,
+                }
+            } else {
+                XWireRequest::GlxCreatePixmap {
+                    screen: 0,
+                    fbconfig: 1,
+                    pixmap,
+                    glx_pixmap,
+                    target: Some(X_GLX_TEXTURE_2D_VALUE),
+                    format: Some(X_GLX_TEXTURE_FORMAT_RGBA_VALUE),
+                    mipmap: Some(false),
+                }
+            };
+            let outputs = client.send(request);
+            assert!(
+                matches!(outputs.as_slice(), [XClientOutput::Error(_)]),
+                "legacy={legacy} accepted unsupported depth {depth}: {outputs:?}"
+            );
+            assert!(
+                client
+                    .runtime
+                    .glx_pixmap(NamespaceId::from_raw(71), glx_pixmap)
+                    .is_err()
+            );
+            assert_pixmap_geometry(&mut client, pixmap, depth);
+        }
+    }
 }

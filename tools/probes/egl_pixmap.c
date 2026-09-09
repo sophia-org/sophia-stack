@@ -17,6 +17,7 @@
 #include <unistd.h>
 
 static int x_error;
+static int partial_alpha;
 
 static int record_error(Display *display, XErrorEvent *event) {
     (void)display;
@@ -129,12 +130,15 @@ static void paint_producer(struct producer *source, int dirty) {
     glEnable(GL_SCISSOR_TEST);
     glScissor(dirty ? 1 : 0, 0, dirty ? 1 : 3, 1);
     glClearColor((dirty ? 0xab : 0x65) / 255.0f, (dirty ? 0xcd : 0x43) / 255.0f,
-                 (dirty ? 0xef : 0x21) / 255.0f, 1.0f);
+                 (dirty ? 0xef : 0x21) / 255.0f,
+                 (partial_alpha ? (dirty ? 0x3d : 0x7b) : 0xff) / 255.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glFinish();
     require(glGetError() == GL_NO_ERROR, "producer_paint_complete");
-    const unsigned char initial[] = {0x65,0x43,0x21,0xff, 0x65,0x43,0x21,0xff, 0x65,0x43,0x21,0xff};
-    const unsigned char changed[] = {0x65,0x43,0x21,0xff, 0xab,0xcd,0xef,0xff, 0x65,0x43,0x21,0xff};
+    const unsigned char alpha = partial_alpha ? 0x7b : 0xff;
+    const unsigned char dirty_alpha = partial_alpha ? 0x3d : 0xff;
+    const unsigned char initial[] = {0x65,0x43,0x21,alpha, 0x65,0x43,0x21,alpha, 0x65,0x43,0x21,alpha};
+    const unsigned char changed[] = {0x65,0x43,0x21,alpha, 0xab,0xcd,0xef,dirty_alpha, 0x65,0x43,0x21,alpha};
     unsigned char pixels[12] = {0};
     glReadPixels(0, 0, 3, 1, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
     require(glGetError() == GL_NO_ERROR && memcmp(pixels, dirty ? changed : initial, sizeof pixels) == 0,
@@ -197,6 +201,54 @@ static void destroy_producer(struct producer *source) {
     close(source->device_fd);
 }
 
+static void check_glx_texture(Display *display, GLXFBConfig config, GLXPixmap drawable,
+                              struct producer *source) {
+    GLXContext context = glXCreateNewContext(display, config, GLX_RGBA_TYPE, NULL, True);
+    require(context && glXIsDirect(display, context), "default_visual_direct_context");
+    const int attributes[] = {GLX_PBUFFER_WIDTH, 3, GLX_PBUFFER_HEIGHT, 1, None};
+    GLXPbuffer pbuffer = glXCreatePbuffer(display, config, attributes);
+    require(pbuffer && glXMakeContextCurrent(display, pbuffer, pbuffer, context), "default_visual_current");
+    PFNGLXBINDTEXIMAGEEXTPROC bind =
+        (PFNGLXBINDTEXIMAGEEXTPROC)glXGetProcAddressARB((const GLubyte *)"glXBindTexImageEXT");
+    PFNGLXRELEASETEXIMAGEEXTPROC release =
+        (PFNGLXRELEASETEXIMAGEEXTPROC)glXGetProcAddressARB((const GLubyte *)"glXReleaseTexImageEXT");
+    require(bind && release, "default_visual_texture_entry_points");
+    GLuint texture;
+    glGenTextures(1, &texture);
+    glBindTexture(GL_TEXTURE_2D, texture);
+    const unsigned char expected[][12] = {
+        {0x65,0x43,0x21,0x7b, 0x65,0x43,0x21,0x7b, 0x65,0x43,0x21,0x7b},
+        {0x65,0x43,0x21,0x7b, 0xab,0xcd,0xef,0x3d, 0x65,0x43,0x21,0x7b}
+    };
+    for (int pass = 0; pass < 2; ++pass) {
+        if (pass) {
+            require(glXMakeContextCurrent(display, None, None, NULL), "default_visual_release_for_producer");
+            paint_producer(source, 1);
+            require(glXMakeContextCurrent(display, pbuffer, pbuffer, context), "default_visual_restore_current");
+        }
+        bind(display, drawable, GLX_FRONT_LEFT_EXT, NULL);
+        unsigned char pixels[12] = {0};
+        glGetTexImage(GL_TEXTURE_2D, 0, GL_RGBA, GL_UNSIGNED_BYTE, pixels);
+        glFinish();
+        XSync(display, False);
+        if (memcmp(pixels, expected[pass], sizeof pixels) != 0) {
+            fprintf(stderr, "egl_pixmap glx_alpha_mismatch pass=%d pixels=", pass);
+            for (size_t i = 0; i < sizeof pixels; ++i) fprintf(stderr, "%02x", pixels[i]);
+            fputc('\n', stderr);
+        }
+        require(!x_error && glGetError() == GL_NO_ERROR &&
+                memcmp(pixels, expected[pass], sizeof pixels) == 0,
+                pass ? "default_visual_dirty_rgba_exact" : "default_visual_initial_rgba_exact");
+        release(display, drawable, GLX_FRONT_LEFT_EXT);
+    }
+    glDeleteTextures(1, &texture);
+    require(glXMakeContextCurrent(display, None, None, NULL), "default_visual_release_current");
+    glXDestroyPbuffer(display, pbuffer);
+    glXDestroyContext(display, context);
+    XSync(display, False);
+    require(!x_error, "default_visual_context_cleanup");
+}
+
 static GLuint shader(GLenum type, const char *source) {
     GLuint object = glCreateShader(type);
     glShaderSource(object, 1, &source, NULL);
@@ -231,8 +283,10 @@ static void read_texture(GLuint framebuffer, GLuint program,
 }
 
 int main(int argc, char **argv) {
-    const int glx_only = argc == 2 &&
-        (strcmp(argv[1], "--glx-imported") == 0 || strcmp(argv[1], "--glx-imported-wire-implicit") == 0);
+    const int default_visual = argc == 2 && strcmp(argv[1], "--glx-default-visual-imported") == 0;
+    partial_alpha = default_visual;
+    const int glx_only = default_visual || (argc == 2 &&
+        (strcmp(argv[1], "--glx-imported") == 0 || strcmp(argv[1], "--glx-imported-wire-implicit") == 0));
     const int wire_implicit = argc == 2 &&
         (strcmp(argv[1], "--imported-wire-implicit") == 0 || strcmp(argv[1], "--glx-imported-wire-implicit") == 0);
     const int imported_cross_connection = argc == 2 && strcmp(argv[1], "--imported") == 0;
@@ -281,8 +335,35 @@ int main(int argc, char **argv) {
         require(!x_error, "cpu_pixmap");
     }
     if (glx_only) {
+        GLXFBConfig context_config = NULL;
+        VisualID default_id = XVisualIDFromVisual(DefaultVisual(xdisplay, DefaultScreen(xdisplay)));
+        if (default_visual) {
+            const int any_attributes[] = {None};
+            int all_count = 0;
+            GLXFBConfig *all = glXChooseFBConfig(xdisplay, DefaultScreen(xdisplay), any_attributes, &all_count);
+            for (int i = 0; all && i < all_count; ++i) {
+                int visual_id = 0;
+                require(glXGetFBConfigAttrib(xdisplay, all[i], GLX_VISUAL_ID, &visual_id) == 0,
+                        "default_visual_config_id");
+                if ((VisualID)visual_id == default_id) { context_config = all[i]; break; }
+            }
+            require(context_config != NULL, "first_default_visual_config");
+            XVisualInfo *visual = glXGetVisualFromFBConfig(xdisplay, context_config);
+            require(visual && visual->depth == 24, "default_visual_native_depth24");
+            const int channels[] = {GLX_RED_SIZE, GLX_GREEN_SIZE, GLX_BLUE_SIZE, GLX_ALPHA_SIZE};
+            for (size_t i = 0; i < sizeof channels / sizeof channels[0]; ++i) {
+                int bits = 0;
+                require(glXGetFBConfigAttrib(xdisplay, context_config, channels[i], &bits) == 0,
+                        "default_visual_channel_query");
+                printf("egl_pixmap first_default_visual=0x%lx native_depth=%d channel=0x%x bits=%d\n",
+                       default_id, visual->depth, channels[i], bits);
+                require(bits == 8, "first_default_visual_rgba8");
+            }
+            XFree(visual);
+            XFree(all);
+        }
         const int glx_config_attributes[] = {
-            GLX_RENDER_TYPE, GLX_RGBA_BIT, GLX_DRAWABLE_TYPE, GLX_PIXMAP_BIT,
+            GLX_RENDER_TYPE, GLX_RGBA_BIT, GLX_DRAWABLE_TYPE, GLX_PIXMAP_BIT | GLX_PBUFFER_BIT,
             GLX_RED_SIZE, 8, GLX_GREEN_SIZE, 8, GLX_BLUE_SIZE, 8,
             GLX_ALPHA_SIZE, 8, GLX_BIND_TO_TEXTURE_RGBA_EXT, True, None
         };
@@ -292,7 +373,8 @@ int main(int argc, char **argv) {
         GLXFBConfig chosen = NULL;
         for (int i = 0; configs && i < glx_count; ++i) {
             XVisualInfo *visual = glXGetVisualFromFBConfig(xdisplay, configs[i]);
-            if (visual && visual->depth == 32) chosen = configs[i];
+            if (visual && (default_visual ? visual->visualid == default_id : visual->depth == 32))
+                chosen = configs[i];
             if (visual) XFree(visual);
             if (chosen) break;
         }
@@ -303,6 +385,7 @@ int main(int argc, char **argv) {
         printf("egl_pixmap glx_create_pixmap=0x%lx wire_implicit=%d\n", drawable, wire_implicit);
         XSync(xdisplay, False);
         require(drawable != None && !x_error, "glx_create_pixmap");
+        if (default_visual) check_glx_texture(xdisplay, context_config, drawable, &source);
         glXDestroyPixmap(xdisplay, drawable);
         XFree(configs);
         require(eglTerminate(display), "terminate");

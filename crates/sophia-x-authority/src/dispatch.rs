@@ -67,54 +67,35 @@ const fn glx_extensions(pixmap_textures: bool) -> &'static str {
 }
 
 fn glx_visual_configs() -> Vec<[u32; 18]> {
-    vec![
-        [
-            X_SETUP_DEFAULT_VISUAL,
-            4,
-            1,
-            8,
-            8,
-            8,
-            0,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            24,
-            24,
-            0,
-            0,
-            0,
-        ],
-        [
-            X_SETUP_ARGB_VISUAL,
-            4,
-            1,
-            8,
-            8,
-            8,
-            8,
-            0,
-            0,
-            0,
-            0,
-            1,
-            0,
-            32,
-            24,
-            0,
-            0,
-            0,
-        ],
-    ]
+    crate::X_GLX_FB_CONFIGS[..2]
+        .iter()
+        .map(|config| {
+            [
+                config.visual,
+                4,
+                1,
+                8,
+                8,
+                8,
+                config.alpha,
+                0,
+                0,
+                0,
+                0,
+                1,
+                0,
+                u32::from(config.color_bits()),
+                24,
+                config.stencil,
+                0,
+                0,
+            ]
+        })
+        .collect()
 }
 
-/// The attribute pairs one catalog row publishes.
-///
-/// The row is the single source: a drawable's depth and the depth advertised here
-/// are the same conversion, read from the same place.
+/// Both GLX query versions describe the same color buffer, independently of
+/// the native X visual's depth.
 fn glx_fb_config(config: crate::XGlxFbConfig, pixmap_textures: bool) -> Vec<(u32, u32)> {
     let crate::XGlxFbConfig {
         id,
@@ -122,6 +103,7 @@ fn glx_fb_config(config: crate::XGlxFbConfig, pixmap_textures: bool) -> Vec<(u32
         alpha,
         srgb,
         stencil,
+        ..
     } = config;
     let mut attributes = vec![
         (crate::X_GLX_FBCONFIG_ID_ATTRIBUTE, id),
@@ -141,7 +123,7 @@ fn glx_fb_config(config: crate::XGlxFbConfig, pixmap_textures: bool) -> Vec<(u32
         ),
         (
             crate::X_GLX_BUFFER_SIZE_ATTRIBUTE,
-            u32::from(config.depth()),
+            u32::from(config.color_bits()),
         ),
         (crate::X_GLX_LEVEL_ATTRIBUTE, 0),
         (crate::X_GLX_DOUBLEBUFFER_ATTRIBUTE, 1),

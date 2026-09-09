@@ -86,6 +86,8 @@ static void run_glx(Display *display) {
         if (candidate) XFree(candidate);
     }
     require(visual != NULL, "glx_visual");
+    require(visual->visualid == XVisualIDFromVisual(DefaultVisual(display, DefaultScreen(display))) &&
+            visual->depth == 24, "glx_default_visual_depth24");
     Colormap colormap;
     Window drawable = window(display, visual, &colormap);
     GLXContext context = glXCreateNewContext(display, selected, GLX_RGBA_TYPE, NULL, True);

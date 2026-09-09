@@ -12,7 +12,9 @@
 pub struct XGlxFbConfig {
     pub id: u32,
     pub visual: u32,
-    /// Alpha bits: zero for the opaque visual, eight for ARGB.
+    /// Native X visual depth, independent of the GL color buffer's alpha bits.
+    pub visual_depth: u8,
+    /// Alpha bits in the GL color buffer.
     pub alpha: u32,
     /// Whether the configuration advertises sRGB framebuffer capability.
     pub srgb: u32,
@@ -25,11 +27,8 @@ pub struct XGlxFbConfig {
 }
 
 impl XGlxFbConfig {
-    /// The X depth a drawable of this configuration reports.
-    ///
-    /// A pure conversion of the row rather than a second table, so a drawable's
-    /// depth and the depth advertised for its configuration cannot disagree.
-    pub const fn depth(self) -> u8 {
+    /// GLX_BUFFER_SIZE includes alpha even for an opaque depth-24 X visual.
+    pub const fn color_bits(self) -> u8 {
         24 + self.alpha as u8
     }
 
@@ -87,21 +86,22 @@ impl XGlxFbConfig {
 
 /// The configurations Sophia offers, in reply order.
 ///
-/// The first three are the original rows and keep their identifiers and their
-/// answers exactly. The last three mirror them with a stencil buffer, and are
-/// offered only where pixmap textures are supported, so a server without them
-/// answers byte for byte what it always did.
+/// Base identifiers and native visuals are stable. The default visual supports
+/// RGBA GL buffers while remaining opaque in X. Stencil variants require the
+/// pixmap-texture provider.
 pub const X_GLX_FB_CONFIGS: [XGlxFbConfig; 6] = [
     XGlxFbConfig {
         id: 1,
         visual: crate::X_SETUP_DEFAULT_VISUAL,
-        alpha: 0,
+        visual_depth: 24,
+        alpha: 8,
         srgb: 0,
         stencil: 0,
     },
     XGlxFbConfig {
         id: 2,
         visual: crate::X_SETUP_ARGB_VISUAL,
+        visual_depth: 32,
         alpha: 8,
         srgb: 0,
         stencil: 0,
@@ -109,6 +109,7 @@ pub const X_GLX_FB_CONFIGS: [XGlxFbConfig; 6] = [
     XGlxFbConfig {
         id: 3,
         visual: crate::X_SETUP_ARGB_VISUAL,
+        visual_depth: 32,
         alpha: 8,
         srgb: 1,
         stencil: 0,
@@ -116,13 +117,15 @@ pub const X_GLX_FB_CONFIGS: [XGlxFbConfig; 6] = [
     XGlxFbConfig {
         id: 4,
         visual: crate::X_SETUP_DEFAULT_VISUAL,
-        alpha: 0,
+        visual_depth: 24,
+        alpha: 8,
         srgb: 0,
         stencil: 8,
     },
     XGlxFbConfig {
         id: 5,
         visual: crate::X_SETUP_ARGB_VISUAL,
+        visual_depth: 32,
         alpha: 8,
         srgb: 0,
         stencil: 8,
@@ -130,6 +133,7 @@ pub const X_GLX_FB_CONFIGS: [XGlxFbConfig; 6] = [
     XGlxFbConfig {
         id: 6,
         visual: crate::X_SETUP_ARGB_VISUAL,
+        visual_depth: 32,
         alpha: 8,
         srgb: 1,
         stencil: 8,

@@ -417,8 +417,11 @@ successful accelerated allocation on the permitted device.
 
 The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)
 records the white-video reproduction on `7dd74c5c5183` and a GLX call trace
-identifying the display's alpha-zero configuration restriction. Its correction
-passes private pixel tests; installed accelerated-video acceptance remains open.
+identifying the display's alpha-zero configuration restriction. After private
+pixel tests passed, Mason confirmed normal video in a fresh session on
+`b43d23d0bb15` on 2026-09-09. This accepts the white-video repair. The session
+still used the explicit device override, and discarded browser stderr prevents
+an error-history check; the wider accelerated-video gate remains open.
 
 The [implicit-modifier investigation](n5i1x7iv-implicit-dma-buf-exports-used-the-wrong-drm-modifier-sentinel.md)
 records the white-video report on installed `009498fb0aae`, the matched-launch

@@ -89,7 +89,10 @@ The later [default-visual investigation](../investigations/g930kzbe-default-x-vi
 traces the surviving initialization failure to alpha-zero GL configurations
 on the default X visual. The XLibre-compatible correction separates native X
 depth from GL color bits and passes default-visual texture and window pixel
-tests. Installed browser acceptance remains required.
+tests. Mason confirmed normal video on installed `b43d23d0bb15` on 2026-09-09.
+That accepts the white-video repair with the existing CLI device override;
+it does not satisfy this plan's requirement for generic device negotiation
+without an application adapter.
 
 ## Connections
 

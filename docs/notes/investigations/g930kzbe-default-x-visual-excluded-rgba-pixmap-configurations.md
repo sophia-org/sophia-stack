@@ -92,10 +92,20 @@ comment; that was removed, and the affected crate's complete Clippy check plus
 workspace formatting passed afterward. Logs and candidate identity are retained
 in the evidence manifest.
 
-Installed accelerated-video acceptance remains open under `t068`. A fresh
-session must demonstrate visible playback; private GLX tests do not substitute
-for the browser's complete EGL/video path. `t069` retains its broader generic
-device-negotiation acceptance requirement.
+## Physical acceptance on 2026-09-09
+
+Mason opened a new session on `b43d23d0bb15`, launched Brave through Super+B,
+and confirmed that the playing video was "normal". This accepts the installed
+white-video repair. The session identity is
+`00000001788947503816-89494440-9ce4-43e1-9884-2b7d75ea14a9`; its release and
+binary checksum match the packaged candidate in the evidence manifest.
+
+Brave's GPU process remained PID 21982 across the two observation snapshots,
+held renderD128 descriptors, and had no `--use-gl=disabled` flag. It still used
+the explicit CLI device override. Its stderr went to `/dev/null`, so these
+observations establish neither an error-free run nor the absence of earlier
+GPU restarts. The wider `t068` accelerated-video gate and `t069` generic
+device-negotiation requirement remain open.
 
 ## Connections
 

@@ -141,6 +141,8 @@ pub struct LiveProductionRetiredPresent {
     pub clip: Option<Rect>,
     pub ust_usec: u64,
     pub msc: u64,
+    /// Exact single-output copied evidence; frontend preferences and opt-in are separate gates.
+    pub layout_witness: Option<LiveProductionRetiredLayoutWitness>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

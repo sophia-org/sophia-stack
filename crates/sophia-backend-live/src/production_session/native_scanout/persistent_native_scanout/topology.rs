@@ -2272,6 +2272,7 @@ impl LiveProductionNativeScanout {
         state: &mut LiveProductionNativeTopologyPreparation,
         candidate: bool,
     ) -> Result<Vec<sophia_engine::HeadlessOutput>, Box<dyn std::error::Error>> {
+        self.invalidate_layout_probes();
         let logical_outputs = if candidate {
             state.plan.outputs.clone()
         } else {

@@ -856,6 +856,31 @@ do not authorize later commits or Present reallocation advice. A rejection
 before TEST_ONLY, including PRIME or framebuffer creation failure, preserves
 the ordinary composition fallback and its partial cleanup obligation.
 
+A successful pair remains boxed on its prepared alternative until submission.
+Only a fresh original rejection with EINVAL, a passing alternative and unchanged
+canonical display request produce a compact witness. Real submission failure or
+a cursor-drop retry discards it; completion-fence bookkeeping grants no additional
+display authority. The witness follows the accepted owner, not diagnostic history.
+Native retirement checks its exact device identity, head, frame, submission cycle
+and target context. Topology and owner transitions invalidate it even when rollback
+restores a previous numeric generation. Queued completions retain their own content
+and disposition instead of reading a later head's displayed content.
+
+Engine settlement may carry that witness only for the exact committed copied
+surface candidate and renderer image/transaction, currently on a single output.
+Stale candidates, different images or formats, and multi-output joins carry none.
+The frontend's current effective allocation preference and client opt-in remain
+separate prerequisites; a retired witness alone does not emit reallocation advice.
+
+The ordinary fallback can prefer the original fourcc without another render.
+A required renderer format is strict; an optional preference may return to normal
+allocation only before drawing begins, when target admission cannot supply it.
+Import, context, device and post-draw failures are not reclassified as format
+refusals. Actual exported format remains authoritative, and a different format
+cannot support the pair. Reusable targets are admitted by actual format, extent
+and modifier policy; the presence of an optional preference does not itself force
+reallocation.
+
 Renderer work captures its frame correlation before submission and returns it
 with the actual exported lease. A newer pending frame cannot replace that
 correlation. Successful owned exports carry it into prepared scanout; incomplete

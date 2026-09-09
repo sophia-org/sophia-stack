@@ -73,6 +73,12 @@ impl<Owner> LiveRenderedScanoutBufferExport<Owner> {
 }
 
 #[cfg(feature = "libdrm-events")]
+pub struct LiveScanoutLayoutProbeSource<Owner> {
+    pub export: LiveRenderedScanoutBufferExport<Owner>,
+    pub image: sophia_renderer_live::LiveRendererImageId,
+}
+
+#[cfg(feature = "libdrm-events")]
 pub trait LiveRenderedScanoutBufferExporter {
     type Owner;
 
@@ -126,7 +132,7 @@ pub trait LiveRenderedScanoutBufferExporter {
         &mut self,
         _completed: Option<super::LiveRendererFrameCorrelation>,
         _descriptor: LiveRendererScanoutBufferDescriptor,
-    ) -> Option<LiveRenderedScanoutBufferExport<Self::Owner>> {
+    ) -> Option<LiveScanoutLayoutProbeSource<Self::Owner>> {
         None
     }
 

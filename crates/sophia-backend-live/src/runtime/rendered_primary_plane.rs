@@ -294,6 +294,7 @@ where
     let Some(mut submission) = state.rendered_primary_plane_scanout_submission.take() else {
         return LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
             status: LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus::NoSubmission,
+            layout_witness: None,
             destroy: None,
             runtime_scanout_state: None,
             in_flight: false,
@@ -328,6 +329,7 @@ where
             .push_back(RuntimeScanoutState::Rejected);
         return LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
             status: LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus::HeadLost,
+            layout_witness: None,
             destroy: Some(destroy),
             runtime_scanout_state: Some(RuntimeScanoutState::Rejected),
             in_flight: state.in_flight(),
@@ -356,6 +358,7 @@ where
         }
         return LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
             status: retired.status.into(),
+            layout_witness: retired.layout_witness,
             destroy: retired.destroy,
             runtime_scanout_state,
             in_flight: state.in_flight(),
@@ -376,6 +379,7 @@ where
         state.rendered_primary_plane_scanout_submission = Some(submission);
         return LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
             status: LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus::WaitingForAcceptedPageFlip,
+            layout_witness: None,
             destroy: None,
             runtime_scanout_state: None,
             in_flight: true,
@@ -385,6 +389,7 @@ where
     }
 
     state.rendered_primary_plane_scanout_in_flight_ticks = 0;
+    let layout_witness = submission.layout_witness();
     submission.clear_completion_fence();
     let previous = state
         .rendered_primary_plane_displayed_submission
@@ -443,6 +448,7 @@ where
 
     LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
         status,
+        layout_witness,
         destroy,
         runtime_scanout_state,
         in_flight: state.in_flight(),

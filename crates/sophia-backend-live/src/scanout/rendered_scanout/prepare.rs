@@ -7,6 +7,7 @@ pub struct LivePreparedRenderedPrimaryPlaneScanout<Owner> {
     pub(super) scanout_buffer: Owner,
     pub(super) primary_plane: LibdrmNativePrimaryPlanePreparedScanout,
     correlation: Option<crate::LiveRendererFrameCorrelation>,
+    pub(super) layout_probe: Option<Box<super::LiveScanoutLayoutProbeReport>>,
 }
 
 #[cfg(feature = "libdrm-events")]
@@ -289,6 +290,7 @@ where
                 scanout_buffer: owner,
                 primary_plane,
                 correlation: export.correlation,
+                layout_probe: None,
             }),
             None,
         ),
@@ -356,7 +358,16 @@ pub fn submit_prepared_rendered_primary_plane_scanout<D, Owner>(
 where
     D: LibdrmNativeAtomicCommitDevice + LibdrmNativePrimaryPlaneResourceDevice,
 {
+    let witness = prepared
+        .layout_probe
+        .as_ref()
+        .and_then(|report| report.witness_for(&prepared));
     let native = submit_prepared_native_primary_plane_scanout(device, prepared.primary_plane);
+    let layout_witness = (native.status
+        == LibdrmNativePrimaryPlaneScanoutSubmitStatus::SubmittedWaitingForPageFlip
+        && !native.cursor_dropped)
+        .then_some(witness)
+        .flatten();
     let status = if native.status
         == LibdrmNativePrimaryPlaneScanoutSubmitStatus::SubmittedWaitingForPageFlip
     {
@@ -370,6 +381,7 @@ where
                 scanout_buffer: prepared.scanout_buffer,
                 primary_plane,
                 submitted_after_page_flip_serial: None,
+                layout_witness,
             }),
             None,
         ),
@@ -402,6 +414,7 @@ where
         commit_flags: native.commit_flags,
         commit_submit: native.submit,
         atomic_test: None,
+        layout_witness,
         submission,
         cleanup,
         cursor_dropped: native.cursor_dropped,
@@ -424,6 +437,7 @@ pub fn prepare_rendered_topology_head_from_prepared_scanout<Owner>(
         scanout_buffer,
         primary_plane,
         correlation,
+        layout_probe: _,
     } = prepared;
     let primary_plane =
         match prepare_native_topology_head_from_prepared_scanout(primary_plane, vrr_enabled) {
@@ -433,6 +447,7 @@ pub fn prepare_rendered_topology_head_from_prepared_scanout<Owner>(
                     scanout_buffer,
                     primary_plane,
                     correlation,
+                    layout_probe: None,
                 });
             }
         };
@@ -450,6 +465,7 @@ pub fn adopt_prepared_rendered_topology_head_after_commit<Owner>(
         scanout_buffer: prepared.scanout_buffer,
         primary_plane: adopt_prepared_native_topology_head_after_commit(prepared.primary_plane),
         submitted_after_page_flip_serial: None,
+        layout_witness: None,
     }
 }
 

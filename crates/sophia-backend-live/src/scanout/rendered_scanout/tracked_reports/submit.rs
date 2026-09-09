@@ -5,6 +5,7 @@ use super::{reduced_size, reduced_status};
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LiveTrackedRenderedPrimaryPlaneScanoutSubmitReport {
     pub status: LiveTrackedRenderedPrimaryPlaneScanoutSubmitStatus,
+    pub layout_witness: Option<crate::LiveScanoutLayoutWitness>,
     pub scanout_target: LiveKmsScanoutTargetStatus,
     pub output_size: Option<Size>,
     pub target: Option<LiveGbmEglFrameTargetStatus>,

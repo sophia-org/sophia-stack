@@ -57,6 +57,21 @@ pub(super) fn record_native_present_retirement(
         retired.transaction.raw(),
     );
 
+    if let Some(layout) = retired.layout_witness
+        && let Some(trace) = layout.witness.alternative.trace
+    {
+        let witness = layout.witness;
+        crate::session_println!(
+            "sophia_live_layout_probe schema=2 status=RetiredCopy transaction={} output={} scene_generation={} format={} original_modifier={} alternative_modifier={}",
+            retired.transaction.raw(),
+            trace.output.raw(),
+            trace.scene_generation,
+            witness.format,
+            witness.original_modifier,
+            witness.alternative_modifier,
+        );
+    }
+
     NativePresentRetirementObservation {
         surface: retired.surface,
         stable,

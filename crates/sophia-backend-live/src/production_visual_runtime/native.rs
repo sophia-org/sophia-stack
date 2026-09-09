@@ -1,5 +1,7 @@
 use super::*;
 
+mod layout_witness;
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum LiveProductionNativeSuspendOutcome {
     #[default]
@@ -844,6 +846,7 @@ impl LiveProductionVisualRuntime {
             .present_scheduler
             .take_submitted()
             .ok_or("joined native retirement lost its submitted DMA Present")?;
+        let layout_identity = layout_witness::SubmittedLayoutIdentity::from_submitted(&submitted);
         let clock = submitted
             .presentation_clock()
             .ok_or("joined native retirement retained no physical presentation clock")?;
@@ -903,6 +906,8 @@ impl LiveProductionVisualRuntime {
             return Ok(None);
         }
         let source_size = submitted.displayed_layer.size;
+        let layout_witness =
+            layout_identity.and_then(|identity| identity.settle(retirement, &completion.commit));
         let target = submitted.displayed_layer.placement.target;
         let clip = submitted.displayed_layer.placement.clip;
         let replaced = replace_displayed_surface(
@@ -923,6 +928,7 @@ impl LiveProductionVisualRuntime {
             clip,
             ust_usec: ust,
             msc,
+            layout_witness,
         }))
     }
 

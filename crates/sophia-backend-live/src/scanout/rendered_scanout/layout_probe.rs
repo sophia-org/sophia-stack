@@ -3,12 +3,83 @@ use crate::prelude::*;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LiveScanoutLayoutProbeReport {
+    pub source_image: sophia_renderer_live::LiveRendererImageId,
     pub original: crate::LiveRendererFrameCorrelation,
     pub alternative: crate::LiveRendererFrameCorrelation,
     pub format: u32,
     pub original_modifier: u64,
     pub alternative_modifier: u64,
     pub tests: LibdrmNativeAtomicTestPairReport,
+}
+
+/// A comparison carried by its accepted alternative; presentation is established separately.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LiveScanoutLayoutWitness {
+    pub source_image: sophia_renderer_live::LiveRendererImageId,
+    pub alternative: crate::LiveRendererFrameCorrelation,
+    pub format: u32,
+    pub original_modifier: u64,
+    pub alternative_modifier: u64,
+}
+
+impl LiveScanoutLayoutProbeReport {
+    pub(super) fn witness_for<Owner>(
+        &self,
+        prepared: &LivePreparedRenderedPrimaryPlaneScanout<Owner>,
+    ) -> Option<LiveScanoutLayoutWitness> {
+        self.witness_for_current(
+            prepared.correlation(),
+            prepared.primary_plane.descriptor(),
+            prepared.primary_plane.test_request_evidence()?,
+        )
+    }
+
+    fn witness_for_current(
+        &self,
+        correlation: Option<crate::LiveRendererFrameCorrelation>,
+        descriptor: LiveRendererScanoutBufferDescriptor,
+        current: LibdrmNativeAtomicRequestEvidence,
+    ) -> Option<LiveScanoutLayoutWitness> {
+        let original = self.tests.original?;
+        let alternative = self.tests.alternative?;
+        let original_request = original.request?;
+        let alternative_request = alternative.request?;
+        if self.tests.status != LibdrmNativeAtomicTestPairStatus::Tested
+            || original.status != LibdrmNativeAtomicCommitSubmitStatus::Rejected
+            || original.raw_os_error != Some(22)
+            || original.error_kind != Some(std::io::ErrorKind::InvalidInput)
+            || alternative.status != LibdrmNativeAtomicCommitSubmitStatus::Submitted
+            || alternative.raw_os_error.is_some()
+            || alternative.error_kind.is_some()
+            || !original_request.equivalent_except_primary_framebuffer(&alternative_request)
+            || current != alternative_request
+            || correlation != Some(self.alternative)
+            || self.original.trace.is_none()
+            || self.original.trace != self.alternative.trace
+            || self.original.direct_scanout != Some(sophia_engine::DirectScanoutVerdict::Eligible)
+            || self.alternative.direct_scanout
+                != Some(sophia_engine::DirectScanoutVerdict::CompositionRequired(
+                    "refused",
+                ))
+            || descriptor.format != self.format
+            || descriptor.modifier != Some(self.alternative_modifier)
+            || self.original_modifier == self.alternative_modifier
+            || [self.original_modifier, self.alternative_modifier]
+                .iter()
+                .any(|modifier| {
+                    *modifier == sophia_protocol::DRM_FORMAT_MOD_INVALID || *modifier == u64::MAX
+                })
+        {
+            return None;
+        }
+        Some(LiveScanoutLayoutWitness {
+            source_image: self.source_image,
+            alternative: self.alternative,
+            format: self.format,
+            original_modifier: self.original_modifier,
+            alternative_modifier: self.alternative_modifier,
+        })
+    }
 }
 
 /// Retries one optional resource obligation without delaying ordinary frames.
@@ -57,7 +128,8 @@ where
     else {
         return alternative;
     };
-    let source = source.normalized();
+    let source_image = source.image;
+    let source = source.export.normalized();
     let (Some(original_descriptor), Some(original), Some(completed)) = (
         source.descriptor,
         source.correlation,
@@ -123,14 +195,17 @@ where
                 scanout_buffer: source.scanout_buffer,
                 primary_plane,
             });
-    exporter.record_layout_probe(LiveScanoutLayoutProbeReport {
+    let report = LiveScanoutLayoutProbeReport {
+        source_image,
         original,
         alternative: completed,
         format: descriptor.format,
         original_modifier,
         alternative_modifier,
         tests,
-    });
+    };
+    alternative.layout_probe = Some(Box::new(report));
+    exporter.record_layout_probe(report);
     alternative
 }
 
@@ -146,3 +221,6 @@ impl<Owner> LiveRenderedScanoutBufferExporter for ProbeSourceExporter<Owner> {
         self.0.take().expect("one preparation consumes one source")
     }
 }
+
+#[path = "../../../tests/support/layout_witness_reduction.rs"]
+mod tests;

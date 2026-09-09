@@ -539,6 +539,7 @@ fn layout_probe_field(key: &str, value: &str) -> bool {
         "status" => matches!(
             value,
             "Tested"
+                | "RetiredCopy"
                 | "MissingRequestEvidence"
                 | "SelectionMismatch"
                 | "GeometryMismatch"

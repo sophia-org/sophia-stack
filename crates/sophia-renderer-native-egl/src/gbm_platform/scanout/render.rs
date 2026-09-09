@@ -72,7 +72,7 @@ fn render_initialized_gbm_scanout_front_buffer<T: std::os::fd::AsFd>(
 
     let preferred_modifiers = reduced_gbm_scanout_modifiers(preferred_modifiers);
     let mut last_detail = NativeGbmScanoutBufferExportDetail::EglConfigUnavailable;
-    for candidate in rendered_scanout_candidates(&preferred_modifiers) {
+    for candidate in rendered_scanout_candidates(&preferred_modifiers, None) {
         let Some(config) = choose_scanout_config_for_format(
             egl,
             display,
@@ -178,6 +178,7 @@ fn create_native_render_target<T: std::os::fd::AsFd>(
         NativeRenderTarget {
             width,
             height,
+            surface_format: candidate.format,
             egl_context,
             pipeline,
         },

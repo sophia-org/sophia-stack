@@ -160,3 +160,29 @@ are deterministic identity tests, not physical hotplug acceptance.
 
 The exact candidate manifest, focused logs and successful full-gate log are
 retained in `.artifacts/t069-window-device-preferences/`. Browser source and launch configuration were unchanged.
+
+
+## Alternate layout ownership through retirement
+
+The checkpoint based on `b20c5fe4` carries a paired scanout comparison through
+its actual accepted alternative and exact physical retirement, then through
+committed copied-Present settlement. It fixes queued completions reading a later
+head's content, and the quiet callback path clearing identity before retirement.
+Native topology/owner invalidation survives numeric-generation rollback.
+
+The ordinary fallback can prefer the original format before drawing; unavailable
+optional target admission preserves normal rendering. Actual format governs
+proof and target reuse, so removing the preference does not allocate another
+compatible target. The renderer adds no extra completed render or copy.
+
+The full repository/GPU gate passed with unchanged Rust sources. Thirty new
+tests include the separately enabled 18-render GPU pixel/cache test. Evidence,
+source hashes and the signed candidate identity are in
+`.artifacts/t070-retired-layout/`; the
+[investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#alternative-ownership-through-retirement-after-b20c5fe4)
+records the exact guarantees and review corrections.
+
+This does not emit SuboptimalCopy or close the task. The presenting connection's
+current effective preferences, physical paired-test/flip acceptance and the
+normal no-adapter client exit remain separate gates. No installation or live
+session restart was performed.

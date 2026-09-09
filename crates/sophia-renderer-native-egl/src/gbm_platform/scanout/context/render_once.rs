@@ -5,17 +5,18 @@ where
     fn render_one_shot_composition_with_recovery(
         &mut self,
         frame: NativeCompositionFrame<'_>,
-        preferred_modifiers: &[u64],
+        request: NativeCompositionOutputRequest<'_>,
     ) -> Result<NativeGbmOwnedScanoutBuffer, NativeGbmScanoutBufferExportDetail> {
-        let result = self.render_one_shot_composition(frame, preferred_modifiers);
+        let mut admission = CompositionFormatAdmission::new(request.format);
+        let result =
+            self.render_one_shot_composition(frame, request.preferred_modifiers, &mut admission);
         if result
             .as_ref()
             .is_err_and(|detail| detail.render_target_retryable())
         {
             self.stats.target_recreations = self.stats.target_recreations.saturating_add(1);
-            self.stats.recovery_replacements =
-                self.stats.recovery_replacements.saturating_add(1);
-            self.render_one_shot_composition(frame, preferred_modifiers)
+            self.stats.recovery_replacements = self.stats.recovery_replacements.saturating_add(1);
+            self.render_one_shot_composition(frame, request.preferred_modifiers, &mut admission)
         } else {
             result
         }
@@ -25,6 +26,7 @@ where
         &mut self,
         frame: NativeCompositionFrame<'_>,
         preferred_modifiers: &[u64],
+        admission: &mut CompositionFormatAdmission,
     ) -> Result<NativeGbmOwnedScanoutBuffer, NativeGbmScanoutBufferExportDetail> {
         let preferred_modifiers = preferred_modifiers
             .iter()
@@ -38,15 +40,15 @@ where
             .map_err(|_| NativeGbmScanoutBufferExportDetail::EglBindApiFailed)?;
         let reduced = reduced_gbm_scanout_modifiers(&preferred_modifiers);
         let mut last_detail = NativeGbmScanoutBufferExportDetail::EglConfigUnavailable;
-        if self
-            .composition_target
-            .as_ref()
-            .is_some_and(|persistent| {
-                persistent.target.width != frame.width
-                    || persistent.target.height != frame.height
-                    || persistent.preferred_modifiers != reduced
-            })
-            && let Some(persistent) = self.composition_target.take()
+        if self.composition_target.as_ref().is_some_and(|persistent| {
+            persistent.target.width != frame.width
+                || persistent.target.height != frame.height
+                || persistent.preferred_modifiers != reduced
+                || !is_supported_scanout_format(persistent.target.surface_format as u32)
+                || admission
+                    .format()
+                    .is_some_and(|format| persistent.target.surface_format as u32 != format)
+        }) && let Some(persistent) = self.composition_target.take()
         {
             self.stats.target_recreations = self.stats.target_recreations.saturating_add(1);
             self.destroy_persistent_composition_target(persistent);
@@ -58,6 +60,7 @@ where
             );
         if let Some(persistent) = self.composition_target.as_mut() {
             let render_started = Instant::now();
+            admission.drawing_started();
             let rendered = render_native_target_composition(
                 &self.egl,
                 self.display,
@@ -68,7 +71,7 @@ where
                 frame,
                 capture_pixels,
                 false,
-                            self.buffer_age_supported,
+                self.buffer_age_supported,
             );
             self.stats.max_render = self.stats.max_render.max(render_started.elapsed());
             let render_evidence = rendered
@@ -101,7 +104,12 @@ where
                 }
             }
             match rendered {
-                Ok((buffer, _)) if is_supported_rendered_scanout_candidate_buffer(&buffer) => {
+                Ok((buffer, _))
+                    if is_supported_rendered_scanout_candidate_buffer(&buffer)
+                        && admission
+                            .format()
+                            .is_none_or(|format| buffer.format() == format) =>
+                {
                     self.stats.composition_target_reuses =
                         self.stats.composition_target_reuses.saturating_add(1);
                     return Ok(buffer);
@@ -123,7 +131,7 @@ where
             self.stats.target_recreations = self.stats.target_recreations.saturating_add(1);
             self.destroy_persistent_composition_target(persistent);
         }
-        for candidate in rendered_scanout_candidates(&reduced) {
+        for candidate in rendered_scanout_candidates(&reduced, admission.format()) {
             let Some(config) = choose_scanout_config_for_format(
                 &self.egl,
                 self.display,
@@ -141,6 +149,7 @@ where
             let (mut target, surface, _) = match created {
                 Ok(created) => created,
                 Err(detail) => {
+                    admission.target_refused(detail);
                     last_detail = preferred_scanout_failure_detail(last_detail, detail);
                     continue;
                 }
@@ -149,14 +158,15 @@ where
                 self.stats.composition_target_creations.saturating_add(1);
             let capture_pixels = self.capture_pixels_always
                 || native_composition_pixel_proof_capture(
-                self.current_proof_attempts(),
-                frame.layers.len(),
-            );
+                    self.current_proof_attempts(),
+                    frame.layers.len(),
+                );
             let render_started = Instant::now();
             let mut import_cache = NativeDmaBufImportCache::with_capacity_and_stats(
                 self.import_cache_capacity,
                 NativeDmaBufImportCacheStats::default(),
             );
+            admission.drawing_started();
             let rendered = render_native_target_composition(
                 &self.egl,
                 self.display,
@@ -167,7 +177,7 @@ where
                 frame,
                 capture_pixels,
                 false,
-                            self.buffer_age_supported,
+                self.buffer_age_supported,
             );
             self.stats.max_render = self.stats.max_render.max(render_started.elapsed());
             let generation = self.allocate_target_generation();
@@ -201,13 +211,18 @@ where
                 }
             }
             match rendered {
-                Ok((buffer, _)) if is_supported_rendered_scanout_candidate_buffer(&buffer) => {
+                Ok((buffer, _))
+                    if is_supported_rendered_scanout_candidate_buffer(&buffer)
+                        && admission
+                            .format()
+                            .is_none_or(|format| buffer.format() == format) =>
+                {
                     self.composition_target = Some(PersistentCompositionTarget {
                         target,
                         surface,
                         import_cache,
                         preferred_modifiers: reduced.clone(),
-                                            generation,
+                        generation,
                     });
                     return Ok(buffer);
                 }
@@ -217,7 +232,7 @@ where
                         surface,
                         import_cache,
                         preferred_modifiers: reduced.clone(),
-                                            generation,
+                        generation,
                     });
                     last_detail = NativeGbmScanoutBufferExportDetail::InvalidBufferDescriptor;
                 }
@@ -227,11 +242,14 @@ where
                         surface,
                         import_cache,
                         preferred_modifiers: reduced.clone(),
-                                            generation,
+                        generation,
                     });
                     last_detail = preferred_scanout_failure_detail(last_detail, detail);
                 }
             }
+        }
+        if admission.relax() {
+            return self.render_one_shot_composition(frame, &preferred_modifiers, admission);
         }
         Err(last_detail)
     }
@@ -279,6 +297,7 @@ where
                 persistent.target.width != frame.width
                     || persistent.target.height != frame.height
                     || persistent.preferred_modifiers != reduced
+                    || !is_supported_scanout_format(persistent.target.surface_format as u32)
             })
             && let Some(persistent) = self.composition_target.take()
         {
@@ -313,7 +332,7 @@ where
             self.stats.target_recreations = self.stats.target_recreations.saturating_add(1);
             self.destroy_persistent_composition_target(persistent);
         }
-        for candidate in rendered_scanout_candidates(&reduced) {
+        for candidate in rendered_scanout_candidates(&reduced, None) {
             let Some(config) = choose_scanout_config_for_format(
                 &self.egl,
                 self.display,
@@ -357,7 +376,7 @@ where
                             NativeDmaBufImportCacheStats::default(),
                         ),
                         preferred_modifiers: reduced.clone(),
-                                            generation,
+                        generation,
                     });
                     return Ok(buffer);
                 }
@@ -438,6 +457,7 @@ where
             .is_some_and(|persistent| {
                 persistent.target.width != width || persistent.target.height != height
                     || persistent.preferred_modifiers != reduced
+                    || !is_supported_scanout_format(persistent.target.surface_format as u32)
             })
             && let Some(persistent) = self.composition_target.take()
         {
@@ -473,7 +493,7 @@ where
             self.stats.target_recreations = self.stats.target_recreations.saturating_add(1);
             self.destroy_persistent_composition_target(persistent);
         }
-        for candidate in rendered_scanout_candidates(&reduced) {
+        for candidate in rendered_scanout_candidates(&reduced, None) {
             let Some(config) = choose_scanout_config_for_format(
                 &self.egl,
                 self.display,
@@ -518,7 +538,7 @@ where
                             NativeDmaBufImportCacheStats::default(),
                         ),
                         preferred_modifiers: reduced.clone(),
-                                            generation,
+                        generation,
                     });
                     return Ok(buffer);
                 }

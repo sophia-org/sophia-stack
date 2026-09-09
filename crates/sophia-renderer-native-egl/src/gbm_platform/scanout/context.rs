@@ -87,6 +87,7 @@ struct NativeRendererImage {
 struct NativeRenderTarget {
     width: u32,
     height: u32,
+    surface_format: gbm::Format,
     egl_context: khronos_egl::Context,
     pipeline: PersistentXrgb8888GlPipeline,
 }
@@ -494,7 +495,22 @@ where
         frame: NativeCompositionFrame<'_>,
         preferred_modifiers: &[u64],
     ) -> NativeGbmOwnedScanoutBufferExportReport {
-        if frame.width == 0
+        self.export_composed_owned_scanout_buffer(
+            frame,
+            NativeCompositionOutputRequest {
+                preferred_modifiers,
+                format: None,
+            },
+        )
+    }
+
+    pub fn export_composed_owned_scanout_buffer(
+        &mut self,
+        frame: NativeCompositionFrame<'_>,
+        request: NativeCompositionOutputRequest<'_>,
+    ) -> NativeGbmOwnedScanoutBufferExportReport {
+        if !request.is_valid()
+            || frame.width == 0
             || frame.height == 0
             || frame.layers.iter().any(|layer| match layer {
                 NativeCompositionLayer::Cpu(layer) => {
@@ -535,8 +551,7 @@ where
         self.last_render_buffer_age = None;
         self.last_render_repaint = NativeCompositionRepaintOutcome::Full;
         self.last_render_target_generation = None;
-        let mut report = match self.render_one_shot_composition_with_recovery(frame, preferred_modifiers)
-        {
+        let mut report = match self.render_one_shot_composition_with_recovery(frame, request) {
             Ok(buffer) => exported_scanout_buffer_report(buffer),
             Err(detail) => failed_scanout_buffer_report(detail),
         };
@@ -553,11 +568,26 @@ where
         frame: NativeCompositionFrame<'_>,
         preferred_modifiers: &[u64],
     ) -> NativeGbmOwnedScanoutBufferExportReport {
-        self.with_frame_target_slot(set, frame_slot, |context| {
-            context.export_composed_owned_scanout_buffer_with_modifiers(
-                frame,
+        self.export_composed_owned_scanout_buffer_in_frame_slot(
+            set,
+            frame_slot,
+            frame,
+            NativeCompositionOutputRequest {
                 preferred_modifiers,
-            )
+                format: None,
+            },
+        )
+    }
+
+    pub fn export_composed_owned_scanout_buffer_in_frame_slot(
+        &mut self,
+        set: NativeFrameTargetSetId,
+        frame_slot: usize,
+        frame: NativeCompositionFrame<'_>,
+        request: NativeCompositionOutputRequest<'_>,
+    ) -> NativeGbmOwnedScanoutBufferExportReport {
+        self.with_frame_target_slot(set, frame_slot, |context| {
+            context.export_composed_owned_scanout_buffer(frame, request)
         })
         .unwrap_or_else(invalid_frame_slot_report)
     }

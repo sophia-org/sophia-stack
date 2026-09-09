@@ -387,11 +387,12 @@ impl NativeGbmRendererWorker {
         }
     }
 
-    pub fn submit(
+    pub(crate) fn submit(
         &mut self,
         target: LiveGbmEglFrameTargetRecord,
         frame: PendingRenderedFrame,
         preferred_modifiers: Vec<u64>,
+        output_format: Option<sophia_renderer_live::LiveCompositionFormatRequest>,
     ) -> Result<(), LiveRendererScanoutBufferExportDetail> {
         if self.quarantined || self.in_flight.is_some() {
             return Err(LiveRendererScanoutBufferExportDetail::WorkerPending);
@@ -409,6 +410,7 @@ impl NativeGbmRendererWorker {
             target,
             frame,
             preferred_modifiers,
+            output_format,
         };
         self.core
             .command_sender
@@ -422,6 +424,7 @@ impl NativeGbmRendererWorker {
         self.in_flight = Some(InFlightRequest {
             request_id,
             correlation,
+            output_format,
             submitted_at: Instant::now(),
             soft_stall_reported: false,
         });
@@ -486,6 +489,8 @@ impl NativeGbmRendererWorker {
                 }
                 if result.request_id != in_flight.request_id
                     || result.correlation != in_flight.correlation
+                    || matches!(&result.outcome, WorkerOutcome::Exported { descriptor, .. }
+                        if matches!(in_flight.output_format, Some(sophia_renderer_live::LiveCompositionFormatRequest::Required(format)) if descriptor.format != format))
                 {
                     self.metrics.failures = self.metrics.failures.saturating_add(1);
                     self.quarantined = true;
@@ -787,6 +792,7 @@ struct DiscardedWorkerLease {
 struct InFlightRequest {
     request_id: LiveRendererWorkerRequestId,
     correlation: LiveRendererFrameCorrelation,
+    output_format: Option<sophia_renderer_live::LiveCompositionFormatRequest>,
     submitted_at: Instant,
     soft_stall_reported: bool,
 }
@@ -811,6 +817,7 @@ enum WorkerCommand {
         target: LiveGbmEglFrameTargetRecord,
         frame: PendingRenderedFrame,
         preferred_modifiers: Vec<u64>,
+        output_format: Option<sophia_renderer_live::LiveCompositionFormatRequest>,
     },
     ReplaceImageImportDevices {
         generation: u64,

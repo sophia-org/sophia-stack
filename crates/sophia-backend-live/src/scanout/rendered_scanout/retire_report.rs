@@ -5,6 +5,7 @@ use crate::prelude::*;
 #[derive(Debug)]
 pub struct LiveRenderedPrimaryPlaneScanoutRetireResult<Owner> {
     pub status: LibdrmNativePrimaryPlaneScanoutRetireStatus,
+    pub layout_witness: Option<crate::LiveScanoutLayoutWitness>,
     pub destroy: Option<LibdrmNativePrimaryPlaneResourceDestroyStatus>,
     pub submission: Option<LiveRenderedPrimaryPlaneScanoutSubmission<Owner>>,
     pub cleanup: Option<LiveRenderedPrimaryPlaneScanoutCleanup<Owner>>,

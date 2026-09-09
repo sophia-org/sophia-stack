@@ -129,7 +129,14 @@ pub enum LiveProductionPageFlipTrackerError {
 pub struct LiveProductionPageFlipTracker {
     presentation: OutputPresentationRegistry,
     pending: BTreeMap<OutputId, (u64, u64)>,
-    retirements: VecDeque<ProductionRetirement<LiveProductionPageFlipRetirement>>,
+    retirements: VecDeque<QueuedPageFlipRetirement>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+struct QueuedPageFlipRetirement {
+    retirement: ProductionRetirement<LiveProductionPageFlipRetirement>,
+    #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+    native: Option<crate::LiveProductionNativeRetirementContent>,
 }
 
 impl LiveProductionPageFlipTracker {
@@ -183,13 +190,17 @@ impl LiveProductionPageFlipTracker {
         if !matches!(feedback, OutputPresentationFeedback::Accepted { .. }) {
             return Err(LiveProductionPageFlipTrackerError::Feedback(feedback));
         }
-        self.retirements.push_back(ProductionRetirement {
-            cycle,
-            retirement: LiveProductionPageFlipRetirement {
-                output,
-                ust,
-                msc: sequence,
+        self.retirements.push_back(QueuedPageFlipRetirement {
+            retirement: ProductionRetirement {
+                cycle,
+                retirement: LiveProductionPageFlipRetirement {
+                    output,
+                    ust,
+                    msc: sequence,
+                },
             },
+            #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+            native: None,
         });
         Ok(())
     }
@@ -197,7 +208,10 @@ impl LiveProductionPageFlipTracker {
     pub fn drain_retirements(
         &mut self,
     ) -> Vec<ProductionRetirement<LiveProductionPageFlipRetirement>> {
-        self.retirements.drain(..).collect()
+        self.retirements
+            .drain(..)
+            .map(|queued| queued.retirement)
+            .collect()
     }
 
     pub fn take_retirement(
@@ -207,16 +221,66 @@ impl LiveProductionPageFlipTracker {
         let index = self
             .retirements
             .iter()
-            .position(|retirement| retirement.retirement.output == output)?;
-        self.retirements.remove(index)
+            .position(|queued| queued.retirement.retirement.output == output)?;
+        self.retirements
+            .remove(index)
+            .map(|queued| queued.retirement)
     }
 
     pub fn discard_retirements(&mut self, output: Option<OutputId>) {
         match output {
             Some(output) => self
                 .retirements
-                .retain(|retirement| retirement.retirement.output != output),
+                .retain(|queued| queued.retirement.retirement.output != output),
             None => self.retirements.clear(),
+        }
+    }
+}
+
+#[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+impl LiveProductionPageFlipTracker {
+    pub(crate) fn observe_native_page_flip(
+        &mut self,
+        output: OutputId,
+        sequence: u64,
+        ust: u64,
+        mut native: Option<crate::LiveProductionNativeRetirementContent>,
+    ) -> Result<(), LiveProductionPageFlipTrackerError> {
+        self.observe_page_flip(output, sequence, ust)?;
+        let queued = self
+            .retirements
+            .back_mut()
+            .expect("accepted flip queued its retirement");
+        if let Some(native) = &mut native
+            && native.submission != queued.retirement.cycle
+        {
+            native.layout_witness = None;
+        }
+        queued.native = native;
+        Ok(())
+    }
+
+    pub(crate) fn take_native_retirement(
+        &mut self,
+        output: OutputId,
+    ) -> Option<(
+        ProductionRetirement<LiveProductionPageFlipRetirement>,
+        Option<crate::LiveProductionNativeRetirementContent>,
+    )> {
+        let index = self
+            .retirements
+            .iter()
+            .position(|queued| queued.retirement.retirement.output == output)?;
+        self.retirements
+            .remove(index)
+            .map(|queued| (queued.retirement, queued.native))
+    }
+
+    pub(crate) fn invalidate_layout_witnesses(&mut self) {
+        for queued in &mut self.retirements {
+            if let Some(native) = &mut queued.native {
+                native.layout_witness = None;
+            }
         }
     }
 }

@@ -23,6 +23,7 @@ where
         return LiveRenderedPrimaryPlaneScanoutRetireResult {
             status: LibdrmNativePrimaryPlaneScanoutRetireStatus::WaitingForAcceptedPageFlip,
             destroy: None,
+            layout_witness: None,
             submission: Some(submission),
             cleanup: None,
         };
@@ -32,6 +33,7 @@ where
         scanout_buffer,
         primary_plane,
         submitted_after_page_flip_serial,
+        layout_witness,
     } = submission;
     let retired =
         retire_native_primary_plane_scanout_after_page_flip(device, primary_plane, callback);
@@ -40,10 +42,12 @@ where
         return LiveRenderedPrimaryPlaneScanoutRetireResult {
             status: retired.status,
             destroy: retired.destroy,
+            layout_witness: None,
             submission: Some(LiveRenderedPrimaryPlaneScanoutSubmission {
                 scanout_buffer,
                 primary_plane,
                 submitted_after_page_flip_serial,
+                layout_witness,
             }),
             cleanup: None,
         };
@@ -53,6 +57,7 @@ where
         return LiveRenderedPrimaryPlaneScanoutRetireResult {
             status: retired.status,
             destroy: retired.destroy,
+            layout_witness,
             submission: None,
             cleanup: Some(LiveRenderedPrimaryPlaneScanoutCleanup {
                 scanout_buffer,
@@ -64,6 +69,7 @@ where
     LiveRenderedPrimaryPlaneScanoutRetireResult {
         status: retired.status,
         destroy: retired.destroy,
+        layout_witness,
         submission: None,
         cleanup: None,
     }

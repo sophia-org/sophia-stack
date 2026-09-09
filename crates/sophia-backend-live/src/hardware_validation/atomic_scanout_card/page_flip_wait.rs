@@ -98,7 +98,7 @@ impl RealAtomicScanoutPageFlipSession {
         let LiveRenderedPrimaryPlaneScanoutSubmission {
             scanout_buffer,
             primary_plane,
-            submitted_after_page_flip_serial: _,
+            ..
         } = submission;
         let report = self.wait_for_submitted_page_flip_retirement(intake, primary_plane, policy);
         drop(scanout_buffer);

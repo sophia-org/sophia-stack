@@ -266,7 +266,7 @@ fn waiting_retire_from_rendered_submission(
     let LiveRenderedPrimaryPlaneScanoutSubmission {
         scanout_buffer,
         primary_plane,
-        submitted_after_page_flip_serial: _,
+        ..
     } = submission;
     drop(scanout_buffer);
     LibdrmNativePrimaryPlaneScanoutRetireResult {
@@ -285,7 +285,7 @@ fn retire_rendered_submission_after_page_flip(
     let LiveRenderedPrimaryPlaneScanoutSubmission {
         scanout_buffer,
         primary_plane,
-        submitted_after_page_flip_serial: _,
+        ..
     } = submission;
     let retired =
         retire_native_primary_plane_scanout_after_page_flip(card, primary_plane, callback);

@@ -612,6 +612,7 @@ pub struct LiveProductionNativeFrameRetirement {
     /// client until a successor retires it; a composed one settles as `Copied`
     /// and releases at the flip. See `PresentFlipOwnership.tla`.
     pub direct: bool,
+    pub layout_witness: Option<super::LiveProductionRetiredLayoutWitness>,
     pub ust: u64,
     pub msc: u64,
 }

@@ -253,6 +253,77 @@ retained under `.artifacts/t070-paired-layout/`. No Rust file changed during
 the successful gate. No install, live-session restart or physical TEST_ONLY/flip
 probe was performed.
 
+
+## Alternative ownership through retirement after `b20c5fe4`
+
+The full comparison is retained only on the prepared alternative. Before the
+real commit, the reducer checks current request properties and correlation,
+requires the original fresh TEST_ONLY to reject with EINVAL and the alternative
+to pass, and excludes unknown errno/provenance. Successful unchanged submission
+carries a compact witness with the original renderer image. Cursor-drop retries
+and failed submissions carry none. Waiting callbacks retain ownership; matching
+physical presentation consumes the witness once, including when cleanup of the
+previous resource subsequently fails. Head loss discards it.
+
+The native owner binds that witness to its actual device identity, head, frame,
+submission cycle and target context. Topology, device inventory and owner changes
+clear queued and outstanding evidence even if rollback restores the old target
+generation. Retirement records now own content and disposition alongside timing;
+they no longer consult the head's later displayed content. The quiet callback
+path was found to clear submitted content before processing retirement, opposite
+to the ordinary tick. Its ordering is corrected so the last frame can retain its
+identity without requiring later rendering activity.
+
+The production Present owner snapshots the exact submitted surface/backing key
+before Engine settlement. A retired witness survives only an actual committed
+copy with the same image, image-to-transaction mapping, format and single-output
+frame. An old displayed image, stale Engine candidate, different format or
+multi-output join remains inconclusive. The session records `RetiredCopy` through
+the existing bounded diagnostic vocabulary; it does not send SuboptimalCopy.
+
+The normal fallback can now request the original fourcc. Required requests are
+strict. Optional preferences may abandon unavailable config/GBM/EGL target
+admission before the first draw and use the original candidate order; context,
+import, device and post-draw failures cannot take that branch. No additional
+completed render or copy is introduced. Actual format governs retained-target
+reuse and proof eligibility, so disappearance of an optional preference does not
+recreate an otherwise compatible target.
+
+Real renderD128 tests produce exact AR24 and XR24 pixels and check inline and
+worker-slot cache reuse across required, preferred and ordinary requests. The
+host's AR24 allocation reports an implicit modifier, while XR24 reports LINEAR.
+Thus the AR24 render succeeds but still cannot establish the explicit-layout pair.
+The unavailable-AR24 fallback is tested through the production admission reducer,
+not forced on this driver, which supports AR24.
+
+This implements the stronger native feedback lifetime pattern without importing
+Wayland protocol or application policy into Sophia. XLibre remains the X11
+semantic reference. Frontend effective-preference identity and exact alternative
+membership are still missing from the client-advice join; raw plane support is
+not a substitute. No physical KMS pair, install or normal-launch acceptance is
+claimed for this checkpoint. The broader t069/t070 exits remain open.
+
+Validation passed `SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` with
+exit 0 on an unchanged Rust tree: all-feature workspace tests and clippy,
+format/layout/conformance checks, 20 archived regressions, hardware buffer-age
+pixel equivalence and real GLX/EGL first-frame and pixmap-export pixels. The
+change adds 29 deterministic tests and one separately enabled GPU test; the
+latter checks 18 actual pixel renders and cache transitions. Native owner tests
+cover device/frame/cycle/context changes, queue ownership and invalidation.
+Present tests include an actual stale Engine commit. The outer DRM-owning quiet
+callback method has source review, not an isolated CPU integration fixture.
+
+The initial full gate passed, but a separate DRM-only build exposed the passive
+renderer image ID being hidden behind the GBM feature. Its unchanged type and
+methods moved to the always-built renderer boundary; native snapshots remain
+feature-gated. The reduced-feature checks and full gate were then repeated.
+The default backend build retains its existing unused callback-capacity helper
+warning, unrelated to this change.
+
+Source hashes, full and focused logs, and the final signed candidate identity
+are retained in `.artifacts/t070-retired-layout/`. The feature build checks
+are recorded separately. No install or live-session restart occurred.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

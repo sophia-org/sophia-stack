@@ -102,7 +102,7 @@ impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExp
         &mut self,
         completed: Option<LiveRendererFrameCorrelation>,
         descriptor: LiveRendererScanoutBufferDescriptor,
-    ) -> Option<LiveRenderedScanoutBufferExport<NativeGbmRenderedScanoutOwner>> {
+    ) -> Option<LiveScanoutLayoutProbeSource<NativeGbmRenderedScanoutOwner>> {
         if !self.layout_probe.available {
             self.invalidate_layout_probe();
             return None;
@@ -128,15 +128,16 @@ impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExp
             return None;
         }
         self.layout_probe.last_attempt = Some(now);
-        Some(
-            LiveRenderedScanoutBufferExport::new(
+        Some(LiveScanoutLayoutProbeSource {
+            image: source.buffer.image_id,
+            export: LiveRenderedScanoutBufferExport::new(
                 sophia_renderer_live::LiveRendererScanoutBufferExportStatus::Exported,
                 sophia_renderer_live::LiveRendererScanoutBufferExportDetail::Exported,
                 Some(source.buffer.descriptor),
                 Some(NativeGbmRenderedScanoutOwner::Direct(source.buffer)),
             )
             .with_correlation(Some(source.original)),
-        )
+        })
     }
 }
 

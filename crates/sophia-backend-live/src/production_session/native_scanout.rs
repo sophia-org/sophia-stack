@@ -9,6 +9,9 @@ mod persistent_native_scanout {
     mod cursor;
     mod frame_damage;
     mod layout_probe;
+    mod layout_retirement;
+    pub(crate) use layout_retirement::LiveProductionNativeRetirementContent;
+    pub use layout_retirement::LiveProductionRetiredLayoutWitness;
     mod output_capabilities;
     mod render_devices;
     pub use render_devices::{LiveOutputAllocationPreference, LiveRenderDeviceNodeIdentity};
@@ -302,6 +305,7 @@ mod persistent_native_scanout {
         /// until a successor flip retires it.
         /// See `PresentFlipOwnership.tla`.
         pub submitted_direct: bool,
+        layout_witness: layout_retirement::NativeLayoutWitnessState,
         /// The same, for the submission the screen is now showing.
         pub presented_direct: bool,
         pub presented_content: Option<LiveProductionScanoutContent>,
@@ -381,6 +385,7 @@ mod persistent_native_scanout {
         };
         crate::LiveTrackedRenderedPrimaryPlaneScanoutSubmitReport {
             status,
+            layout_witness: None,
             scanout_target: prepare.scanout_target,
             output_size: Some(size),
             target: prepare.target,
@@ -416,6 +421,7 @@ mod persistent_native_scanout {
     ) -> crate::LiveTrackedRenderedPrimaryPlaneScanoutSubmitReport {
         crate::LiveTrackedRenderedPrimaryPlaneScanoutSubmitReport {
             status: result.status.into(),
+            layout_witness: None,
             scanout_target: result.scanout_target,
             output_size: Some(size),
             target: result.target,
@@ -816,6 +822,7 @@ mod persistent_native_scanout {
                         rendering_content: None,
                         submitted_content: None,
                         submitted_direct: false,
+                        layout_witness: layout_retirement::NativeLayoutWitnessState::default(),
                         presented_direct: false,
                         presented_content: None,
                         presented_logical_checksum: 0,
@@ -1461,6 +1468,7 @@ mod persistent_native_scanout {
                         self.heads[index].submitted_sequence = Some(self.heads[index].submissions);
                         self.heads[index].submitted_content = content;
                         self.heads[index].submitted_direct = submitted_direct;
+                        self.observe_layout_witness_submit(index, submit);
                         // Settled only if the cursor actually rode: a
                         // combined commit the driver refused retries with the
                         // primary alone, and settling then would record a
@@ -1906,10 +1914,23 @@ mod persistent_native_scanout {
                             continue;
                         };
                         let mut presented = true;
-                        if let Err(error) = self.production_page_flips.observe_page_flip(
+                        let native_content =
+                            self.heads[head_index].presented_content.map(|content| {
+                                LiveProductionNativeRetirementContent {
+                                    content,
+                                    submission: u64::try_from(
+                                        self.heads[head_index].presented_submissions,
+                                    )
+                                    .unwrap_or(u64::MAX),
+                                    direct: false,
+                                    layout_witness: None,
+                                }
+                            });
+                        if let Err(error) = self.production_page_flips.observe_native_page_flip(
                             output,
                             logical_serial,
                             logical_ust,
+                            native_content,
                         ) {
                             self.page_flip_phase_rejections =
                                 self.page_flip_phase_rejections.saturating_add(1);
@@ -1947,6 +1968,7 @@ mod persistent_native_scanout {
                         if presented {
                             completed_retire = Some(crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireReport {
                                 status: crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus::RetiredAfterPageFlip,
+                                layout_witness: None,
                                 destroy: None,
                                 runtime_scanout_state: Some(crate::RuntimeScanoutState::Retired),
                                 in_flight: false,
@@ -2686,10 +2708,10 @@ mod persistent_native_scanout {
                     )
                 })
             });
-            self.observe_callbacks_with_source(index, callbacks, completion_source);
             if let Some(retire) = retire {
                 self.observe_retire(index, retire);
             }
+            self.observe_callbacks_with_source(index, callbacks, completion_source);
             Ok(())
         }
 
@@ -2869,6 +2891,7 @@ mod persistent_native_scanout {
             index: usize,
             retire: crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireReport,
         ) {
+            self.observe_layout_witness_retire(index, retire);
             use crate::LiveTrackedRenderedPrimaryPlaneScanoutRetireStatus as Status;
             match retire.status {
                 Status::RetiredAfterPageFlip => {
@@ -3026,10 +3049,13 @@ mod persistent_native_scanout {
                         self.heads[index].presented_direct,
                         submit_to_page_flip,
                     );
-                    if let Err(error) =
-                        self.production_page_flips
-                            .observe_page_flip(output, kernel_sequence, ust)
-                    {
+                    let native_content = self.completed_native_content(index);
+                    if let Err(error) = self.production_page_flips.observe_native_page_flip(
+                        output,
+                        kernel_sequence,
+                        ust,
+                        native_content,
+                    ) {
                         self.page_flip_phase_rejections =
                             self.page_flip_phase_rejections.saturating_add(1);
                         tracing::error!(
@@ -3153,6 +3179,7 @@ mod persistent_native_scanout {
             &mut self,
             index: usize,
         ) -> Result<(), Box<dyn std::error::Error>> {
+            self.invalidate_layout_probes();
             // The head's own identity, so two exporters on one core never
             // collide in their replies, their slots, or their leases.
             // Group in the high bits, head in the low. Head identities repeat
@@ -3374,6 +3401,7 @@ mod persistent_native_scanout {
                 return;
             }
             self.translation_motion_active = active;
+            self.invalidate_layout_probes();
             for index in 0..self.exporters.len() {
                 let mirrored = self.head_indices(self.heads[index].output.id).len() > 1;
                 self.exporters[index].set_direct_scanout_enabled(
@@ -3492,15 +3520,16 @@ mod persistent_native_scanout {
             &mut self,
             output: OutputId,
         ) -> Option<LiveProductionNativeFrameRetirement> {
-            let retirement = self.production_page_flips.take_retirement(output)?;
-            let index = self.primary_head_index(output)?;
-            let content = self.heads[index].presented_content?;
+            let (retirement, native) = self.production_page_flips.take_native_retirement(output)?;
+            let native = native?;
+            let content = native.content;
             Some(LiveProductionNativeFrameRetirement {
                 output,
                 frame: content.frame(),
                 submission: retirement.cycle,
                 content,
-                direct: self.heads[index].presented_direct,
+                direct: native.direct,
+                layout_witness: native.layout_witness,
                 ust: retirement.retirement.ust,
                 msc: retirement.retirement.msc,
             })
@@ -3868,18 +3897,22 @@ pub use persistent_native_scanout::{
     LiveProductionNativeTopologyResourceRejection, LiveProductionNativeTopologyResourceTransition,
     LiveProductionPageFlipWatchdogStatus, LiveProductionRendererImageHandoff,
     LiveProductionRetainedFrameQueueRequirement, LiveProductionRetainedSceneQueueStatus,
-    LiveProductionScanoutContent, LiveProductionSemanticStartupBarrier,
-    LiveRenderDeviceNodeIdentity, finish_live_production_native_initialization,
-    live_production_mirror_head_work_frame, live_production_scanout_is_stable_present,
-    live_topology_frame_renderer_image_requirements, plan_live_production_native_topology,
-    project_live_production_published_topology, project_mirror_output_damage_snapshot,
-    project_native_cursor_logical_viewport, reduce_live_production_completion_timestamp,
-    reduce_live_production_cpu_frame_queue, reduce_live_production_head_render_target,
-    reduce_live_production_mirror_generation_queue, reduce_live_production_page_flip_watchdog,
-    reduce_live_production_retained_frame_queue, reduce_live_production_retained_scene_queue,
-    reduce_live_production_semantic_startup_barrier, validate_live_head_composition_frame_batch,
-    validate_live_production_rollback_topology, validate_live_production_topology_frames,
+    LiveProductionRetiredLayoutWitness, LiveProductionScanoutContent,
+    LiveProductionSemanticStartupBarrier, LiveRenderDeviceNodeIdentity,
+    finish_live_production_native_initialization, live_production_mirror_head_work_frame,
+    live_production_scanout_is_stable_present, live_topology_frame_renderer_image_requirements,
+    plan_live_production_native_topology, project_live_production_published_topology,
+    project_mirror_output_damage_snapshot, project_native_cursor_logical_viewport,
+    reduce_live_production_completion_timestamp, reduce_live_production_cpu_frame_queue,
+    reduce_live_production_head_render_target, reduce_live_production_mirror_generation_queue,
+    reduce_live_production_page_flip_watchdog, reduce_live_production_retained_frame_queue,
+    reduce_live_production_retained_scene_queue, reduce_live_production_semantic_startup_barrier,
+    validate_live_head_composition_frame_batch, validate_live_production_rollback_topology,
+    validate_live_production_topology_frames,
 };
+
+#[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+pub(crate) use persistent_native_scanout::LiveProductionNativeRetirementContent;
 
 #[derive(Debug)]
 pub struct LiveNativeMixedDiagnosticComplete {

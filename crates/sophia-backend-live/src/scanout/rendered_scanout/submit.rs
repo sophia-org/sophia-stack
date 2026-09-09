@@ -146,6 +146,7 @@ where
         commit_flags: prepare.commit_flags,
         commit_submit: None,
         atomic_test: None,
+        layout_witness: None,
         submission: None,
         cleanup: prepare.cleanup,
         cursor_dropped: false,
@@ -194,6 +195,7 @@ where
         commit_flags: prepare.commit_flags,
         commit_submit: Some(test.status),
         atomic_test: Some(test),
+        layout_witness: None,
         submission: None,
         cursor_dropped: false,
         cleanup: cancelled

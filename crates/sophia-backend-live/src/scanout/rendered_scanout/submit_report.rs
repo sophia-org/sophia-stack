@@ -5,6 +5,7 @@ use crate::prelude::*;
 #[derive(Debug)]
 pub struct LiveRenderedPrimaryPlaneScanoutSubmitResult<Owner> {
     pub status: LiveRenderedPrimaryPlaneScanoutSubmitStatus,
+    pub layout_witness: Option<crate::LiveScanoutLayoutWitness>,
     pub scanout_target: LiveKmsScanoutTargetStatus,
     pub target: Option<LiveGbmEglFrameTargetStatus>,
     pub export: Option<LiveRendererScanoutBufferExportStatus>,

@@ -42,6 +42,7 @@ fn submit_mixed_job(
             }),
             mixed_job(generation),
             Vec::new(),
+            None,
         )
         .unwrap();
     let WorkerCommand::Render {
@@ -185,7 +186,8 @@ fn a_hard_stalled_job_cannot_assign_its_late_result_to_another_frame() {
                 height: 16
             }),
             mixed_job(47),
-            Vec::new()
+            Vec::new(),
+            None,
         ),
         Err(super::LiveRendererScanoutBufferExportDetail::WorkerPending)
     );
@@ -282,6 +284,7 @@ fn the_service_derives_result_identity_from_the_owned_frame() {
             }),
             frame: mixed_job(51),
             preferred_modifiers: Vec::new(),
+            output_format: None,
         })
         .unwrap();
     let result = results.recv_timeout(SETTLE).unwrap();
@@ -307,7 +310,8 @@ fn exhausted_request_identity_refuses_before_queueing_another_job() {
                 height: 16
             }),
             mixed_job(53),
-            Vec::new()
+            Vec::new(),
+            None,
         ),
         Err(super::LiveRendererScanoutBufferExportDetail::WorkerDisconnected)
     );
@@ -464,5 +468,78 @@ fn a_correlation_cannot_survive_loss_of_an_export_owner_or_descriptor() {
         );
         assert!(export.correlation.is_none());
         assert!(export.normalized().correlation.is_none());
+    }
+}
+
+#[test]
+fn output_format_requests_cross_the_worker_boundary_without_relabeling() {
+    use sophia_protocol::{DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888};
+    use sophia_renderer_live::LiveCompositionFormatRequest::{Preferred, Required};
+
+    for (request, actual, admitted) in [
+        (Required(DRM_FORMAT_ARGB8888), DRM_FORMAT_ARGB8888, true),
+        (Required(DRM_FORMAT_ARGB8888), DRM_FORMAT_XRGB8888, false),
+        (Preferred(DRM_FORMAT_ARGB8888), DRM_FORMAT_ARGB8888, true),
+        (Preferred(DRM_FORMAT_ARGB8888), DRM_FORMAT_XRGB8888, true),
+    ] {
+        let (mut facade, commands, results) = correlated_facade();
+        facade
+            .submit(
+                LiveGbmEglFrameTargetRecord::new(Size {
+                    width: 16,
+                    height: 16,
+                }),
+                mixed_job(71),
+                Vec::new(),
+                Some(request),
+            )
+            .unwrap();
+        let WorkerCommand::Render {
+            request_id,
+            frame,
+            output_format,
+            ..
+        } = commands.recv().unwrap()
+        else {
+            panic!("missing accepted render command");
+        };
+        assert_eq!(output_format, Some(request));
+        let correlation = super::frame_correlation(&frame, Some(request_id));
+        let mut outcome = exported_outcome();
+        let WorkerOutcome::Exported {
+            descriptor,
+            lease_id,
+            slot_token,
+        } = &mut outcome
+        else {
+            unreachable!()
+        };
+        descriptor.format = actual;
+        let (expected_lease, expected_slot) = (*lease_id, *slot_token);
+        results
+            .send(correlated_result(correlation, outcome))
+            .unwrap();
+        match facade.poll() {
+            super::WorkerPoll::Exported(lease) => {
+                assert!(admitted, "required format accepted a different allocation");
+                assert_eq!(lease.descriptor().format, actual);
+                assert_eq!(lease.correlation(), correlation);
+                drop(lease);
+            }
+            super::WorkerPoll::Failed(
+                super::LiveRendererScanoutBufferExportDetail::WorkerDisconnected,
+            ) => {
+                assert!(
+                    !admitted,
+                    "an optional format preference blocked ordinary rendering"
+                );
+            }
+            _ => panic!("completion neither admitted nor refused"),
+        }
+        assert!(
+            matches!(commands.recv().unwrap(), WorkerCommand::Release { lease_id, slot_token, .. }
+            if lease_id == expected_lease && slot_token == expected_slot)
+        );
+        assert_eq!(facade.in_flight_correlation(), None);
     }
 }

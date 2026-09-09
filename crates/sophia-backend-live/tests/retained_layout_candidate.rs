@@ -299,3 +299,28 @@ fn replacement_and_expiration_release_the_single_retained_source() {
     assert!(!candidate.capture(expired, original(), now, now));
     assert_released(&mut peer);
 }
+
+#[test]
+fn output_format_preference_belongs_to_the_unbound_fallback_and_expires() {
+    let now = Instant::now();
+    let (buffer, mut peer) = source();
+    let mut candidate = RetainedLayoutCandidate::default();
+    assert!(candidate.capture(buffer, original(), now, now + LIMIT));
+    assert_eq!(candidate.output_format(original(), now), None);
+    let mut unrelated = fallback(None);
+    unrelated.trace.as_mut().unwrap().scene_generation += 1;
+    assert_eq!(candidate.output_format(unrelated, now), None);
+    assert_eq!(
+        candidate.output_format(fallback(None), now),
+        Some(DRM_FORMAT_ARGB8888)
+    );
+    assert!(candidate.bind(fallback(Some(10)), now));
+    assert_eq!(candidate.output_format(fallback(None), now), None);
+    assert!(candidate.unbind_deferred(fallback(Some(10)), now + LIMIT / 2));
+    assert_eq!(
+        candidate.output_format(fallback(None), now + LIMIT / 2),
+        Some(DRM_FORMAT_ARGB8888)
+    );
+    assert_eq!(candidate.output_format(fallback(None), now + LIMIT), None);
+    assert_released(&mut peer);
+}

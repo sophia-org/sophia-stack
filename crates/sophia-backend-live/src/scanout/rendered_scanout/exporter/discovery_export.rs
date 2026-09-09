@@ -75,7 +75,7 @@ where
         &mut self,
         completed: Option<super::LiveRendererFrameCorrelation>,
         descriptor: sophia_renderer_live::LiveRendererScanoutBufferDescriptor,
-    ) -> Option<LiveRenderedScanoutBufferExport<Self::Owner>> {
+    ) -> Option<super::LiveScanoutLayoutProbeSource<Self::Owner>> {
         self.take_layout_source(completed, descriptor)
     }
 

@@ -196,13 +196,20 @@ cleanup has an independent bounded retry owner and remains serviced while idle.
 Probe admission costs at most one pair per second per output, with no additional
 render or pixel copy.
 
-This yields correlated observations, not a reusable flip permit. Unknown tables,
-implicit layouts, different-format fallbacks and changed requests remain
-inconclusive. Actual copied-transaction attribution, preference-generation
-identity, retirement linkage and physical acceptance still gate any signal.
-In particular, a successful XR24 fallback does not prove AR24 layout support.
-An explicit output-format request for the ordinary render would be needed to
-broaden that case without a second copy; relabeling an existing buffer is invalid.
+The comparison now follows its accepted alternative through exact physical
+retirement and committed copied-transaction settlement. Unknown tables, implicit
+layouts, different-format fallbacks and changed requests remain inconclusive.
+The ordinary render can prefer the source fourcc, with pre-draw allocation
+fallback preserving normal rendering. A successful XR24 result still does not
+prove AR24 layout support. Native identity and submission context are invalidated
+on owner/topology changes, including rollback to a previous numeric generation.
+
+These are observations, not a reusable flip permit or an emitted reallocation
+hint. The current frontend preference identity, membership of the exact tested
+alternative in that connection's effective window preferences, and physical
+acceptance remain gates. Window preferences currently publish XR24 only, so an
+AR24 comparison cannot support client advice until exact-format publication exists.
+The native path conservatively withholds evidence for multi-output joins.
 
 ## Implementation checkpoints
 

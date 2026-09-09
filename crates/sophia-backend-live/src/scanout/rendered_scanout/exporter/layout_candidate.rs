@@ -48,6 +48,21 @@ impl RetainedLayoutCandidate {
         true
     }
 
+    /// Preserve the source format in the ordinary fallback render, before assigning its request.
+    pub fn output_format(
+        &mut self,
+        fallback: LiveRendererFrameCorrelation,
+        now: Instant,
+    ) -> Option<u32> {
+        self.expire(now);
+        let candidate = self.candidate.as_ref()?;
+        (candidate.fallback.is_none()
+            && fallback.trace == candidate.source.original.trace
+            && fallback.direct_scanout
+                == Some(DirectScanoutVerdict::CompositionRequired("refused")))
+        .then_some(candidate.source.buffer.descriptor.format)
+    }
+
     /// Called for the owned fallback at inline render or after its worker submission succeeds.
     pub fn bind(&mut self, fallback: LiveRendererFrameCorrelation, now: Instant) -> bool {
         self.expire(now);

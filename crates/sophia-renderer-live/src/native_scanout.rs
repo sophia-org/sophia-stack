@@ -1,15 +1,20 @@
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 use crate::{
-    LiveCompositionTrace, LiveCpuBufferSourceRef, LiveGbmEglFrameTargetRecord,
+    LiveCompositionTrace, LiveCpuBufferSourceRef, LiveGbmEglFrameTargetRecord, LiveRendererImageId,
     LiveRendererScanoutBufferDescriptor, LiveRendererScanoutBufferExportDetail,
     LiveRendererScanoutBufferExportStatus, LiveRendererScanoutBufferPlanes, Size,
 };
 use sophia_engine::{CompositorRgb8, HeadSamplingClass};
 use sophia_protocol::{DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888, Rect, Transform};
 
+pub use sophia_renderer_native_egl::{
+    NativeCompositionFormatRequest as LiveCompositionFormatRequest,
+    NativeCompositionOutputRequest as LiveCompositionOutputRequest,
+};
+
 mod renderer_images;
-pub use renderer_images::{LiveRendererImageId, LiveRendererImageSnapshot};
+pub use renderer_images::LiveRendererImageSnapshot;
 
 #[derive(Debug)]
 pub struct NativeGbmOwnedScanoutBuffer {
@@ -944,7 +949,10 @@ where
         self.export_mixed_owned_scanout_buffer_with_modifiers_and_trace(
             target,
             layers,
-            preferred_modifiers,
+            LiveCompositionOutputRequest {
+                preferred_modifiers,
+                format: None,
+            },
             None,
             None,
             None,
@@ -955,12 +963,12 @@ where
         &mut self,
         target: LiveGbmEglFrameTargetRecord,
         layers: &[LiveMixedCompositionLayer<'_>],
-        preferred_modifiers: &[u64],
+        request: LiveCompositionOutputRequest<'_>,
         trace: Option<LiveCompositionTrace>,
         frame_slot: Option<(sophia_renderer_native_egl::NativeFrameTargetSetId, usize)>,
         repaint: Option<&sophia_renderer_native_egl::NativeCompositionRepaintTable>,
     ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
-        if !target.is_valid_scanout_target() {
+        if !request.is_valid() || !target.is_valid_scanout_target() {
             return Err(LiveMixedCompositionError::InvalidOutput);
         }
         let native_layers = layers
@@ -1081,18 +1089,15 @@ where
         let report = match frame_slot {
             Some((set, frame_slot)) => self
                 .inner
-                .export_composed_owned_scanout_buffer_with_modifiers_in_frame_slot(
+                .export_composed_owned_scanout_buffer_in_frame_slot(
                     set,
                     frame_slot,
                     native_frame,
-                    preferred_modifiers,
+                    request,
                 ),
             None => self
                 .inner
-                .export_composed_owned_scanout_buffer_with_modifiers(
-                    native_frame,
-                    preferred_modifiers,
-                ),
+                .export_composed_owned_scanout_buffer(native_frame, request),
         };
         Ok(reduced_native_owned_scanout_buffer_export_report(report))
     }
@@ -1103,12 +1108,24 @@ where
         frame: &LiveOwnedMixedCompositionFrame,
         preferred_modifiers: &[u64],
     ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
-        self.export_owned_mixed_frame_with_modifiers_and_frame_slot(
+        self.export_owned_mixed_frame(
             target,
             frame,
-            preferred_modifiers,
-            None,
-            None,
+            LiveCompositionOutputRequest {
+                preferred_modifiers,
+                format: None,
+            },
+        )
+    }
+
+    pub fn export_owned_mixed_frame(
+        &mut self,
+        target: LiveGbmEglFrameTargetRecord,
+        frame: &LiveOwnedMixedCompositionFrame,
+        request: LiveCompositionOutputRequest<'_>,
+    ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
+        self.export_owned_mixed_frame_with_modifiers_and_frame_slot(
+            target, frame, request, None, None,
         )
     }
 
@@ -1123,10 +1140,32 @@ where
         preferred_modifiers: &[u64],
         repaint: Option<&sophia_renderer_native_egl::NativeCompositionRepaintTable>,
     ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
+        self.export_owned_mixed_frame_in_frame_slot(
+            set,
+            frame_slot,
+            target,
+            frame,
+            LiveCompositionOutputRequest {
+                preferred_modifiers,
+                format: None,
+            },
+            repaint,
+        )
+    }
+
+    pub fn export_owned_mixed_frame_in_frame_slot(
+        &mut self,
+        set: sophia_renderer_native_egl::NativeFrameTargetSetId,
+        frame_slot: usize,
+        target: LiveGbmEglFrameTargetRecord,
+        frame: &LiveOwnedMixedCompositionFrame,
+        request: LiveCompositionOutputRequest<'_>,
+        repaint: Option<&sophia_renderer_native_egl::NativeCompositionRepaintTable>,
+    ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
         self.export_owned_mixed_frame_with_modifiers_and_frame_slot(
             target,
             frame,
-            preferred_modifiers,
+            request,
             Some((set, frame_slot)),
             repaint,
         )
@@ -1136,10 +1175,13 @@ where
         &mut self,
         target: LiveGbmEglFrameTargetRecord,
         frame: &LiveOwnedMixedCompositionFrame,
-        preferred_modifiers: &[u64],
+        request: LiveCompositionOutputRequest<'_>,
         frame_slot: Option<(sophia_renderer_native_egl::NativeFrameTargetSetId, usize)>,
         repaint: Option<&sophia_renderer_native_egl::NativeCompositionRepaintTable>,
     ) -> Result<NativeGbmOwnedScanoutBufferExportReport, LiveMixedCompositionError> {
+        if !request.is_valid() {
+            return Err(LiveMixedCompositionError::InvalidOutput);
+        }
         // Capture client DMA-BUFs before assembling the output frame. Retained
         // scene state below then refers only to compositor-owned images.
         for layer in &frame.layers {
@@ -1220,7 +1262,7 @@ where
         self.export_mixed_owned_scanout_buffer_with_modifiers_and_trace(
             target,
             &layers,
-            preferred_modifiers,
+            request,
             frame.trace,
             frame_slot,
             repaint,

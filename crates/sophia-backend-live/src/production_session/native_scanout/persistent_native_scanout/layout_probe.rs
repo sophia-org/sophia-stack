@@ -2,6 +2,10 @@ use super::*;
 
 impl LiveProductionNativeScanout {
     pub(super) fn invalidate_layout_probes(&mut self) {
+        for head in &mut self.heads {
+            head.layout_witness.invalidate();
+        }
+        self.production_page_flips.invalidate_layout_witnesses();
         for exporter in &mut self.exporters {
             exporter.set_layout_probe_available(false);
         }

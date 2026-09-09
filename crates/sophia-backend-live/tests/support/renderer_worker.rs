@@ -113,6 +113,7 @@ fn render(commands: &SyncSender<WorkerCommand>, output: LiveRendererWorkerOutput
                 damage_snapshot: None,
             },
             preferred_modifiers: Vec::new(),
+            output_format: None,
         })
         .expect("worker accepts a render");
 }

@@ -767,6 +767,11 @@ where
         let correlation = frame
             .as_ref()
             .map(|frame| super::worker::frame_correlation(frame, None));
+        let output_format = correlation.and_then(|correlation| {
+            self.layout_probe
+                .candidate
+                .output_format(correlation, std::time::Instant::now())
+        });
         if let Some(correlation) = correlation {
             self.layout_probe
                 .candidate
@@ -776,10 +781,14 @@ where
             Some(PendingRenderedFrame::Mixed(frame)) => {
                 self.mixed_frame_export_attempts =
                     self.mixed_frame_export_attempts.saturating_add(1);
-                match context.export_owned_mixed_frame_with_modifiers(
+                match context.export_owned_mixed_frame(
                     target,
                     &frame,
-                    &self.preferred_modifiers,
+                    sophia_renderer_live::LiveCompositionOutputRequest {
+                        preferred_modifiers: &self.preferred_modifiers,
+                        format: output_format
+                            .map(sophia_renderer_live::LiveCompositionFormatRequest::Preferred),
+                    },
                 ) {
                     Ok(report) => {
                         if report.status == LiveRendererScanoutBufferExportStatus::Exported {

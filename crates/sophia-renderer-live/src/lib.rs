@@ -31,6 +31,7 @@ mod import;
 mod indicator_strip;
 mod presentation;
 mod production_cpu_scene;
+mod renderer_image;
 mod scanout_buffer;
 mod text_raster;
 
@@ -55,6 +56,7 @@ pub use import::*;
 pub use indicator_strip::*;
 pub use presentation::*;
 pub use production_cpu_scene::*;
+pub use renderer_image::LiveRendererImageId;
 pub use scanout_buffer::*;
 pub use text_raster::*;
 

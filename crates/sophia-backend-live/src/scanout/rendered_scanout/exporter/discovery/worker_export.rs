@@ -133,7 +133,16 @@ where
                 PendingRenderedFrameKind::Mixed
             }
         };
-        match worker.submit(target, frame, self.preferred_modifiers.clone()) {
+        let output_format = self.layout_probe.candidate.output_format(
+            super::super::worker::frame_correlation(&frame, None),
+            std::time::Instant::now(),
+        );
+        match worker.submit(
+            target,
+            frame,
+            self.preferred_modifiers.clone(),
+            output_format.map(sophia_renderer_live::LiveCompositionFormatRequest::Preferred),
+        ) {
             Ok(()) => {
                 if let Some(correlation) = worker.in_flight_correlation() {
                     self.layout_probe

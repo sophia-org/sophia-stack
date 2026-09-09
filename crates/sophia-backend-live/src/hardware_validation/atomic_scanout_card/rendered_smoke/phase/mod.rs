@@ -277,6 +277,7 @@ impl RealAtomicScanoutPageFlipSession {
                 scanout_buffer: owned_buffer,
                 primary_plane: submission,
                 submitted_after_page_flip_serial: None,
+                layout_witness: None,
             }),
         })
     }

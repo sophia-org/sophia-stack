@@ -264,9 +264,14 @@ impl LiveRenderedScanoutBufferExporter for Exporter {
         &mut self,
         _: Option<LiveRendererFrameCorrelation>,
         _: LiveRendererScanoutBufferDescriptor,
-    ) -> Option<LiveRenderedScanoutBufferExport<Owner>> {
+    ) -> Option<sophia_backend_live::LiveScanoutLayoutProbeSource<Owner>> {
         self.offers += 1;
-        self.source.take()
+        self.source
+            .take()
+            .map(|export| sophia_backend_live::LiveScanoutLayoutProbeSource {
+                export,
+                image: sophia_renderer_live::LiveRendererImageId::from_raw(8812),
+            })
     }
     fn record_layout_probe(&mut self, report: LiveScanoutLayoutProbeReport) {
         self.reports.push(report);
@@ -553,3 +558,6 @@ fn optional_original_cleanup_and_failed_real_submission_keep_independent_retry_o
     assert_eq!(*exporter.dropped.borrow(), [2, 1, 3]);
     assert!(device.outcomes.borrow().is_empty());
 }
+
+#[path = "rendered_layout_witness.rs"]
+mod witness;

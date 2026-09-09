@@ -219,12 +219,14 @@ fn a_refused_direct_export_retains_its_allocation_through_the_actual_fallback() 
     let source = exporter
         .take_layout_probe_source(Some(completed), alternative())
         .expect("the supported fallback receives the retained original");
-    assert_eq!(source.correlation, Some(original));
-    assert_eq!(source.descriptor, Some(descriptor));
-    let NativeGbmRenderedScanoutOwner::Direct(ref buffer) = *source.owner.as_ref().unwrap() else {
+    assert_eq!(source.export.correlation, Some(original));
+    assert_eq!(source.export.descriptor, Some(descriptor));
+    let NativeGbmRenderedScanoutOwner::Direct(ref buffer) = *source.export.owner.as_ref().unwrap()
+    else {
         panic!("the probe must receive the client's allocation");
     };
     assert_eq!(buffer.image_id, LiveRendererImageId::from_raw(11));
+    assert_eq!(source.image, buffer.image_id);
     assert_retained(&mut peer);
     assert!(
         exporter

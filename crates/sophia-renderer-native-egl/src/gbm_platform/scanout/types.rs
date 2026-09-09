@@ -167,6 +167,39 @@ pub enum NativeCompositionLayer<'a> {
     Solid(NativeSolidCompositionLayer),
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum NativeCompositionFormatRequest {
+    Required(u32),
+    /// May use normal allocation order if format admission fails before drawing.
+    Preferred(u32),
+}
+
+impl NativeCompositionFormatRequest {
+    pub const fn fourcc(self) -> u32 {
+        match self {
+            Self::Required(format) | Self::Preferred(format) => format,
+        }
+    }
+}
+
+/// Allocation constraints for a composed output. An absent format keeps the
+/// renderer's normal candidate order.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct NativeCompositionOutputRequest<'a> {
+    pub preferred_modifiers: &'a [u64],
+    /// Only XR24 and AR24 are supported. Other requested fourccs are refused.
+    pub format: Option<NativeCompositionFormatRequest>,
+}
+
+impl NativeCompositionOutputRequest<'_> {
+    pub const fn is_valid(self) -> bool {
+        match self.format {
+            None => true,
+            Some(request) => matches!(request.fourcc(), 0x3432_5258 | 0x3432_5241),
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct NativeCompositionFrame<'a> {
     pub width: u32,

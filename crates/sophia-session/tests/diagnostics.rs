@@ -356,6 +356,11 @@ fn paired_layout_observations_survive_without_resource_payloads() {
         reduced_record(&format!("{record} xid=123 payload=secret error=private")),
         Some(record.to_owned())
     );
+    let retired = "sophia_live_layout_probe schema=2 status=RetiredCopy transaction=71 output=2 scene_generation=91 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    assert_eq!(
+        reduced_record(&format!("{retired} xid=123 device_path=/private/card")),
+        Some(retired.to_owned())
+    );
     for field in [
         "status=secret",
         "original_status=secret",

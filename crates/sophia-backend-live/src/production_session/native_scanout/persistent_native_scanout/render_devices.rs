@@ -29,6 +29,9 @@ pub(super) struct LiveRenderDeviceState {
 }
 
 impl LiveRenderDeviceState {
+    pub(super) fn group_identity(&self, group: usize) -> Option<LiveRenderDeviceNodeIdentity> {
+        self.group_devices.get(group).copied().flatten()
+    }
     pub(super) fn group_identity_known(&self, group: usize) -> bool {
         self.group_devices.get(group).is_some_and(Option::is_some)
     }

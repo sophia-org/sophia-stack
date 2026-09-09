@@ -9,10 +9,15 @@ pub struct LiveRenderedPrimaryPlaneScanoutSubmission<Owner> {
     pub(crate) scanout_buffer: Owner,
     pub(crate) primary_plane: LibdrmNativePrimaryPlaneScanoutSubmission,
     pub(crate) submitted_after_page_flip_serial: Option<u64>,
+    pub(crate) layout_witness: Option<super::LiveScanoutLayoutWitness>,
 }
 
 #[cfg(feature = "libdrm-events")]
 impl<Owner> LiveRenderedPrimaryPlaneScanoutSubmission<Owner> {
+    pub const fn layout_witness(&self) -> Option<super::LiveScanoutLayoutWitness> {
+        self.layout_witness
+    }
+
     pub fn into_scanout_buffer(self) -> Owner {
         self.scanout_buffer
     }
@@ -32,6 +37,7 @@ impl<Owner> LiveRenderedPrimaryPlaneScanoutSubmission<Owner> {
             scanout_buffer: map(self.scanout_buffer),
             primary_plane: self.primary_plane,
             submitted_after_page_flip_serial: self.submitted_after_page_flip_serial,
+            layout_witness: self.layout_witness,
         }
     }
 

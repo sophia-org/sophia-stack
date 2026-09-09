@@ -126,6 +126,7 @@ pub(super) fn run_worker<D>(
                 target,
                 frame,
                 preferred_modifiers,
+                output_format,
             } => {
                 let frame_kind = pending_frame_kind_name(&frame);
                 if trace_worker_request(request_id) {
@@ -155,7 +156,10 @@ pub(super) fn run_worker<D>(
                             output,
                             target,
                             frame,
-                            &preferred_modifiers,
+                            sophia_renderer_live::LiveCompositionOutputRequest {
+                                preferred_modifiers: &preferred_modifiers,
+                                format: output_format,
+                            },
                             &mut next_lease_id,
                             state,
                         )
@@ -363,7 +367,7 @@ fn render_frame<D>(
     output: LiveRendererWorkerOutputKey,
     target: LiveGbmEglFrameTargetRecord,
     frame: PendingRenderedFrame,
-    preferred_modifiers: &[u64],
+    request: sophia_renderer_live::LiveCompositionOutputRequest<'_>,
     next_lease_id: &mut u64,
     state: &mut WorkerOutputState,
 ) -> WorkerOutcome
@@ -384,7 +388,7 @@ where
         output,
         target,
         frame,
-        preferred_modifiers,
+        request,
         next_lease_id,
         slot_token,
         state,
@@ -404,7 +408,7 @@ fn render_frame_in_slot<D>(
     output: LiveRendererWorkerOutputKey,
     target: LiveGbmEglFrameTargetRecord,
     frame: PendingRenderedFrame,
-    preferred_modifiers: &[u64],
+    request: sophia_renderer_live::LiveCompositionOutputRequest<'_>,
     next_lease_id: &mut u64,
     slot_token: LiveRendererFrameSlotToken,
     state: &mut WorkerOutputState,
@@ -469,7 +473,7 @@ where
                     frame_slot,
                     target,
                     &frame,
-                    preferred_modifiers,
+                    request.preferred_modifiers,
                 )
             });
             (
@@ -486,7 +490,7 @@ where
                 frame_slot,
                 target,
                 frame.as_frame(),
-                preferred_modifiers,
+                request.preferred_modifiers,
             ),
             None,
         ),
@@ -499,12 +503,12 @@ where
                 frame.output_damage_snapshot.as_ref(),
                 target.size,
             );
-            let report = match context.export_owned_mixed_frame_with_modifiers_in_frame_slot(
+            let report = match context.export_owned_mixed_frame_in_frame_slot(
                 target_set,
                 frame_slot,
                 target,
                 &frame,
-                preferred_modifiers,
+                request,
                 repaint.as_ref(),
             ) {
                 Ok(report) => report,
@@ -547,6 +551,10 @@ where
         return WorkerOutcome::Failed(LiveRendererScanoutBufferExportDetail::RetainedBufferMissing);
     };
     let descriptor = buffer.descriptor();
+    if matches!(request.format, Some(sophia_renderer_live::LiveCompositionFormatRequest::Required(format)) if descriptor.format != format)
+    {
+        return WorkerOutcome::Failed(LiveRendererScanoutBufferExportDetail::InvalidTarget);
+    }
     let Some(next_id) = next_lease_id.checked_add(1) else {
         return WorkerOutcome::Failed(LiveRendererScanoutBufferExportDetail::RetainedBufferMissing);
     };

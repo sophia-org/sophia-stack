@@ -10,7 +10,11 @@ mod import_cache;
 pub(crate) use import_cache::create_dma_buf_image;
 #[path = "scanout/context/image_transfer_policy.rs"]
 mod image_transfer_policy;
+mod output_candidates;
+mod output_format;
+use output_format::CompositionFormatAdmission;
 mod types;
+use output_candidates::{RenderedScanoutCandidate, rendered_scanout_candidates};
 
 pub use import_cache::*;
 pub use types::*;

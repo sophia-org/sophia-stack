@@ -74,7 +74,7 @@ impl<T: std::os::fd::AsFd> NativeGbmRenderedScanoutContext<T> {
                 },
             }]
         } else {
-            rendered_scanout_candidates(&[])
+            rendered_scanout_candidates(&[], None)
                 .into_iter()
                 .filter(|candidate| candidate.format == format)
                 .collect()

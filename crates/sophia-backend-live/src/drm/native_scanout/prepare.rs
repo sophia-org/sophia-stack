@@ -37,6 +37,10 @@ pub struct LibdrmNativePrimaryPlanePreparedScanout {
 }
 
 impl LibdrmNativePrimaryPlanePreparedScanout {
+    pub(crate) fn test_request_evidence(&self) -> Option<LibdrmNativeAtomicRequestEvidence> {
+        self.request.clone().test_only().evidence()
+    }
+
     pub const fn descriptor(&self) -> LiveRendererScanoutBufferDescriptor {
         self.descriptor
     }

@@ -8,6 +8,7 @@ mod persistent_native_scanout {
 
     mod cursor;
     mod frame_damage;
+    mod layout_probe;
     mod output_capabilities;
     mod render_devices;
     pub use render_devices::{LiveOutputAllocationPreference, LiveRenderDeviceNodeIdentity};
@@ -775,10 +776,12 @@ mod persistent_native_scanout {
                     let discovery = session.render_device_discovery()?;
                     let formats = session.scanout_format_capabilities_for_selection(selection);
                     let modifiers = formats.preferred_xrgb8888_modifiers.clone();
+                    let snapshot = formats.snapshot.clone();
                     head_formats.push(formats);
                     exporters.push(
                         crate::NativeGbmRenderedScanoutBufferDiscoveryExporter::new(discovery)
-                            .with_preferred_modifiers(modifiers),
+                            .with_preferred_modifiers(modifiers)
+                            .with_layout_probe_formats(snapshot),
                     );
                     heads.push(LiveProductionNativeHead {
                         head: head_id,
@@ -1341,6 +1344,7 @@ mod persistent_native_scanout {
                 self.retire_ready_and_retry_cleanup(output, runtime)?;
                 return Ok(runtime.run_tick(input)?);
             }
+            self.prepare_layout_probe_turn(index);
             let group = self.heads[index].group;
             // Arm the cursor to ride this frame's commit, when one is
             // pending. The request is being built anyway, so the ride costs
@@ -2694,6 +2698,8 @@ mod persistent_native_scanout {
             output: OutputId,
             runtime: &mut crate::LiveBackendRuntimeAssembly,
         ) -> Result<(), Box<dyn std::error::Error>> {
+            self.invalidate_layout_probes();
+            self.service_layout_probe_cleanup();
             if self.head_indices(output).len() > 1 {
                 let retirement = self.service_mirror_group_retirement(output, runtime);
                 if !retirement.errors.is_empty() {
@@ -2714,6 +2720,7 @@ mod persistent_native_scanout {
             output: OutputId,
             runtime: &mut crate::LiveBackendRuntimeAssembly,
         ) -> Result<(), Box<dyn std::error::Error>> {
+            self.service_layout_probe_cleanup();
             let index = self.primary_head(output)?;
             self.retire_ready(output, runtime)?;
             if runtime.rendered_primary_plane_scanout_cleanup_pending() {
@@ -2756,6 +2763,8 @@ mod persistent_native_scanout {
             runtime: &mut crate::LiveBackendRuntimeAssembly,
         ) -> Result<(), Box<dyn std::error::Error>> {
             let index = self.primary_head(output)?;
+            self.invalidate_layout_probes();
+            self.service_layout_probe_cleanup();
             trace_live_native_lifecycle("displayed_scanout_retire_started");
             let retired = runtime.retire_displayed_rendered_primary_plane_scanout(self.card(index));
             let mut runtime_cleanup_pending = retired.cleanup_pending;
@@ -2796,7 +2805,10 @@ mod persistent_native_scanout {
                     mirror_cleanup_pending = true;
                 }
             }
-            if runtime_cleanup_pending || mirror_cleanup_pending {
+            if runtime_cleanup_pending
+                || mirror_cleanup_pending
+                || self.layout_probe_cleanup_pending()
+            {
                 return Err(format!(
                     "persistent displayed scanout cleanup remained pending: runtime={} mirror_heads={}",
                     runtime_cleanup_pending, mirror_cleanup_pending,
@@ -3610,6 +3622,7 @@ mod persistent_native_scanout {
 
         pub fn any_head_cleanup_pending(&self) -> bool {
             !self.output_topology_cleanup.is_empty()
+                || self.layout_probe_cleanup_pending()
                 || self.heads.iter().any(|head| head.scanout_cleanup.is_some())
         }
 

@@ -839,6 +839,23 @@ Cursor-drop retries and later out-fence writes remain distinct from the tested
 request. Reallocation advice still requires an equivalent alternative on the
 exact current device, scene and output generation.
 
+An optional layout probe retains one original allocation through the exact
+fallback render request. It expires after one second; new offers, including an
+equal scene trace, and owner/topology transitions invalidate it. Capture and
+probe admission have separate one-second rate limits. Only a known unsupported
+explicit layout and a supported alternative of the same format and extent may
+reach the comparison. Unknown capability data remains inconclusive.
+
+On a quiescent card turn, both framebuffer owners are prepared against current
+selection, cursor and VRR state. Two consecutive TEST_ONLY requests must differ
+only in the primary framebuffer. Both owners return regardless of outcome;
+temporary cleanup has its own bounded retry slot and runs even when ordinary
+rendering is idle. The alternative is the ordinary compositor result, so no
+extra pixel copy or probe-specific rendering is required. These observations
+do not authorize later commits or Present reallocation advice. A rejection
+before TEST_ONLY, including PRIME or framebuffer creation failure, preserves
+the ordinary composition fallback and its partial cleanup obligation.
+
 Renderer work captures its frame correlation before submission and returns it
 with the actual exported lease. A newer pending frame cannot replace that
 correlation. Successful owned exports carry it into prepared scanout; incomplete

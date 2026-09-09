@@ -57,6 +57,16 @@ where
             }
             atomic_test = Some(test);
         }
+        prepared = super::layout_probe::probe_rendered_scanout_layout(
+            scanout_target,
+            target,
+            selection,
+            vrr_enabled,
+            cursor_ride,
+            device,
+            exporter,
+            prepared,
+        );
         let direct = prepared.scanout_buffer.is_direct_client_buffer();
         let mut result = submit_prepared_rendered_primary_plane_scanout(device, prepared);
         result.atomic_test = atomic_test;
@@ -87,22 +97,34 @@ where
         }
         return result;
     }
-    let status = match prepare.status {
-        LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutExportPending => {
-            LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutExportPending
-        }
-        LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutTargetNotReady => {
-            LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutTargetNotReady
-        }
-        LiveRenderedPrimaryPlaneScanoutPrepareStatus::FrameTargetUnavailable => {
-            LiveRenderedPrimaryPlaneScanoutSubmitStatus::FrameTargetUnavailable
-        }
-        LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutExportFailed => {
-            LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutExportFailed
-        }
-        LiveRenderedPrimaryPlaneScanoutPrepareStatus::Prepared
-        | LiveRenderedPrimaryPlaneScanoutPrepareStatus::PrimaryPlanePrepareFailed => {
-            LiveRenderedPrimaryPlaneScanoutSubmitStatus::PrimaryPlaneSubmitFailed
+    // PRIME import and framebuffer creation can refuse before TEST_ONLY.
+    // The direct exporter still owns the composed form, and partial resource
+    // cleanup must travel with its deferred result just as after a test refusal.
+    let recovered_direct = matches!(
+        prepare.status,
+        LiveRenderedPrimaryPlaneScanoutPrepareStatus::PrimaryPlanePrepareFailed
+            | LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutExportFailed
+    ) && exporter.fall_back_from_direct();
+    let status = if recovered_direct {
+        LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutExportPending
+    } else {
+        match prepare.status {
+            LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutExportPending => {
+                LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutExportPending
+            }
+            LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutTargetNotReady => {
+                LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutTargetNotReady
+            }
+            LiveRenderedPrimaryPlaneScanoutPrepareStatus::FrameTargetUnavailable => {
+                LiveRenderedPrimaryPlaneScanoutSubmitStatus::FrameTargetUnavailable
+            }
+            LiveRenderedPrimaryPlaneScanoutPrepareStatus::ScanoutExportFailed => {
+                LiveRenderedPrimaryPlaneScanoutSubmitStatus::ScanoutExportFailed
+            }
+            LiveRenderedPrimaryPlaneScanoutPrepareStatus::Prepared
+            | LiveRenderedPrimaryPlaneScanoutPrepareStatus::PrimaryPlanePrepareFailed => {
+                LiveRenderedPrimaryPlaneScanoutSubmitStatus::PrimaryPlaneSubmitFailed
+            }
         }
     };
     LiveRenderedPrimaryPlaneScanoutSubmitResult {

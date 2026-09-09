@@ -336,6 +336,25 @@ pub fn reduced_record(line: &str) -> Option<String> {
             }
             continue;
         }
+        if name == "sophia_live_layout_probe"
+            && matches!(
+                key,
+                "status"
+                    | "original_status"
+                    | "alternative_status"
+                    | "original_errno"
+                    | "alternative_errno"
+                    | "format"
+                    | "original_modifier"
+                    | "alternative_modifier"
+            )
+        {
+            if layout_probe_field(key, value) {
+                result.push(' ');
+                result.push_str(field);
+            }
+            continue;
+        }
         if name == "sophia_live_atomic_test" && matches!(key, "status" | "request_scope" | "errno")
         {
             if atomic_test_field(name, key, value) {
@@ -510,6 +529,30 @@ fn atomic_test_field(record: &str, key: &str, value: &str) -> bool {
                 || (!value.is_empty()
                     && value.bytes().all(|byte| byte.is_ascii_digit())
                     && value.parse::<i32>().is_ok_and(|errno| errno > 0))
+        }
+        _ => false,
+    }
+}
+
+fn layout_probe_field(key: &str, value: &str) -> bool {
+    match key {
+        "status" => matches!(
+            value,
+            "Tested"
+                | "MissingRequestEvidence"
+                | "SelectionMismatch"
+                | "GeometryMismatch"
+                | "RequestMismatch"
+        ),
+        "original_status" | "alternative_status" => {
+            value == "none" || atomic_test_field("sophia_live_atomic_test", "status", value)
+        }
+        "original_errno" | "alternative_errno" => {
+            atomic_test_field("sophia_live_atomic_test", "errno", value)
+        }
+        "format" => value.bytes().all(|byte| byte.is_ascii_digit()) && value.parse::<u32>().is_ok(),
+        "original_modifier" | "alternative_modifier" => {
+            value.bytes().all(|byte| byte.is_ascii_digit()) && value.parse::<u64>().is_ok()
         }
         _ => false,
     }

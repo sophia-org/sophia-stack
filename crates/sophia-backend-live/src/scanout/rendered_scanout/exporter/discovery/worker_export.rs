@@ -13,6 +13,7 @@ where
             .worker
             .as_mut()
             .expect("worker export path requires a renderer worker");
+        let in_flight = worker.in_flight_correlation();
         match worker.poll() {
             WorkerPoll::Exported(lease) => {
                 let kind = self.worker_frame_kind.take();
@@ -42,6 +43,7 @@ where
                 .with_correlation(Some(correlation));
             }
             WorkerPoll::Failed(detail) => {
+                self.layout_probe.candidate.invalidate();
                 self.worker_frame_kind = None;
                 self.context_status = worker.context_status();
                 self.last_export_status = Some(LiveRendererScanoutBufferExportStatus::Degraded);
@@ -54,10 +56,16 @@ where
                 );
             }
             WorkerPoll::Deferred(frame) => {
+                if let Some(completed) = in_flight {
+                    self.layout_probe
+                        .candidate
+                        .unbind_deferred(completed, std::time::Instant::now());
+                }
                 self.worker_frame_kind = None;
                 if self.pending_frame.is_none() {
                     self.pending_frame = Some(frame);
                 } else {
+                    self.layout_probe.candidate.invalidate();
                     // A newer frame arrived while this one waited for a slot.
                     // Latest-wins discards the returned one; it is the same
                     // supersession as an overwrite and is counted as one.
@@ -69,6 +77,7 @@ where
                 return worker_pending_export();
             }
             WorkerPoll::HardStalled(age) => {
+                self.layout_probe.candidate.invalidate();
                 self.worker_frame_kind = None;
                 self.last_export_status = Some(LiveRendererScanoutBufferExportStatus::Degraded);
                 tracing::error!(
@@ -126,11 +135,17 @@ where
         };
         match worker.submit(target, frame, self.preferred_modifiers.clone()) {
             Ok(()) => {
+                if let Some(correlation) = worker.in_flight_correlation() {
+                    self.layout_probe
+                        .candidate
+                        .bind(correlation, std::time::Instant::now());
+                }
                 self.worker_frame_kind = Some(kind);
                 self.last_export_status = Some(LiveRendererScanoutBufferExportStatus::Pending);
                 worker_pending_export()
             }
             Err(detail) => {
+                self.layout_probe.candidate.invalidate();
                 self.last_export_status = Some(LiveRendererScanoutBufferExportStatus::Degraded);
                 LiveRenderedScanoutBufferExport::new(
                     LiveRendererScanoutBufferExportStatus::Degraded,

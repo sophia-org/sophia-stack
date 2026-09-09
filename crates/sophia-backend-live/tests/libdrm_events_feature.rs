@@ -152,11 +152,15 @@ include!("libdrm_events_feature/fixtures_and_outputs.rs");
 include!("libdrm_events_feature/native_selection.rs");
 include!("libdrm_events_feature/scanout_submission.rs");
 include!("libdrm_events_feature/frame_correlation.rs");
+include!("libdrm_events_feature/atomic_test_pair.rs");
 include!("libdrm_events_feature/scanout_retirement.rs");
 include!("libdrm_events_feature/runtime_ticks.rs");
 include!("libdrm_events_feature/session_loop.rs");
 include!("libdrm_events_feature/native_gbm.rs");
 include!("libdrm_events_feature/direct_scanout.rs");
+#[cfg(feature = "gbm-probe")]
+#[path = "libdrm_events_feature/direct_resource_fallback.rs"]
+mod direct_resource_fallback;
 #[cfg(feature = "gbm-probe")]
 include!("libdrm_events_feature/direct_scanout_evidence.rs");
 #[cfg(feature = "gbm-probe")]
@@ -169,3 +173,6 @@ include!("libdrm_events_feature/multi_head_request.rs");
 include!("libdrm_events_feature/mirror_group_lifecycle.rs");
 include!("libdrm_events_feature/output_authority.rs");
 include!("libdrm_events_feature/output_topology_plan.rs");
+
+#[path = "support/rendered_layout_probe.rs"]
+mod rendered_layout_probe;

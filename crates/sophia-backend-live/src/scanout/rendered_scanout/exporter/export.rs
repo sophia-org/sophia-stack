@@ -113,6 +113,26 @@ pub trait LiveRenderedScanoutBufferExporter {
     fn fall_back_from_direct(&mut self) -> bool {
         false
     }
+
+    /// Optional diagnostic work has its own bounded cleanup owner. A failed
+    /// release must not replace cleanup owed by the ordinary submission.
+    fn layout_probe_cleanup(
+        &mut self,
+    ) -> Option<&mut Option<crate::LiveRenderedPrimaryPlaneScanoutCleanup<Self::Owner>>> {
+        None
+    }
+
+    fn take_layout_probe_source(
+        &mut self,
+        _completed: Option<super::LiveRendererFrameCorrelation>,
+        _descriptor: LiveRendererScanoutBufferDescriptor,
+    ) -> Option<LiveRenderedScanoutBufferExport<Self::Owner>> {
+        None
+    }
+
+    /// A consecutive pair of current-state tests is an observation, never a
+    /// reusable permission to submit or to signal client reallocation.
+    fn record_layout_probe(&mut self, _report: crate::LiveScanoutLayoutProbeReport) {}
 }
 
 #[cfg(feature = "libdrm-events")]

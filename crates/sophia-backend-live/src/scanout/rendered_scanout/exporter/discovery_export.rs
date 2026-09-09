@@ -48,6 +48,9 @@ where
         self.record_direct_scanout_test(
             report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Submitted,
         );
+        if report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Rejected {
+            self.capture_layout_probe_source();
+        }
         tracing::info!(
             "sophia_live_atomic_test schema=1 output={} scene_generation={} status={:?} errno={} request_scope={:?} nonblocking={} allow_modeset={}",
             self.output.raw(),
@@ -60,6 +63,52 @@ where
             report.commit_flags.nonblocking,
             report.commit_flags.allow_modeset,
         );
+    }
+
+    fn layout_probe_cleanup(
+        &mut self,
+    ) -> Option<&mut Option<crate::LiveRenderedPrimaryPlaneScanoutCleanup<Self::Owner>>> {
+        Some(&mut self.layout_probe.cleanup)
+    }
+
+    fn take_layout_probe_source(
+        &mut self,
+        completed: Option<super::LiveRendererFrameCorrelation>,
+        descriptor: sophia_renderer_live::LiveRendererScanoutBufferDescriptor,
+    ) -> Option<LiveRenderedScanoutBufferExport<Self::Owner>> {
+        self.take_layout_source(completed, descriptor)
+    }
+
+    fn record_layout_probe(&mut self, report: crate::LiveScanoutLayoutProbeReport) {
+        let status = |test: Option<crate::LibdrmNativeAtomicTestReport>| match test {
+            None => "none",
+            Some(test) => match test.status {
+                crate::LibdrmNativeAtomicCommitSubmitStatus::Submitted => "Submitted",
+                crate::LibdrmNativeAtomicCommitSubmitStatus::WouldBlock => "WouldBlock",
+                crate::LibdrmNativeAtomicCommitSubmitStatus::Rejected => "Rejected",
+            },
+        };
+        let errno = |test: Option<crate::LibdrmNativeAtomicTestReport>| {
+            test.and_then(|test| test.raw_os_error)
+                .map_or_else(|| "none".to_owned(), |errno| errno.to_string())
+        };
+        tracing::info!(
+            "sophia_live_layout_probe schema=1 output={} scene_generation={} status={:?} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
+            self.output.raw(),
+            report
+                .original
+                .trace
+                .map_or(0, |trace| trace.scene_generation),
+            report.tests.status,
+            status(report.tests.original),
+            status(report.tests.alternative),
+            errno(report.tests.original),
+            errno(report.tests.alternative),
+            report.format,
+            report.original_modifier,
+            report.alternative_modifier,
+        );
+        self.layout_probe.last_report = Some(report);
     }
 
     fn commit_direct_scanout(&mut self) {
@@ -104,6 +153,13 @@ where
         let offered = self.frame_offered_at.take();
         let direct_exports_before = self.direct_scanout_exports();
         let export = self.export_rendered_scanout_buffer_measured(target);
+        if !matches!(
+            export.status,
+            LiveRendererScanoutBufferExportStatus::Exported
+                | LiveRendererScanoutBufferExportStatus::Pending
+        ) {
+            self.invalidate_layout_probe();
+        }
         if let Some(offered) = offered {
             let direct = self.direct_scanout_exports() > direct_exports_before;
             self.cost.record_offer_to_submit(direct, offered.elapsed());

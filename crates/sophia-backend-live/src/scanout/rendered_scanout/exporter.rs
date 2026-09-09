@@ -8,6 +8,10 @@ mod discovery_export;
 mod export;
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 mod frame_slots;
+#[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+mod layout_candidate;
+#[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
+mod layout_probe;
 mod native;
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 mod slot_damage_history;

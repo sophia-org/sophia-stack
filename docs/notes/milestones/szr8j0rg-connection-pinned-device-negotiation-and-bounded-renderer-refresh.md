@@ -83,6 +83,17 @@ are tracked in t070–t074; a sufficient exact alternate-layout flip proof prece
 opt-in plumbing and deduplication. Failed TEST_ONLY and IN_FORMATS absence alone
 do not establish that counterfactual.
 
+## Paired-layout implementation
+
+The subsequent [atomic evidence checkpoint](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#consecutive-candidate-tests-after-1b7c84c8)
+retains an exact original allocation through bounded fallback rendering and
+issues fresh paired TEST_ONLY requests against current state. It reuses the
+ordinary rendered alternative, keeps temporary cleanup independent and serviced
+while idle, and repairs composition fallback after early PRIME/AddFB refusal.
+Its full repository gate and hardware pixel checks pass; physical paired-scanout
+and copied-transaction attribution remain separate. Evidence and final candidate
+identity are in `.artifacts/t070-paired-layout/`; the live release was not changed.
+
 ## Installed playback observation
 
 Mason installed `76ed2fddf31a` and reported Brave Origin open with video playing

@@ -207,9 +207,10 @@ where
     /// may regain it. Turning it off also ends any episode in progress, so a
     /// head that returns to eligibility is validated again rather than
     /// flipping on a test taken when it was somebody else's clone.
-    pub const fn set_direct_scanout_enabled(&mut self, enabled: bool) {
+    pub fn set_direct_scanout_enabled(&mut self, enabled: bool) {
         self.direct_scanout_enabled = enabled;
         if !enabled {
+            self.invalidate_layout_probe();
             self.direct_scanout_tested = false;
         }
     }
@@ -265,6 +266,7 @@ where
     /// compositor-side copy that was never used is dropped.
     /// See `PresentFlipOwnership.tla`, `DisplayedClientBufferIsNeverReleased`.
     pub fn commit_direct_scanout(&mut self) {
+        self.invalidate_layout_probe();
         self.direct_fallback = None;
         self.direct_scanout_flips = self.direct_scanout_flips.saturating_add(1);
     }
@@ -292,7 +294,7 @@ where
         };
         frame.direct_scanout = sophia_engine::DirectScanoutVerdict::CompositionRequired("refused");
         self.direct_scanout_fallbacks = self.direct_scanout_fallbacks.saturating_add(1);
-        self.replace_pending_frame(PendingRenderedFrame::Mixed(frame));
+        self.requeue_pending_frame(PendingRenderedFrame::Mixed(frame));
         true
     }
 }

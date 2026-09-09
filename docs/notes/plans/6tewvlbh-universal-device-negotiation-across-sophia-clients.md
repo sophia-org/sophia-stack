@@ -185,16 +185,24 @@ layout. A passing equivalent alternative, correlated through fallback ownership
 and current device/output state, remains the prerequisite for reallocation
 advice. XLibre's table-based heuristic does not replace this requirement.
 
-The preparation checkpoint retains strict per-head format observations and exact
-renderer-result correlation. Normal allocation preferences retain their existing
-parser and ordering; a strict unknown snapshot cannot become negative evidence.
-Successful exports carry their captured frame identity through preparation, and
-late or rejected worker leases remain owed release. These facts still do not
-constitute the differential proof: its source owner, absolute deadline and
-current card/output state must survive fallback without accepting a superseding
-frame. Topology rollback can restore an earlier target generation, so proof
-invalidation must cover the transition itself rather than compare that number
-alone.
+The current implementation retains strict per-head format observations and
+an original allocation through its exact fallback renderer request. Normal
+allocation preferences keep their existing parser and ordering. The source
+expires after one second; a newer offer or owner/topology transition invalidates
+it even when the scene trace or restored target generation is numerically equal.
+On a quiescent card turn, a matching-format fallback can supply an existing
+alternative framebuffer for two fresh comparable TEST_ONLY requests. Temporary
+cleanup has an independent bounded retry owner and remains serviced while idle.
+Probe admission costs at most one pair per second per output, with no additional
+render or pixel copy.
+
+This yields correlated observations, not a reusable flip permit. Unknown tables,
+implicit layouts, different-format fallbacks and changed requests remain
+inconclusive. Actual copied-transaction attribution, preference-generation
+identity, retirement linkage and physical acceptance still gate any signal.
+In particular, a successful XR24 fallback does not prove AR24 layout support.
+An explicit output-format request for the ordinary render would be needed to
+broaden that case without a second copy; relabeling an existing buffer is invalid.
 
 ## Implementation checkpoints
 

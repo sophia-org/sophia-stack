@@ -1,6 +1,9 @@
 use crate::prelude::*;
 use std::os::fd::OwnedFd;
 
+mod test_pair;
+pub use test_pair::*;
+
 /// Complete native resources and atomic request for one head, before the
 /// kernel has accepted a page flip.
 ///
@@ -31,6 +34,12 @@ pub struct LibdrmNativePrimaryPlanePreparedScanout {
     /// driver then accepts is one whose construction did not depend on
     /// anything having gone wrong first. A cursor must never cost a frame.
     retry_without_cursor: Option<LibdrmNativeAtomicCommitRequest>,
+}
+
+impl LibdrmNativePrimaryPlanePreparedScanout {
+    pub const fn descriptor(&self) -> LiveRendererScanoutBufferDescriptor {
+        self.descriptor
+    }
 }
 
 /// One enabled head's complete resources for a card-scoped topology commit.

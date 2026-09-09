@@ -34,6 +34,7 @@ where
     R: RenderDeviceDiscoveryBackend,
 {
     discovery: R,
+    pub(super) layout_probe: super::layout_probe::ExporterLayoutProbe,
     /// Which output this exporter speaks for. It names the worker's reply
     /// route and, inside a shared render context, this output's own target
     /// slots -- the inline path uses it for the latter alone.
@@ -144,6 +145,7 @@ where
     pub fn new(discovery: R) -> Self {
         Self {
             discovery,
+            layout_probe: super::layout_probe::ExporterLayoutProbe::default(),
             output: LiveRendererWorkerOutputKey::from_raw(0),
             context: None,
             worker: None,
@@ -204,6 +206,7 @@ where
     /// share a key: it is the only thing separating their replies, their
     /// slots, and their leases.
     pub fn set_output(&mut self, output: LiveRendererWorkerOutputKey) {
+        self.invalidate_layout_probe();
         self.output = output;
     }
 
@@ -228,6 +231,7 @@ where
         if self.worker.is_some() {
             return Ok(());
         }
+        self.invalidate_layout_probe();
         self.context_open_attempts = self.context_open_attempts.saturating_add(1);
         let core = NativeGbmRendererWorkerCore::spawn_with_image_import_devices(
             self.discovery.open_render_device(),
@@ -245,6 +249,7 @@ where
         if self.worker.is_some() {
             return;
         }
+        self.invalidate_layout_probe();
         self.context_open_attempts = self.context_open_attempts.saturating_add(1);
         self.worker = Some(core.attach(self.output));
         self.context = None;
@@ -312,6 +317,7 @@ where
     }
 
     pub fn with_preferred_modifiers(mut self, preferred_modifiers: impl Into<Vec<u64>>) -> Self {
+        self.invalidate_layout_probe();
         self.preferred_modifiers = reduced_preferred_scanout_modifiers(preferred_modifiers.into());
         self
     }
@@ -396,6 +402,11 @@ where
 
     /// Install the newest frame, counting whatever it displaced.
     pub(super) fn replace_pending_frame(&mut self, frame: PendingRenderedFrame) {
+        self.invalidate_layout_probe();
+        self.requeue_pending_frame(frame);
+    }
+
+    pub(super) fn requeue_pending_frame(&mut self, frame: PendingRenderedFrame) {
         if self.pending_frame.is_some() {
             self.pending_frame_supersessions = self.pending_frame_supersessions.saturating_add(1);
         }
@@ -479,6 +490,7 @@ where
     /// released. Returning false makes that ownership distinction explicit to
     /// topology-abort code.
     pub fn discard_pending_frame(&mut self) -> bool {
+        self.invalidate_layout_probe();
         if self.worker_in_flight() {
             return false;
         }
@@ -634,6 +646,12 @@ where
         &mut self,
         target: LiveGbmEglFrameTargetRecord,
     ) -> LiveRenderedScanoutBufferExport<NativeGbmRenderedScanoutOwner> {
+        self.layout_probe
+            .candidate
+            .expire(std::time::Instant::now());
+        if self.last_target.is_some_and(|previous| previous != target) {
+            self.invalidate_layout_probe();
+        }
         self.export_attempts = self.export_attempts.saturating_add(1);
         // Every export ends the eligibility episode unless it is itself
         // direct; the direct branch below restores this. Clearing first and
@@ -749,6 +767,11 @@ where
         let correlation = frame
             .as_ref()
             .map(|frame| super::worker::frame_correlation(frame, None));
+        if let Some(correlation) = correlation {
+            self.layout_probe
+                .candidate
+                .bind(correlation, std::time::Instant::now());
+        }
         let report = match frame {
             Some(PendingRenderedFrame::Mixed(frame)) => {
                 self.mixed_frame_export_attempts =

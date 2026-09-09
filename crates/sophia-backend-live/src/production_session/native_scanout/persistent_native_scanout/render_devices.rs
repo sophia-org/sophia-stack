@@ -29,6 +29,10 @@ pub(super) struct LiveRenderDeviceState {
 }
 
 impl LiveRenderDeviceState {
+    pub(super) fn group_identity_known(&self, group: usize) -> bool {
+        self.group_devices.get(group).is_some_and(Option::is_some)
+    }
+
     pub(super) fn new(head_formats: Vec<crate::LibdrmNativePlaneFormatCapabilities>) -> Self {
         Self {
             head_formats,
@@ -54,6 +58,7 @@ fn physical_device(file: &File) -> Option<(LiveRenderDeviceNodeIdentity, std::pa
 
 impl LiveProductionNativeScanout {
     pub(super) fn refresh_allocation_devices(&mut self) {
+        self.invalidate_layout_probes();
         let render_devices = self
             .image_import_devices
             .iter()

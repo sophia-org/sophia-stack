@@ -1598,7 +1598,8 @@ impl LiveProductionNativeScanout {
     /// displayed owner is intentionally allowed: topology apply replaces that
     /// owner, just as it did before cohorts tracked last-head release.
     pub fn output_topology_preparation_quiescent(&self) -> bool {
-        self.output_topology_preparation.is_none()
+        !self.layout_probe_cleanup_pending()
+            && self.output_topology_preparation.is_none()
             && self.heads.iter().all(|head| {
                 head.rendering_content.is_none()
                     && head.submitted_content.is_none()
@@ -1618,6 +1619,9 @@ impl LiveProductionNativeScanout {
     /// A wait that reports only that it timed out sends its reader back to the
     /// source to guess which owner was still holding a frame.
     pub fn output_topology_preparation_quiescence_blocker(&self) -> Option<&'static str> {
+        if self.layout_probe_cleanup_pending() {
+            return Some("layout_probe_cleanup");
+        }
         if self.output_topology_preparation.is_some() {
             return Some("topology_preparation");
         }
@@ -1766,6 +1770,7 @@ impl LiveProductionNativeScanout {
     }
 
     pub fn retry_output_topology_cleanup(&mut self) -> usize {
+        self.service_layout_probe_cleanup();
         let pending = core::mem::take(&mut self.output_topology_cleanup);
         for (head, cleanup) in pending {
             let Some(index) = self.head_index_for_head(head) else {
@@ -1790,6 +1795,8 @@ impl LiveProductionNativeScanout {
         candidate_frames: Vec<crate::LiveProductionHeadCompositionFrame>,
         rollback_frames: Vec<crate::LiveProductionHeadCompositionFrame>,
     ) -> Result<LiveProductionNativeTopologyPreparationReport, Box<dyn std::error::Error>> {
+        self.invalidate_layout_probes();
+        self.service_layout_probe_cleanup();
         if self.output_topology_preparation.is_some() {
             return Err("native output topology preparation is already active".into());
         }

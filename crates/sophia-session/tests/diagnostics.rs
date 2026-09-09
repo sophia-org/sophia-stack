@@ -350,6 +350,29 @@ fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
 }
 
 #[test]
+fn paired_layout_observations_survive_without_resource_payloads() {
+    let record = "sophia_live_layout_probe schema=1 output=2 scene_generation=91 status=Tested original_status=Rejected alternative_status=Submitted original_errno=22 alternative_errno=none format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
+    assert_eq!(
+        reduced_record(&format!("{record} xid=123 payload=secret error=private")),
+        Some(record.to_owned())
+    );
+    for field in [
+        "status=secret",
+        "original_status=secret",
+        "alternative_status=secret",
+        "original_errno=-22",
+        "alternative_errno=2147483648",
+        "original_modifier=18446744073709551616",
+        "format=4294967296",
+    ] {
+        assert_eq!(
+            reduced_record(&format!("sophia_live_layout_probe {field}")),
+            Some("sophia_live_layout_probe".to_owned())
+        );
+    }
+}
+
+#[test]
 fn protocol_tally_classification_rejects_out_of_range_and_nonnumeric_fields() {
     let prefix = "sophia_live_session_protocol_error_tally";
     let maximums = format!(

@@ -302,6 +302,8 @@ impl LiveProductionVisualRuntime {
         // One readiness pass per card, before any output can retire, submit a
         // successor, or declare its outstanding request stalled.
         native_scanout.pump_native_completions()?;
+        // Optional evidence owns resources even when no frame is pending.
+        native_scanout.service_layout_probe_cleanup();
         if self.retained_projection_pending {
             self.queue_retained_projection(scene, native_scanout)?;
         }

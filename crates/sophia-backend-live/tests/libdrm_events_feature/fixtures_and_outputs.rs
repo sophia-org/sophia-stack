@@ -602,6 +602,7 @@ impl LiveRenderedScanoutBufferExporter for FakeRenderedScanoutExporter {
             detail: LiveRendererScanoutBufferExportDetail::from_status(self.status),
             descriptor: self.descriptor,
             owner: self.owner.take(),
+            correlation: None,
         }
     }
 }

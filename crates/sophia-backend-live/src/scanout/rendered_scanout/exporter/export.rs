@@ -16,6 +16,7 @@ pub struct LiveRenderedScanoutBufferExport<Owner> {
     pub detail: LiveRendererScanoutBufferExportDetail,
     pub descriptor: Option<LiveRendererScanoutBufferDescriptor>,
     pub owner: Option<Owner>,
+    pub correlation: Option<super::LiveRendererFrameCorrelation>,
 }
 
 #[cfg(feature = "libdrm-events")]
@@ -32,24 +33,42 @@ impl<Owner> LiveRenderedScanoutBufferExport<Owner> {
                 detail,
                 descriptor,
                 owner,
+                correlation: None,
             },
             (LiveRendererScanoutBufferExportStatus::Exported, false) => Self {
                 status: LiveRendererScanoutBufferExportStatus::Degraded,
                 detail: LiveRendererScanoutBufferExportDetail::RetainedBufferMissing,
                 descriptor: None,
                 owner: None,
+                correlation: None,
             },
             (status, _) => Self {
                 status,
                 detail,
                 descriptor: None,
                 owner: None,
+                correlation: None,
             },
         }
     }
 
     pub fn normalized(self) -> Self {
+        let correlation = self.correlation;
         Self::new(self.status, self.detail, self.descriptor, self.owner)
+            .with_correlation(correlation)
+    }
+
+    /// Only an owned successful export can identify a rendered frame.
+    pub fn with_correlation(
+        mut self,
+        correlation: Option<super::LiveRendererFrameCorrelation>,
+    ) -> Self {
+        self.correlation = (self.status == LiveRendererScanoutBufferExportStatus::Exported
+            && self.descriptor.is_some()
+            && self.owner.is_some())
+        .then_some(correlation)
+        .flatten();
+        self
     }
 }
 

@@ -754,7 +754,7 @@ mod persistent_native_scanout {
             let mut groups = Vec::new();
             let mut heads = Vec::new();
             let mut exporters = Vec::new();
-            let mut head_modifiers = Vec::new();
+            let mut head_formats = Vec::new();
             for session in sessions.sessions.drain(..) {
                 let group = groups.len();
                 for ((selection, output_id), head_id) in session
@@ -773,9 +773,9 @@ mod persistent_native_scanout {
                     // shared buffer that needed it: a head scanning out its own
                     // buffer is constrained only by its own plane.
                     let discovery = session.render_device_discovery()?;
-                    let modifiers =
-                        session.preferred_xrgb8888_scanout_modifiers_for_selection(selection);
-                    head_modifiers.push(modifiers.clone());
+                    let formats = session.scanout_format_capabilities_for_selection(selection);
+                    let modifiers = formats.preferred_xrgb8888_modifiers.clone();
+                    head_formats.push(formats);
                     exporters.push(
                         crate::NativeGbmRenderedScanoutBufferDiscoveryExporter::new(discovery)
                             .with_preferred_modifiers(modifiers),
@@ -935,7 +935,7 @@ mod persistent_native_scanout {
                 nonzero_exports: 0,
                 exporters,
                 image_import_devices: Vec::new(),
-                render_devices: render_devices::LiveRenderDeviceState::new(head_modifiers),
+                render_devices: render_devices::LiveRenderDeviceState::new(head_formats),
                 output_lifecycles,
                 output_cohorts: BTreeMap::new(),
                 deferred_mirror_generations: BTreeMap::new(),

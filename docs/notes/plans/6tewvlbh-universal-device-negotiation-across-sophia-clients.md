@@ -185,6 +185,17 @@ layout. A passing equivalent alternative, correlated through fallback ownership
 and current device/output state, remains the prerequisite for reallocation
 advice. XLibre's table-based heuristic does not replace this requirement.
 
+The preparation checkpoint retains strict per-head format observations and exact
+renderer-result correlation. Normal allocation preferences retain their existing
+parser and ordering; a strict unknown snapshot cannot become negative evidence.
+Successful exports carry their captured frame identity through preparation, and
+late or rejected worker leases remain owed release. These facts still do not
+constitute the differential proof: its source owner, absolute deadline and
+current card/output state must survive fallback without accepting a superseding
+frame. Topology rollback can restore an earlier target generation, so proof
+invalidation must cover the transition itself rather than compare that number
+alone.
+
 ## Implementation checkpoints
 
 First replace invented DRI3 modifier responses with measured renderer import

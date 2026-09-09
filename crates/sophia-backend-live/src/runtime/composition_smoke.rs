@@ -251,6 +251,7 @@ impl LiveRenderedScanoutBufferExporter for DeterministicRenderedScanoutExporter 
             detail: LiveRendererScanoutBufferExportDetail::Exported,
             descriptor: Some(self.descriptor),
             owner: self.owner.take(),
+            correlation: None,
         }
     }
 }

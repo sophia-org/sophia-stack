@@ -142,6 +142,7 @@ pub(super) fn run_worker<D>(
                 let Some(state) = outputs.get_mut(&output) else {
                     continue;
                 };
+                let correlation = super::frame_correlation(&frame, Some(request_id));
                 let outcome = context.as_mut().map_or_else(
                     || {
                         WorkerOutcome::Failed(
@@ -207,6 +208,7 @@ pub(super) fn run_worker<D>(
                     .try_send(WorkerResult {
                         output,
                         request_id,
+                        correlation,
                         context_status,
                         persistent_render_stats,
                         composition_nonzero_rgb_pixels,

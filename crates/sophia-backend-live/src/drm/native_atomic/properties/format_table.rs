@@ -1,3 +1,6 @@
+mod snapshot;
+pub use snapshot::*;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LibdrmNativePlaneFormatModifierTable {
     modifiers: Vec<drm::buffer::DrmModifier>,

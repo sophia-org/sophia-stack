@@ -117,6 +117,77 @@ it is not a substitute. Direct scanout also remains subject to its existing
 policy and startup gates. SuboptimalCopy stays disabled and the original
 normal-unmodified-client acceptance requirement is unchanged.
 
+## Frame correlation and plane snapshots after `8c952695`
+
+The follow-up separates capability observation from proof. One native plane
+blob read feeds a bounded strict snapshot for XR24/AR24 and the unchanged
+legacy allocation-preference reduction. Unknown, unsupported and supported are
+distinct results. Unsupported versions, malformed extents or record masks,
+implicit modifiers and capacity exhaustion never publish a partial negative
+answer. Each native head retains the result; ordinary frame submission and
+DRI3 preference queries perform no additional property discovery.
+
+The native reference is Smithay `13738f8f2cc18224c229e7e8309ccdaa34e92e2a`,
+`src/wayland/dmabuf/mod.rs`. Its feedback builder keeps a main-device sampling
+tranche alongside ordered preferences, constructs an immutable shared table and
+publishes the complete feedback before `done`. Sophia borrows the separation
+between stable usable capabilities and advisory preferences at its existing
+frontend/native boundaries. No Wayland server dependency or application
+classification is introduced.
+
+Worker submission now captures request, scene/head/output trace and composition
+verdict. The worker derives returned correlation from the owned input frame;
+the facade checks that result against the submission. The returned lease, export
+and prepared scanout preserve it. A newer pending frame is not consulted when
+attributing the older result. Unknown/raw exporters carry no correlation, and
+normalization clears it when a valid descriptor or owner is absent. The worker
+request counter refuses exhaustion instead of saturating into repeated identity.
+
+This review also found a separate release defect: stale exported results were
+discarded without returning their slot, and a result arriving after hard-stall
+quarantine was not drained. Rejected exported results now owe their exact
+output/lease/slot release. A quarantined poll performs bounded draining; a full
+command queue retains one release for retry before consuming another result.
+Accepted-lease Drop retains its existing release behavior; this change does not
+claim to repair every possible release-queue saturation path.
+
+The lifecycle audit found no in-place card or plane replacement in the current
+topology planner. It preserves connector/CRTC/plane handles while changing mode
+and logical binding. Seat recovery constructs a new native owner and rereads
+its tables. Differential proof nevertheless needs stricter invalidation:
+topology rollback restores the previous target generation, so numeric equality
+alone has ABA. Its deadline must also be independent of `frame_offered_at`,
+which fallback and pending-frame replacement restamp. The source FD owner and
+current-state comparison remain the next implementation gate; neither this
+snapshot nor a successful composed export authorizes SuboptimalCopy.
+
+The follow-up based on `8c952695` passed
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check`: all-feature tests and
+clippy, layout and conformance checks, 20 archive fixtures, buffer-age pixel
+equivalence and GLX/EGL first-frame and pixmap-export pixels. Twenty new tests
+cover seven format-snapshot cases, eleven worker correlation/release cases and
+two export/preparation ownership cases. Existing worker tests were moved to the
+external private harness; the combined worker suite passes 26 tests.
+
+The first full run passed tests/clippy but refused two modules newly exceeding
+the source-layout limit. Plane queries and worker export handling were split by
+domain; the subsequent full run passed without changing the debt ledger.
+Passive composition trace data also moved out of the optional GBM implementation,
+and existing GBM-only imports/cursor helpers gained their missing feature gates.
+The libdrm-events-only backend now compiles; its two unrelated dead-code warnings
+remain. Exact source hashes and both gate logs are in
+`.artifacts/t070-frame-correlation/`. No production files changed during the
+successful gate. No install, live-session restart or physical flip test occurred.
+
+Correlation is explicit through primary-plane preparation. Successful topology
+conversion and ordinary submission reports do not retain that field; worker
+leases continue to own their own correlation. This is not complete retirement
+or topology-proof tracking. No card-wide mutation token was found, so the next
+differential test should freshly prepare and test both owners synchronously
+before another owner service step. Temporary-source cleanup needs an independent
+bounded obligation: the existing single cleanup slot may already belong to a
+failed alternative submission and cannot be overwritten.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

@@ -5,6 +5,9 @@ use super::{
 };
 use crate::prelude::*;
 
+#[cfg(all(feature = "gbm-probe", feature = "libdrm-events"))]
+mod format_capabilities;
+
 #[derive(Debug)]
 pub struct RealAtomicScanoutPageFlipSession {
     pub(super) card: RealAtomicScanoutCard,
@@ -316,6 +319,7 @@ impl RealAtomicScanoutPageFlipSession {
         self.cursor_plane_probe
     }
 
+    #[cfg(feature = "gbm-probe")]
     fn detach_atomic_cursor_planes(&self, planes: &[RealAtomicCursorPlane]) -> io::Result<()> {
         use drm::control::Device as _;
 
@@ -549,58 +553,6 @@ impl RealAtomicScanoutPageFlipSession {
     #[cfg(feature = "gbm-probe")]
     pub fn render_device_discovery(&self) -> io::Result<RealAtomicScanoutRenderDeviceDiscovery> {
         RealAtomicScanoutRenderDeviceDiscovery::from_card(&self.card)
-    }
-
-    #[cfg(all(feature = "gbm-probe", feature = "libdrm-events"))]
-    pub fn preferred_xrgb8888_scanout_modifiers(&self) -> Vec<u64> {
-        self.preferred_xrgb8888_scanout_modifiers_for_selection(self.selection())
-    }
-
-    #[cfg(all(feature = "gbm-probe", feature = "libdrm-events"))]
-    pub fn preferred_xrgb8888_scanout_modifiers_for_selection(
-        &self,
-        selection: LibdrmNativePrimaryPlaneSelection,
-    ) -> Vec<u64> {
-        let discovery = discover_native_primary_plane_property_handles(
-            &self.card,
-            selection.connector,
-            selection.crtc,
-            selection.plane,
-        );
-        let Some(properties) = discovery.properties else {
-            return Vec::new();
-        };
-        let Some(in_formats) = properties.plane_in_formats() else {
-            return Vec::new();
-        };
-
-        let Ok(plane_properties) =
-            drm::control::Device::get_properties(&self.card, selection.plane)
-        else {
-            return Vec::new();
-        };
-        let Some(blob_id) = plane_properties
-            .iter()
-            .find_map(|(property, value)| (*property == in_formats).then_some(*value))
-        else {
-            return Vec::new();
-        };
-        if blob_id == 0 {
-            return Vec::new();
-        }
-
-        let Ok(blob) = drm::control::Device::get_property_blob(&self.card, blob_id) else {
-            return Vec::new();
-        };
-        let parsed = LibdrmNativePlaneFormatModifierTable::parse_for_format(
-            &blob,
-            drm::buffer::DrmFourcc::Xrgb8888,
-        );
-        let Some(table) = parsed.table else {
-            return Vec::new();
-        };
-
-        table.modifiers().iter().copied().map(u64::from).collect()
     }
 
     #[cfg(all(feature = "gbm-probe", feature = "libinput-events"))]

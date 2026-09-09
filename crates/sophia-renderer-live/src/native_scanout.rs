@@ -1,12 +1,11 @@
 use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 
 use crate::{
-    LiveCpuBufferSourceRef, LiveGbmEglFrameTargetRecord, LiveRendererScanoutBufferDescriptor,
-    LiveRendererScanoutBufferExportDetail, LiveRendererScanoutBufferExportStatus,
-    LiveRendererScanoutBufferPlanes, Size,
+    LiveCompositionTrace, LiveCpuBufferSourceRef, LiveGbmEglFrameTargetRecord,
+    LiveRendererScanoutBufferDescriptor, LiveRendererScanoutBufferExportDetail,
+    LiveRendererScanoutBufferExportStatus, LiveRendererScanoutBufferPlanes, Size,
 };
-use sophia_engine::{CompositorRgb8, HeadSamplingClass, RenderHeadId};
-use sophia_protocol::OutputId;
+use sophia_engine::{CompositorRgb8, HeadSamplingClass};
 use sophia_protocol::{DRM_FORMAT_ARGB8888, DRM_FORMAT_XRGB8888, Rect, Transform};
 
 mod renderer_images;
@@ -485,13 +484,6 @@ impl LiveOwnedMixedCompositionFrame {
             image_id: *image_id,
         })
     }
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub struct LiveCompositionTrace {
-    pub output: OutputId,
-    pub head: RenderHeadId,
-    pub scene_generation: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

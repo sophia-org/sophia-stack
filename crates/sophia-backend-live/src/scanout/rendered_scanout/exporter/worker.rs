@@ -1,3 +1,4 @@
+use super::correlation::{LiveRendererFrameCorrelation, LiveRendererWorkerRequestId};
 use super::discovery::PendingRenderedFrame;
 use super::frame_slots::{
     LiveRendererFrameSlotMetrics, LiveRendererFrameSlotMetricsHandle, LiveRendererFrameSlotPool,
@@ -31,8 +32,20 @@ pub const LIVE_RENDERER_WORKER_SOFT_STALL: Duration = Duration::from_millis(100)
 pub const LIVE_RENDERER_WORKER_HARD_STALL: Duration = Duration::from_secs(1);
 const WORKER_MAINTENANCE_TIMEOUT: Duration = Duration::from_secs(1);
 
-#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct LiveRendererWorkerRequestId(u64);
+pub(super) fn frame_correlation(
+    frame: &PendingRenderedFrame,
+    request: Option<LiveRendererWorkerRequestId>,
+) -> LiveRendererFrameCorrelation {
+    let (trace, direct_scanout) = match frame {
+        PendingRenderedFrame::Mixed(frame) => (frame.trace, Some(frame.direct_scanout)),
+        _ => (None, None),
+    };
+    LiveRendererFrameCorrelation {
+        request,
+        trace,
+        direct_scanout,
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct LiveRendererWorkerLeaseId(u64);
@@ -81,6 +94,7 @@ pub struct LiveRendererWorkerMetrics {
 #[derive(Debug)]
 pub struct NativeGbmRendererWorkerScanoutLease {
     descriptor: LiveRendererScanoutBufferDescriptor,
+    correlation: LiveRendererFrameCorrelation,
     output: LiveRendererWorkerOutputKey,
     lease_id: LiveRendererWorkerLeaseId,
     slot_token: LiveRendererFrameSlotToken,
@@ -89,6 +103,10 @@ pub struct NativeGbmRendererWorkerScanoutLease {
 }
 
 impl NativeGbmRendererWorkerScanoutLease {
+    pub const fn correlation(&self) -> LiveRendererFrameCorrelation {
+        self.correlation
+    }
+
     pub const fn descriptor(&self) -> LiveRendererScanoutBufferDescriptor {
         self.descriptor
     }
@@ -280,6 +298,7 @@ impl NativeGbmRendererWorkerCore {
             result_receiver,
             next_request_id: 1,
             in_flight: None,
+            discarded_release: None,
             context_status: None,
             persistent_render_stats: LiveNativePersistentRenderStats::default(),
             composition_nonzero_rgb_pixels: 0,
@@ -304,6 +323,7 @@ pub(super) struct NativeGbmRendererWorker {
     result_receiver: Receiver<WorkerResult>,
     next_request_id: u64,
     in_flight: Option<InFlightRequest>,
+    discarded_release: Option<DiscardedWorkerLease>,
     context_status: Option<NativeGbmRenderedScanoutContextStatus>,
     persistent_render_stats: LiveNativePersistentRenderStats,
     composition_nonzero_rgb_pixels: usize,
@@ -340,6 +360,13 @@ impl NativeGbmRendererWorker {
         self.in_flight.is_some()
     }
 
+    pub const fn in_flight_correlation(&self) -> Option<LiveRendererFrameCorrelation> {
+        match &self.in_flight {
+            Some(request) => Some(request.correlation),
+            None => None,
+        }
+    }
+
     pub const fn context_status(&self) -> Option<NativeGbmRenderedScanoutContextStatus> {
         self.context_status
     }
@@ -369,8 +396,13 @@ impl NativeGbmRendererWorker {
         if self.quarantined || self.in_flight.is_some() {
             return Err(LiveRendererScanoutBufferExportDetail::WorkerPending);
         }
+        let Some(next_request_id) = self.next_request_id.checked_add(1) else {
+            self.quarantined = true;
+            return Err(LiveRendererScanoutBufferExportDetail::WorkerDisconnected);
+        };
         let request_id = LiveRendererWorkerRequestId(self.next_request_id);
-        self.next_request_id = self.next_request_id.saturating_add(1);
+        self.next_request_id = next_request_id;
+        let correlation = frame_correlation(&frame, Some(request_id));
         let command = WorkerCommand::Render {
             output: self.output,
             request_id,
@@ -389,6 +421,7 @@ impl NativeGbmRendererWorker {
             })?;
         self.in_flight = Some(InFlightRequest {
             request_id,
+            correlation,
             submitted_at: Instant::now(),
             soft_stall_reported: false,
         });
@@ -405,6 +438,13 @@ impl NativeGbmRendererWorker {
 
     pub fn poll(&mut self) -> WorkerPoll {
         let Some(mut in_flight) = self.in_flight.take() else {
+            self.flush_discarded_release();
+            if self.quarantined
+                && self.discarded_release.is_none()
+                && let Ok(result) = self.result_receiver.try_recv()
+            {
+                self.release_discarded_result(&result);
+            }
             return WorkerPoll::Idle;
         };
         match self.result_receiver.try_recv() {
@@ -439,13 +479,17 @@ impl NativeGbmRendererWorker {
                         result.output.raw(),
                         result.request_id.0,
                     );
+                    self.release_discarded_result(&result);
                     return WorkerPoll::Failed(
                         LiveRendererScanoutBufferExportDetail::WorkerDisconnected,
                     );
                 }
-                if result.request_id != in_flight.request_id {
+                if result.request_id != in_flight.request_id
+                    || result.correlation != in_flight.correlation
+                {
                     self.metrics.failures = self.metrics.failures.saturating_add(1);
                     self.quarantined = true;
+                    self.release_discarded_result(&result);
                     return WorkerPoll::Failed(
                         LiveRendererScanoutBufferExportDetail::WorkerDisconnected,
                     );
@@ -459,6 +503,7 @@ impl NativeGbmRendererWorker {
                         self.metrics.completions = self.metrics.completions.saturating_add(1);
                         WorkerPoll::Exported(NativeGbmRendererWorkerScanoutLease {
                             output: self.output,
+                            correlation: result.correlation,
                             descriptor,
                             lease_id,
                             slot_token,
@@ -472,7 +517,17 @@ impl NativeGbmRendererWorker {
                         self.metrics.failures = self.metrics.failures.saturating_add(1);
                         WorkerPoll::Failed(detail)
                     }
-                    WorkerOutcome::Deferred(frame) => WorkerPoll::Deferred(frame),
+                    WorkerOutcome::Deferred(frame) => {
+                        if frame_correlation(&frame, Some(result.request_id)) != result.correlation
+                        {
+                            self.metrics.failures = self.metrics.failures.saturating_add(1);
+                            self.quarantined = true;
+                            return WorkerPoll::Failed(
+                                LiveRendererScanoutBufferExportDetail::WorkerDisconnected,
+                            );
+                        }
+                        WorkerPoll::Deferred(frame)
+                    }
                 }
             }
             Err(TryRecvError::Disconnected) => {
@@ -503,6 +558,40 @@ impl NativeGbmRendererWorker {
                         soft_stall_started,
                     }
                 }
+            }
+        }
+    }
+
+    fn release_discarded_result(&mut self, result: &WorkerResult) {
+        if let WorkerOutcome::Exported {
+            lease_id,
+            slot_token,
+            ..
+        } = result.outcome
+        {
+            self.discarded_release = Some(DiscardedWorkerLease {
+                output: result.output,
+                lease_id,
+                slot_token,
+            });
+            self.flush_discarded_release();
+        }
+    }
+
+    fn flush_discarded_release(&mut self) {
+        let Some(release) = self.discarded_release.take() else {
+            return;
+        };
+        if let Err(error) = self.core.command_sender.try_send(WorkerCommand::Release {
+            output: release.output,
+            lease_id: release.lease_id,
+            slot_token: release.slot_token,
+        }) {
+            self.core
+                .release_enqueue_failures
+                .fetch_add(1, Ordering::Relaxed);
+            if matches!(error, TrySendError::Full(_)) {
+                self.discarded_release = Some(release);
             }
         }
     }
@@ -689,8 +778,15 @@ pub(super) enum WorkerPoll {
     HardStalled(Duration),
 }
 
+struct DiscardedWorkerLease {
+    output: LiveRendererWorkerOutputKey,
+    lease_id: LiveRendererWorkerLeaseId,
+    slot_token: LiveRendererFrameSlotToken,
+}
+
 struct InFlightRequest {
     request_id: LiveRendererWorkerRequestId,
+    correlation: LiveRendererFrameCorrelation,
     submitted_at: Instant,
     soft_stall_reported: bool,
 }
@@ -757,6 +853,7 @@ enum WorkerCommand {
 struct WorkerResult {
     output: LiveRendererWorkerOutputKey,
     request_id: LiveRendererWorkerRequestId,
+    correlation: LiveRendererFrameCorrelation,
     context_status: NativeGbmRenderedScanoutContextStatus,
     persistent_render_stats: LiveNativePersistentRenderStats,
     composition_nonzero_rgb_pixels: usize,
@@ -851,6 +948,7 @@ fn worker_outcome_name(outcome: &WorkerOutcome) -> &'static str {
 // size rather than for a boundary.
 include!("worker/damage.rs");
 mod service;
+#[path = "../../../../tests/support/renderer_worker.rs"]
 mod tests;
 
 use service::run_worker;

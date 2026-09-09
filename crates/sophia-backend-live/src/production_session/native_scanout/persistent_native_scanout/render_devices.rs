@@ -21,7 +21,7 @@ pub struct LiveOutputAllocationPreference {
 }
 
 pub(super) struct LiveRenderDeviceState {
-    head_modifiers: Vec<Vec<u64>>,
+    head_formats: Vec<crate::LibdrmNativePlaneFormatCapabilities>,
     group_devices: Vec<Option<LiveRenderDeviceNodeIdentity>>,
     pub(super) generation: u64,
     pub(super) pending: BTreeMap<usize, u64>,
@@ -29,9 +29,9 @@ pub(super) struct LiveRenderDeviceState {
 }
 
 impl LiveRenderDeviceState {
-    pub(super) fn new(head_modifiers: Vec<Vec<u64>>) -> Self {
+    pub(super) fn new(head_formats: Vec<crate::LibdrmNativePlaneFormatCapabilities>) -> Self {
         Self {
-            head_modifiers,
+            head_formats,
             group_devices: Vec::new(),
             generation: 0,
             pending: BTreeMap::new(),
@@ -96,7 +96,12 @@ impl LiveProductionNativeScanout {
                     output: output.id,
                     device_number: identity.device_number,
                     identity: Some(identity),
-                    modifiers: self.render_devices.head_modifiers.get(index)?.clone(),
+                    modifiers: self
+                        .render_devices
+                        .head_formats
+                        .get(index)?
+                        .preferred_xrgb8888_modifiers
+                        .clone(),
                 })
             })
             .collect()

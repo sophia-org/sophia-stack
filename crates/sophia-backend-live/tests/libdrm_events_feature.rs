@@ -151,6 +151,7 @@ include!("libdrm_events_feature/fake_devices.rs");
 include!("libdrm_events_feature/fixtures_and_outputs.rs");
 include!("libdrm_events_feature/native_selection.rs");
 include!("libdrm_events_feature/scanout_submission.rs");
+include!("libdrm_events_feature/frame_correlation.rs");
 include!("libdrm_events_feature/scanout_retirement.rs");
 include!("libdrm_events_feature/runtime_ticks.rs");
 include!("libdrm_events_feature/session_loop.rs");

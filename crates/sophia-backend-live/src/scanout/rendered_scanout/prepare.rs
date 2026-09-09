@@ -6,6 +6,14 @@ use crate::prelude::*;
 pub struct LivePreparedRenderedPrimaryPlaneScanout<Owner> {
     pub(super) scanout_buffer: Owner,
     pub(super) primary_plane: LibdrmNativePrimaryPlanePreparedScanout,
+    correlation: Option<crate::LiveRendererFrameCorrelation>,
+}
+
+#[cfg(feature = "libdrm-events")]
+impl<Owner> LivePreparedRenderedPrimaryPlaneScanout<Owner> {
+    pub const fn correlation(&self) -> Option<crate::LiveRendererFrameCorrelation> {
+        self.correlation
+    }
 }
 
 #[cfg(feature = "libdrm-events")]
@@ -280,6 +288,7 @@ where
             Some(LivePreparedRenderedPrimaryPlaneScanout {
                 scanout_buffer: owner,
                 primary_plane,
+                correlation: export.correlation,
             }),
             None,
         ),
@@ -414,6 +423,7 @@ pub fn prepare_rendered_topology_head_from_prepared_scanout<Owner>(
     let LivePreparedRenderedPrimaryPlaneScanout {
         scanout_buffer,
         primary_plane,
+        correlation,
     } = prepared;
     let primary_plane =
         match prepare_native_topology_head_from_prepared_scanout(primary_plane, vrr_enabled) {
@@ -422,6 +432,7 @@ pub fn prepare_rendered_topology_head_from_prepared_scanout<Owner>(
                 return Err(LivePreparedRenderedPrimaryPlaneScanout {
                     scanout_buffer,
                     primary_plane,
+                    correlation,
                 });
             }
         };

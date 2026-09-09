@@ -67,20 +67,28 @@ where
                     self.direct_scanout_exports = self.direct_scanout_exports.saturating_add(1);
                     self.record_direct_scanout_episode("exported", generation, "none");
                     let descriptor = buffer.descriptor;
+                    let correlation = super::LiveRendererFrameCorrelation {
+                        request: None,
+                        trace: frame.trace,
+                        direct_scanout: Some(frame.direct_scanout),
+                    };
                     // Keep the composed form. Nothing has reached a screen yet
                     // -- the driver has not been asked -- and if it refuses,
                     // this is the frame that gets composed instead.
                     self.direct_fallback = Some(frame);
                     self.direct_scanout_tested = continuing_episode;
                     self.last_export_status = Some(LiveRendererScanoutBufferExportStatus::Exported);
-                    return Some(LiveRenderedScanoutBufferExport::new(
-                        LiveRendererScanoutBufferExportStatus::Exported,
-                        LiveRendererScanoutBufferExportDetail::from_status(
+                    return Some(
+                        LiveRenderedScanoutBufferExport::new(
                             LiveRendererScanoutBufferExportStatus::Exported,
-                        ),
-                        Some(descriptor),
-                        Some(NativeGbmRenderedScanoutOwner::Direct(buffer)),
-                    ));
+                            LiveRendererScanoutBufferExportDetail::from_status(
+                                LiveRendererScanoutBufferExportStatus::Exported,
+                            ),
+                            Some(descriptor),
+                            Some(NativeGbmRenderedScanoutOwner::Direct(buffer)),
+                        )
+                        .with_correlation(Some(correlation)),
+                    );
                 }
                 Err(refusal) => {
                     // Counted apart: a structural disagreement means Engine's

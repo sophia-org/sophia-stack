@@ -839,6 +839,14 @@ Cursor-drop retries and later out-fence writes remain distinct from the tested
 request. Reallocation advice still requires an equivalent alternative on the
 exact current device, scene and output generation.
 
+Renderer work captures its frame correlation before submission and returns it
+with the actual exported lease. A newer pending frame cannot replace that
+correlation. Successful owned exports carry it into prepared scanout; incomplete
+or failed exports carry none. Request identifiers are scoped to their worker
+facade and never wrap into reuse. Rejected or late results still owe release of
+their exact returned output, lease and slot. A full command queue retains one
+discarded-release obligation and defers further draining without blocking.
+
 Performance cadence is accumulated from routed displayed-Present UST values in
 bounded owner state. Completion emits one summary containing sample count,
 advancing intervals, nonadvancing observations, overflow state, mean FPS, and
@@ -908,6 +916,14 @@ Tiled preferences require equal server-observed render-node identity across the
 connection and output; absent or different identity retains measured LINEAR only.
 The identity is cached at preparation, so queries require no device discovery.
 Preferences grant no device authority and imply no successful atomic scanout test.
+
+Each native head caches its plane-format observation beside its existing
+allocation preferences. Both come from one IN_FORMATS blob read. Strict
+evidence distinguishes supported, unsupported and unknown layouts; malformed,
+unreadable, implicit or over-capacity tables cannot prove exclusion. The strict
+snapshot does not narrow the ordinary allocation-preference parser. Plane and
+blob identifiers remain card-local, and a snapshot is not current proof across
+native-owner replacement, lost device identity or recovery.
 
 Worker shutdown uses an independent cancellation flag and never waits for an
 unfinished thread or a full command queue. A bounded lifecycle registry retains

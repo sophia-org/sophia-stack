@@ -1,6 +1,13 @@
 use crate::Size;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct LiveCompositionTrace {
+    pub output: sophia_protocol::OutputId,
+    pub head: sophia_engine::RenderHeadId,
+    pub scene_generation: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct LiveGbmEglFrameTargetRecord {
     pub status: LiveGbmEglFrameTargetStatus,
     pub size: Size,

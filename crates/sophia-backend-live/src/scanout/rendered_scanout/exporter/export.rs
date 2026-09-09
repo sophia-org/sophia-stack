@@ -78,6 +78,13 @@ pub trait LiveRenderedScanoutBufferExporter {
     /// Record the driver's answer to that validating commit.
     fn record_direct_scanout_test(&mut self, _accepted: bool) {}
 
+    /// An actual TEST_ONLY result; a skipped test never calls this hook.
+    fn record_direct_scanout_test_result(&mut self, report: crate::LibdrmNativeAtomicTestReport) {
+        self.record_direct_scanout_test(
+            report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Submitted,
+        );
+    }
+
     /// The direct buffer reached the driver. Release the composed form kept
     /// against a refusal; never the client's buffer, which is on glass.
     fn commit_direct_scanout(&mut self) {}

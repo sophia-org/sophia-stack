@@ -1399,3 +1399,134 @@ fn cursor_plane_property_handles() -> sophia_backend_live::LibdrmNativeCursorPla
         handle(213),
     )
 }
+
+#[test]
+fn detailed_validation_preserves_errno_without_classifying_its_cause() {
+    for error in [
+        io::Error::from_raw_os_error(22), // EINVAL
+        io::Error::from_raw_os_error(16), // EBUSY
+        io::Error::from_raw_os_error(5),  // EIO
+        io::Error::from_raw_os_error(11), // EAGAIN
+        io::Error::other("non-OS failure"),
+        io::Error::new(io::ErrorKind::WouldBlock, "non-OS pending"),
+    ] {
+        let expected_kind = error.kind();
+        let expected_errno = error.raw_os_error();
+        let mut device = full_primary_plane_scanout_device();
+        device.submit = Err(error);
+        let selection = select_native_primary_plane_target(&device);
+        let prepared = sophia_backend_live::prepare_native_primary_plane_scanout_from_selection_and_renderer_dma_bufs_with_policy(
+            &device,
+            selection,
+            scanout_descriptor(Size { width: 1280, height: 720 }),
+            [Some(std::fs::File::open("/dev/null").unwrap().into()), None, None, None],
+            LibdrmNativePrimaryPlaneScanoutSubmitPolicy::page_flip(),
+        ).prepared.expect("fixture must own an imported framebuffer");
+        let (report, prepared) =
+            sophia_backend_live::validate_prepared_native_primary_plane_scanout_detailed(
+                &device, prepared,
+            );
+        assert_eq!(
+            report.status,
+            if expected_kind == io::ErrorKind::WouldBlock {
+                LibdrmNativeAtomicCommitSubmitStatus::WouldBlock
+            } else {
+                LibdrmNativeAtomicCommitSubmitStatus::Rejected
+            }
+        );
+        assert_prepared_test_request(&report);
+        assert_eq!(report.error_kind, Some(expected_kind));
+        assert_eq!(report.raw_os_error, expected_errno);
+        assert_eq!(
+            report.request_scope,
+            LibdrmNativeAtomicCommitRequestScope::PageFlip
+        );
+        assert!(report.commit_flags.test_only);
+        assert!(!report.commit_flags.page_flip_event);
+        assert!(!report.commit_flags.allow_modeset);
+        assert_eq!(
+            device.commits(),
+            1,
+            "detailed reporting must not issue another ioctl"
+        );
+        assert_eq!(device.test_only_commits(), 1);
+        assert_eq!(device.imported_buffers(), 1);
+        assert_eq!(device.destroyed_framebuffers(), 0);
+        assert_eq!(device.closed_buffers(), 0);
+        let cancelled = cancel_prepared_native_primary_plane_scanout(&device, prepared);
+        assert_eq!(
+            cancelled.status,
+            LibdrmNativePrimaryPlaneResourceDestroyStatus::Destroyed
+        );
+        assert_eq!(device.destroyed_framebuffers(), 1);
+        assert_eq!(device.closed_buffers(), 1);
+        assert_eq!(device.commits(), 1);
+    }
+}
+
+#[test]
+fn detailed_validation_success_records_test_flags_and_preserves_the_real_request() {
+    let device = full_primary_plane_scanout_device();
+    let selection = select_native_primary_plane_target(&device);
+    let prepared =
+        prepare_native_primary_plane_scanout_from_selection_and_renderer_descriptor_with_policy(
+            &device,
+            selection,
+            scanout_descriptor(Size {
+                width: 1280,
+                height: 720,
+            }),
+            LibdrmNativePrimaryPlaneScanoutSubmitPolicy::page_flip(),
+        )
+        .prepared
+        .unwrap();
+    let (report, prepared) =
+        sophia_backend_live::validate_prepared_native_primary_plane_scanout_detailed(
+            &device, prepared,
+        );
+    assert_eq!(
+        report.status,
+        LibdrmNativeAtomicCommitSubmitStatus::Submitted
+    );
+    assert_prepared_test_request(&report);
+    assert_eq!(report.error_kind, None);
+    assert_eq!(report.raw_os_error, None);
+    assert!(report.commit_flags.test_only && !report.commit_flags.page_flip_event);
+    assert_eq!(device.commits(), 1);
+    assert_eq!(device.test_only_commits(), 1);
+    assert_eq!(device.destroyed_framebuffers(), 0);
+    let submitted = submit_prepared_native_primary_plane_scanout(&device, prepared);
+    assert_eq!(
+        submitted.status,
+        LibdrmNativePrimaryPlaneScanoutSubmitStatus::SubmittedWaitingForPageFlip
+    );
+    let flags = submitted.commit_flags.unwrap();
+    assert!(!flags.test_only && flags.page_flip_event);
+    assert_eq!(device.commits(), 2);
+    assert_eq!(
+        device.test_only_commits(),
+        1,
+        "the returned owner still carries the committing request"
+    );
+}
+
+fn assert_prepared_test_request(report: &sophia_backend_live::LibdrmNativeAtomicTestReport) {
+    let request = report
+        .request
+        .expect("prepared primary plane retains canonical request facts");
+    assert_eq!(request.flags, report.commit_flags);
+    assert_eq!(request.scope, report.request_scope);
+    assert_eq!(
+        request.primary_framebuffer(),
+        (u32::from(plane_handle()), 104)
+    );
+    let framebuffer = request
+        .properties()
+        .iter()
+        .find(|row| (row.object, row.property) == request.primary_framebuffer())
+        .expect("the exact framebuffer property must be present");
+    assert_eq!(
+        framebuffer.value,
+        u64::from(u32::from(framebuffer_handle()))
+    );
+}

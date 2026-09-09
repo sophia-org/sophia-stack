@@ -21,6 +21,8 @@ pub struct LiveRenderedPrimaryPlaneScanoutSubmitResult<Owner> {
     pub request_scope: Option<LibdrmNativeAtomicCommitRequestScope>,
     pub commit_flags: Option<LibdrmNativeAtomicCommitFlagsReport>,
     pub commit_submit: Option<LibdrmNativeAtomicCommitSubmitStatus>,
+    /// The test performed for this candidate. A cached episode supplies no test evidence.
+    pub atomic_test: Option<LibdrmNativeAtomicTestReport>,
     pub submission: Option<LiveRenderedPrimaryPlaneScanoutSubmission<Owner>>,
     pub cleanup: Option<LiveRenderedPrimaryPlaneScanoutCleanup<Owner>>,
     /// The commit was accepted only after its cursor was dropped; the caller

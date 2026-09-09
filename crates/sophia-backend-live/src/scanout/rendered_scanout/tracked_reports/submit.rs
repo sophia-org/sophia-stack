@@ -23,6 +23,7 @@ pub struct LiveTrackedRenderedPrimaryPlaneScanoutSubmitReport {
     pub request_scope: Option<LibdrmNativeAtomicCommitRequestScope>,
     pub commit_flags: Option<LibdrmNativeAtomicCommitFlagsReport>,
     pub commit_submit: Option<LibdrmNativeAtomicCommitSubmitStatus>,
+    pub atomic_test: Option<LibdrmNativeAtomicTestReport>,
     pub runtime_scanout_state: Option<RuntimeScanoutState>,
     pub in_flight: bool,
     pub in_flight_ticks: u64,

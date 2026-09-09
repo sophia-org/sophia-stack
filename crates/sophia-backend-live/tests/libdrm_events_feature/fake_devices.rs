@@ -598,7 +598,12 @@ impl LibdrmNativeAtomicCommitDevice for FakeNativePrimaryPlaneScanoutDevice {
         if taken < self.reject_commits_before {
             return Err(io::Error::other("synthetic first-commit refusal"));
         }
-        clone_io_result(&self.submit)
+        self.submit.as_ref().copied().map_err(|error| {
+            error.raw_os_error().map_or_else(
+                || io::Error::new(error.kind(), "synthetic atomic refusal"),
+                io::Error::from_raw_os_error,
+            )
+        })
     }
 
     fn submit_atomic_commit_with_out_fence(

@@ -118,7 +118,7 @@ fn build_native_primary_plane_atomic_request_with_scope(
 
     let width = objects.size.width as u64;
     let height = objects.size.height as u64;
-    let mut request = drm::control::atomic::AtomicModeReq::new();
+    let mut request = LibdrmNativeRecordedAtomicRequest::new();
     if vrr_enabled.is_some() && properties.crtc_vrr_enabled().is_none() {
         return LibdrmNativeAtomicRequestBuildResult {
             status: LibdrmNativeAtomicRequestBuildStatus::MissingVrrProperty,
@@ -154,13 +154,13 @@ fn build_native_primary_plane_atomic_request_with_scope(
             drm::control::property::Value::Boolean(true),
         );
     }
-    add_primary_plane_properties(&mut request, objects, properties, width, height);
+    add_primary_plane_properties_to(&mut request, objects, properties, width, height);
     // The cursor rides the frame's own commit when it has one to ride. A
     // cursor that moved while this frame was going out cannot have a commit
     // of its own -- the kernel serializes them per CRTC -- so this is the
     // cheap case the owner prefers.
     if let Some(cursor) = cursor {
-        add_cursor_plane_properties(
+        add_cursor_plane_properties_to(
             &mut request,
             cursor.plane,
             objects.crtc,
@@ -178,14 +178,7 @@ fn build_native_primary_plane_atomic_request_with_scope(
 
     LibdrmNativeAtomicRequestBuildResult {
         status: LibdrmNativeAtomicRequestBuildStatus::Built,
-        request: Some(match scope {
-            LibdrmNativeAtomicCommitRequestScope::PageFlip => {
-                LibdrmNativeAtomicCommitRequest::new(request)
-            }
-            LibdrmNativeAtomicCommitRequestScope::Modeset => {
-                LibdrmNativeAtomicCommitRequest::modeset(request)
-            }
-        }),
+        request: Some(request.finish(scope, (objects.plane.into(), properties.plane_fb_id.into()))),
     }
 }
 
@@ -200,6 +193,16 @@ pub(crate) const fn is_valid_native_primary_plane_scanout_size(size: Size) -> bo
 #[cfg(feature = "libdrm-events")]
 pub(super) fn add_primary_plane_properties(
     request: &mut drm::control::atomic::AtomicModeReq,
+    objects: LibdrmNativePrimaryPlaneObjects,
+    properties: LibdrmNativePrimaryPlanePropertyHandles,
+    width: u64,
+    height: u64,
+) {
+    add_primary_plane_properties_to(request, objects, properties, width, height);
+}
+
+fn add_primary_plane_properties_to(
+    request: &mut impl AtomicPropertySink,
     objects: LibdrmNativePrimaryPlaneObjects,
     properties: LibdrmNativePrimaryPlanePropertyHandles,
     width: u64,
@@ -276,6 +279,16 @@ pub(super) fn add_primary_plane_properties(
 #[cfg(feature = "libdrm-events")]
 pub fn add_cursor_plane_properties(
     request: &mut drm::control::atomic::AtomicModeReq,
+    plane: drm::control::plane::Handle,
+    crtc: drm::control::crtc::Handle,
+    properties: LibdrmNativeCursorPlanePropertyHandles,
+    placement: Option<LibdrmNativeCursorPlacement>,
+) {
+    add_cursor_plane_properties_to(request, plane, crtc, properties, placement);
+}
+
+fn add_cursor_plane_properties_to(
+    request: &mut impl AtomicPropertySink,
     plane: drm::control::plane::Handle,
     crtc: drm::control::crtc::Handle,
     properties: LibdrmNativeCursorPlanePropertyHandles,
@@ -389,4 +402,35 @@ pub fn build_native_cursor_only_atomic_request(
     LibdrmNativeAtomicCommitRequest::new(request)
         .without_page_flip_event()
         .blocking()
+}
+
+trait AtomicPropertySink {
+    fn add_property<H: drm::control::ResourceHandle>(
+        &mut self,
+        object: H,
+        property: drm::control::property::Handle,
+        value: drm::control::property::Value<'_>,
+    );
+}
+
+impl AtomicPropertySink for drm::control::atomic::AtomicModeReq {
+    fn add_property<H: drm::control::ResourceHandle>(
+        &mut self,
+        object: H,
+        property: drm::control::property::Handle,
+        value: drm::control::property::Value<'_>,
+    ) {
+        self.add_property(object, property, value);
+    }
+}
+
+impl AtomicPropertySink for LibdrmNativeRecordedAtomicRequest {
+    fn add_property<H: drm::control::ResourceHandle>(
+        &mut self,
+        object: H,
+        property: drm::control::property::Handle,
+        value: drm::control::property::Value<'_>,
+    ) {
+        self.add_property(object, property, value);
+    }
 }

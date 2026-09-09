@@ -392,6 +392,7 @@ where
         request_scope: native.request_scope,
         commit_flags: native.commit_flags,
         commit_submit: native.submit,
+        atomic_test: None,
         submission,
         cleanup,
         cursor_dropped: native.cursor_dropped,

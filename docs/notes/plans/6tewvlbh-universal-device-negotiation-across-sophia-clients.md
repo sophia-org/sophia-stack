@@ -176,6 +176,15 @@ Treat the review's negative searches as bounded observations until those paths
 are traced. Tests must cover stale candidates and topology changes as well as
 one successful alternate-layout proof.
 
+The [atomic evidence investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md)
+records the bounded TEST_ONLY report implementation and the live plane-format
+query. The cache covers an eligibility episode, not an exact candidate; actual
+test reports therefore remain absent on cache bypass. Error and canonical
+request retention establish test history without attributing a refusal to a
+layout. A passing equivalent alternative, correlated through fallback ownership
+and current device/output state, remains the prerequisite for reallocation
+advice. XLibre's table-based heuristic does not replace this requirement.
+
 ## Implementation checkpoints
 
 First replace invented DRI3 modifier responses with measured renderer import

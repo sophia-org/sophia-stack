@@ -30,6 +30,7 @@ where
         exporter,
     );
     if let Some(mut prepared) = prepare.prepared.take() {
+        let mut atomic_test = None;
         // A client's buffer on its way to the plane is the one commit whose
         // refusal must not be terminal. Ask the driver first, on the edge into
         // direct scanout, and treat a refusal as an answer: destroy what this
@@ -42,19 +43,23 @@ where
         if prepared.scanout_buffer.is_direct_client_buffer()
             && exporter.direct_scanout_test_required()
         {
-            let (test, primary_plane) =
-                validate_prepared_native_primary_plane_scanout(device, prepared.primary_plane);
+            let (test, primary_plane) = validate_prepared_native_primary_plane_scanout_detailed(
+                device,
+                prepared.primary_plane,
+            );
             prepared.primary_plane = primary_plane;
-            let accepted = test == LibdrmNativeAtomicCommitSubmitStatus::Submitted;
-            exporter.record_direct_scanout_test(accepted);
+            let accepted = test.status == LibdrmNativeAtomicCommitSubmitStatus::Submitted;
+            exporter.record_direct_scanout_test_result(test);
             if !accepted {
                 return refuse_direct_rendered_primary_plane_scanout(
                     device, prepared, exporter, prepare, test,
                 );
             }
+            atomic_test = Some(test);
         }
         let direct = prepared.scanout_buffer.is_direct_client_buffer();
         let mut result = submit_prepared_rendered_primary_plane_scanout(device, prepared);
+        result.atomic_test = atomic_test;
         if direct {
             if result.status
                 == LiveRenderedPrimaryPlaneScanoutSubmitStatus::SubmittedWaitingForPageFlip
@@ -118,6 +123,7 @@ where
         request_scope: prepare.request_scope,
         commit_flags: prepare.commit_flags,
         commit_submit: None,
+        atomic_test: None,
         submission: None,
         cleanup: prepare.cleanup,
         cursor_dropped: false,
@@ -139,7 +145,7 @@ fn refuse_direct_rendered_primary_plane_scanout<D, E>(
     prepared: LivePreparedRenderedPrimaryPlaneScanout<E::Owner>,
     exporter: &mut E,
     prepare: LiveRenderedPrimaryPlaneScanoutPrepareResult<E::Owner>,
-    test: LibdrmNativeAtomicCommitSubmitStatus,
+    test: LibdrmNativeAtomicTestReport,
 ) -> LiveRenderedPrimaryPlaneScanoutSubmitResult<E::Owner>
 where
     D: LibdrmNativePrimaryPlaneResourceDevice,
@@ -164,7 +170,8 @@ where
         submit: Some(LibdrmNativePrimaryPlaneScanoutSubmitStatus::AtomicSubmitFailed),
         request_scope: prepare.request_scope,
         commit_flags: prepare.commit_flags,
-        commit_submit: Some(test),
+        commit_submit: Some(test.status),
+        atomic_test: Some(test),
         submission: None,
         cursor_dropped: false,
         cleanup: cancelled

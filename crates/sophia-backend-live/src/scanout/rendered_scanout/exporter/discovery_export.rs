@@ -44,6 +44,24 @@ where
         }
     }
 
+    fn record_direct_scanout_test_result(&mut self, report: crate::LibdrmNativeAtomicTestReport) {
+        self.record_direct_scanout_test(
+            report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Submitted,
+        );
+        tracing::info!(
+            "sophia_live_atomic_test schema=1 output={} scene_generation={} status={:?} errno={} request_scope={:?} nonblocking={} allow_modeset={}",
+            self.output.raw(),
+            self.outstanding_direct_generation(),
+            report.status,
+            report
+                .raw_os_error
+                .map_or_else(|| "none".to_owned(), |errno| errno.to_string()),
+            report.request_scope,
+            report.commit_flags.nonblocking,
+            report.commit_flags.allow_modeset,
+        );
+    }
+
     fn commit_direct_scanout(&mut self) {
         // Read before committing: committing drops the composed form the
         // identity is read from.

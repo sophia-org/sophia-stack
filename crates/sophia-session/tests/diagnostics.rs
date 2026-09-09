@@ -301,6 +301,35 @@ fn interaction_vocabulary_is_scoped_and_rejects_unbounded_values() {
 }
 
 #[test]
+fn actual_atomic_test_outcomes_survive_sanitization_without_payloads() {
+    for (status, errno) in [
+        ("Submitted", "none"),
+        ("WouldBlock", "11"),
+        ("Rejected", "22"),
+    ] {
+        let record = format!(
+            "sophia_live_atomic_test schema=1 output=2 scene_generation=91 status={status} errno={errno} request_scope=PageFlip nonblocking=true allow_modeset=false"
+        );
+        assert_eq!(
+            reduced_record(&format!("{record} xid=123 payload=secret error=private")),
+            Some(record)
+        );
+    }
+    for record in [
+        "sophia_other status=Submitted errno=22 request_scope=PageFlip",
+        "sophia_live_atomic_test status=secret errno=private request_scope=unknown",
+        "sophia_live_atomic_test errno=-22",
+        "sophia_live_atomic_test errno=0",
+        "sophia_live_atomic_test errno=2147483648",
+    ] {
+        assert_eq!(
+            reduced_record(record).as_deref(),
+            record.split_whitespace().next()
+        );
+    }
+}
+
+#[test]
 fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
     for status in ["clean", "compatibility_refusals", "degraded"] {
         let safe = format!(

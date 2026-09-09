@@ -460,21 +460,7 @@ where
     destroy_native_primary_plane_resources(device, prepared.resources)
 }
 
-/// Ask the driver whether a prepared scanout would be accepted.
-///
-/// The commit carries `TEST_ONLY`, so the screen does not change and no
-/// page-flip event arrives. A refusal is an answer, not a fault: it means
-/// this buffer cannot be scanned out on this plane, and the caller composes
-/// instead. The prepared scanout is returned either way, because the
-/// resources it holds are still owed a submit or a cancel.
-///
-/// The request is cloned rather than rebuilt, so the commit that flips is the
-/// one the driver was asked about, down to the framebuffer id.
-///
-/// Errno is not inspected. The commit layer classifies every failure the same
-/// way, and a driver refusing a modifier is indistinguishable here from one
-/// refusing anything else -- which is why a refusal falls back rather than
-/// retrying with a different guess.
+/// Validates once and returns the affine owner for submission or cancellation.
 #[cfg(feature = "libdrm-events")]
 pub fn validate_prepared_native_primary_plane_scanout<D>(
     device: &D,
@@ -486,15 +472,51 @@ pub fn validate_prepared_native_primary_plane_scanout<D>(
 where
     D: LibdrmNativeAtomicCommitDevice,
 {
-    let (flags, native) = prepared.request.clone().test_only().into_native();
-    let status = match device.submit_atomic_commit(flags, native) {
-        Ok(()) => LibdrmNativeAtomicCommitSubmitStatus::Submitted,
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
-            LibdrmNativeAtomicCommitSubmitStatus::WouldBlock
+    let (report, prepared) =
+        validate_prepared_native_primary_plane_scanout_detailed(device, prepared);
+    (report.status, prepared)
+}
+
+/// Preserves the actual test error and flags without changing the committing request.
+/// Both outcomes return the prepared owner without transferring or disposing its resources.
+#[cfg(feature = "libdrm-events")]
+pub fn validate_prepared_native_primary_plane_scanout_detailed<D>(
+    device: &D,
+    prepared: LibdrmNativePrimaryPlanePreparedScanout,
+) -> (
+    LibdrmNativeAtomicTestReport,
+    LibdrmNativePrimaryPlanePreparedScanout,
+)
+where
+    D: LibdrmNativeAtomicCommitDevice,
+{
+    let request = prepared.request.clone().test_only();
+    let request_evidence = request.evidence();
+    let request_scope = request.reduced_scope();
+    let commit_flags = request.reduced_flags();
+    let (flags, native) = request.into_native();
+    let (status, error_kind, raw_os_error) = match device.submit_atomic_commit(flags, native) {
+        Ok(()) => (LibdrmNativeAtomicCommitSubmitStatus::Submitted, None, None),
+        Err(error) => {
+            let status = if error.kind() == std::io::ErrorKind::WouldBlock {
+                LibdrmNativeAtomicCommitSubmitStatus::WouldBlock
+            } else {
+                LibdrmNativeAtomicCommitSubmitStatus::Rejected
+            };
+            (status, Some(error.kind()), error.raw_os_error())
         }
-        Err(_) => LibdrmNativeAtomicCommitSubmitStatus::Rejected,
     };
-    (status, prepared)
+    (
+        LibdrmNativeAtomicTestReport {
+            status,
+            request: request_evidence,
+            error_kind,
+            raw_os_error,
+            request_scope,
+            commit_flags,
+        },
+        prepared,
+    )
 }
 
 fn submit_atomic_commit_with_optional_out_fence<D>(

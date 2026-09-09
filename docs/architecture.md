@@ -828,6 +828,17 @@ composition barrier. Replacing the native owner clears its activation state.
 Normal completion records application startup proof as `not_requested`; it does
 not invent a successful proof timestamp or fail logout for lacking one.
 
+Direct-scanout episode caching is a scheduling optimization, not validation of
+each subsequent buffer. A submission carries an atomic-test report only when
+that attempt actually issued TEST_ONLY. The report preserves its raw errno,
+error kind, flags and canonical property values from the same request lowering.
+Unknown request provenance stays unknown; property capture is bounded and must
+never truncate the request sent to DRM. These passive records describe a past
+test, never permission for a later commit or proof of a layout-specific refusal.
+Cursor-drop retries and later out-fence writes remain distinct from the tested
+request. Reallocation advice still requires an equivalent alternative on the
+exact current device, scene and output generation.
+
 Performance cadence is accumulated from routed displayed-Present UST values in
 bounded owner state. Completion emits one summary containing sample count,
 advancing intervals, nonadvancing observations, overflow state, mean FPS, and

@@ -157,6 +157,8 @@ include!("libdrm_events_feature/session_loop.rs");
 include!("libdrm_events_feature/native_gbm.rs");
 include!("libdrm_events_feature/direct_scanout.rs");
 #[cfg(feature = "gbm-probe")]
+include!("libdrm_events_feature/direct_scanout_evidence.rs");
+#[cfg(feature = "gbm-probe")]
 include!("libdrm_events_feature/frame_slots.rs");
 #[cfg(feature = "gbm-probe")]
 include!("libdrm_events_feature/slot_damage_history.rs");

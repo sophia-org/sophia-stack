@@ -336,6 +336,14 @@ pub fn reduced_record(line: &str) -> Option<String> {
             }
             continue;
         }
+        if name == "sophia_live_atomic_test" && matches!(key, "status" | "request_scope" | "errno")
+        {
+            if atomic_test_field(name, key, value) {
+                result.push(' ');
+                result.push_str(field);
+            }
+            continue;
+        }
         let measurement = [
             "_msec",
             "_usec",
@@ -488,6 +496,23 @@ pub fn reduced_record(line: &str) -> Option<String> {
         }
     }
     Some(result)
+}
+
+fn atomic_test_field(record: &str, key: &str, value: &str) -> bool {
+    if record != "sophia_live_atomic_test" {
+        return false;
+    }
+    match key {
+        "status" => matches!(value, "Submitted" | "WouldBlock" | "Rejected"),
+        "request_scope" => matches!(value, "PageFlip" | "Modeset"),
+        "errno" => {
+            value == "none"
+                || (!value.is_empty()
+                    && value.bytes().all(|byte| byte.is_ascii_digit())
+                    && value.parse::<i32>().is_ok_and(|errno| errno > 0))
+        }
+        _ => false,
+    }
 }
 
 // These records describe delivery and composition, never input contents.

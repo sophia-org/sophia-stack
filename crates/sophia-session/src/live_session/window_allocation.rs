@@ -44,7 +44,7 @@ pub(super) fn window_allocation_rows(
                 return None;
             }
             let preference = preferences.iter().find(|row| row.output == *output)?;
-            if preference.modifiers.is_empty() {
+            if preference.formats.is_empty() {
                 return None;
             }
             Some(XWindowAllocationPreference {
@@ -60,10 +60,14 @@ pub(super) fn window_allocation_rows(
                         device_number: identity.device_number,
                     }
                 }),
-                formats: vec![XServerFrontendDmaBufImportFormat {
-                    format: sophia_protocol::DRM_FORMAT_XRGB8888,
-                    modifiers: preference.modifiers.clone(),
-                }],
+                formats: preference
+                    .formats
+                    .iter()
+                    .map(|row| XServerFrontendDmaBufImportFormat {
+                        format: row.format,
+                        modifiers: row.modifiers.clone(),
+                    })
+                    .collect(),
             })
         })
         .collect()

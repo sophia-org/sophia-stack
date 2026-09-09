@@ -13,11 +13,45 @@ pub struct LiveRenderDeviceNodeIdentity {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LiveOutputAllocationFormatPreference {
+    pub format: u32,
+    pub modifiers: Vec<u64>,
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct LiveOutputAllocationPreference {
     pub output: OutputId,
     pub device_number: u64,
     pub identity: Option<LiveRenderDeviceNodeIdentity>,
-    pub modifiers: Vec<u64>,
+    pub formats: Vec<LiveOutputAllocationFormatPreference>,
+}
+
+fn allocation_format_preferences(
+    snapshot: &crate::LibdrmNativePlaneFormatSnapshot,
+) -> Vec<LiveOutputAllocationFormatPreference> {
+    use ::drm::buffer::DrmFourcc;
+
+    [DrmFourcc::Xrgb8888, DrmFourcc::Argb8888]
+        .into_iter()
+        .filter_map(|format| {
+            let modifiers = snapshot
+                .modifiers(format)?
+                .iter()
+                .copied()
+                .map(u64::from)
+                .filter(|modifier| {
+                    !matches!(
+                        *modifier,
+                        sophia_protocol::DRM_FORMAT_MOD_INVALID | u64::MAX
+                    )
+                })
+                .collect::<Vec<_>>();
+            (!modifiers.is_empty()).then_some(LiveOutputAllocationFormatPreference {
+                format: format as u32,
+                modifiers,
+            })
+        })
+        .collect()
 }
 
 pub(super) struct LiveRenderDeviceState {
@@ -100,16 +134,17 @@ impl LiveProductionNativeScanout {
                     .get(head.group)
                     .copied()
                     .flatten()?;
+                let formats = allocation_format_preferences(
+                    &self.render_devices.head_formats.get(index)?.snapshot,
+                );
+                if formats.is_empty() {
+                    return None;
+                }
                 Some(LiveOutputAllocationPreference {
                     output: output.id,
                     device_number: identity.device_number,
                     identity: Some(identity),
-                    modifiers: self
-                        .render_devices
-                        .head_formats
-                        .get(index)?
-                        .preferred_xrgb8888_modifiers
-                        .clone(),
+                    formats,
                 })
             })
             .collect()
@@ -219,3 +254,6 @@ impl LiveProductionNativeScanout {
         Ok(complete)
     }
 }
+
+#[path = "../../../../tests/support/output_allocation_formats.rs"]
+mod tests;

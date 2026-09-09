@@ -8,6 +8,12 @@ struct XWindowAllocationState {
     preferences: BTreeMap<sophia_protocol::SurfaceId, crate::XWindowAllocationPreference>,
 }
 
+struct XEffectiveWindowAllocationPreference<'a> {
+    screen_modifiers: &'a [u64],
+    window_modifiers: &'a [u64],
+    same_device: bool,
+}
+
 impl XAuthorityRuntime {
     pub fn set_window_render_device_hint(
         &mut self,
@@ -100,49 +106,58 @@ impl XAuthorityRuntime {
         client_id: u64,
         window: crate::XResourceId,
         format: u32,
-        screen_modifiers: &[u64],
     ) -> Vec<u64> {
-        if self
-            .resources
+        self.effective_window_allocation_preference(namespace, client_id, window, format)
+            .map(|preference| {
+                preference
+                    .window_modifiers
+                    .iter()
+                    .copied()
+                    .filter(|modifier| {
+                        preference.screen_modifiers.binary_search(modifier).is_ok()
+                    })
+                    .filter(|modifier| preference.same_device || *modifier == 0)
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    fn effective_window_allocation_preference(
+        &self,
+        namespace: NamespaceId,
+        client_id: u64,
+        window: crate::XResourceId,
+        format: u32,
+    ) -> Option<XEffectiveWindowAllocationPreference<'_>> {
+        self.resources
             .lookup(namespace, window, XResourceKind::Window)
-            .is_err()
-            || self.window_allocation.topology_generation != self.output_topology.generation
-        {
-            return Vec::new();
+            .ok()?;
+        if self.window_allocation.topology_generation != self.output_topology.generation {
+            return None;
         }
-        let Some(record) = self.windows.get(window) else {
-            return Vec::new();
-        };
-        let Some(preference) = self.window_allocation.preferences.get(&record.surface) else {
-            return Vec::new();
-        };
+        let record = self.windows.get(window)?;
+        let preference = self.window_allocation.preferences.get(&record.surface)?;
         if self
             .window_allocation
             .hints
             .get(&record.surface)
             .is_some_and(|hint| *hint != preference.device)
         {
-            return Vec::new();
+            return None;
         }
-        let identity = self
-            .device_connections
-            .get(&client_id)
-            .and_then(|bundle| bundle.as_ref())
-            .filter(|bundle| bundle.available())
-            .and_then(|bundle| bundle.identity);
-        let same_device = identity.is_some() && identity == preference.identity;
-        preference
-            .formats
-            .iter()
-            .find(|row| row.format == format)
-            .map(|row| {
-                row.modifiers
-                    .iter()
-                    .copied()
-                    .filter(|modifier| screen_modifiers.contains(modifier))
-                    .filter(|modifier| same_device || *modifier == 0)
-                    .collect()
-            })
-            .unwrap_or_default()
+        let (screen_modifiers, identity) = match self.device_connections.get(&client_id) {
+            Some(Some(bundle)) if bundle.available() => {
+                (bundle.dma_buf_import_modifiers(format), bundle.identity)
+            }
+            Some(_) => return None,
+            // An unpinned runtime uses its legacy screen inventory.
+            None => (self.dma_buf_import_modifiers(format), None),
+        };
+        let row = preference.formats.iter().find(|row| row.format == format)?;
+        Some(XEffectiveWindowAllocationPreference {
+            screen_modifiers,
+            window_modifiers: &row.modifiers,
+            same_device: identity.is_some() && identity == preference.identity,
+        })
     }
 }

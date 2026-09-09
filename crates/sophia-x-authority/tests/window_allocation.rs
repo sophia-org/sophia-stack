@@ -139,6 +139,44 @@ fn window_preferences_and_device_hints_never_change_the_screen_contract() {
 }
 
 #[test]
+fn an_unpinned_runtime_resolves_only_the_requested_formats_legacy_inventory() {
+    let mut runtime = runtime();
+    let mut snapshot = preferences(&runtime, 1);
+    snapshot.windows[0]
+        .formats
+        .push(XServerFrontendDmaBufImportFormat {
+            format: sophia_protocol::DRM_FORMAT_XRGB8888,
+            modifiers: vec![0, 2, 3],
+        });
+    assert_eq!(
+        runtime.update_window_allocation_preferences(snapshot),
+        XWindowAllocationUpdate::Applied
+    );
+    assert_eq!(
+        runtime.window_allocation_modifiers(NS, 1, WINDOW, FORMAT),
+        vec![0],
+        "the unpinned runtime retains its measured legacy LINEAR preference"
+    );
+    assert!(
+        runtime
+            .window_allocation_modifiers(NS, 1, WINDOW, sophia_protocol::DRM_FORMAT_XRGB8888)
+            .is_empty(),
+        "an XRGB window row cannot borrow the ARGB screen inventory"
+    );
+    assert!(
+        runtime
+            .window_allocation_modifiers(
+                NS,
+                1,
+                XResourceId::new(u64::from(X_SETUP_DEFAULT_ROOT), 1),
+                FORMAT,
+            )
+            .is_empty(),
+        "the root has screen capabilities but no window allocation preference"
+    );
+}
+
+#[test]
 fn hint_namespace_and_surface_lifetime_are_exact() {
     let mut runtime = runtime();
     let snapshot = preferences(&runtime, 1);

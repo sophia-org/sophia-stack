@@ -324,6 +324,55 @@ Source hashes, full and focused logs, and the final signed candidate identity
 are retained in `.artifacts/t070-retired-layout/`. The feature build checks
 are recorded separately. No install or live-session restart occurred.
 
+## Exact-format preference publication after cf8188cd
+
+The native Wayland comparison exposed a missing input to the eventual advice
+decision: Sophia published XR24 preferences only, although its strict plane
+snapshot already retained independent XR24 and AR24 pairs. Niri's native
+`surface_dmabuf_feedback` intersects plane pairs with renderer importability and
+qualifies scanout preferences by device. Sophia now applies that pattern through
+its native owner and DRI3 frontend: exact-format rows come from the cached strict
+snapshot, and the requesting connection supplies the immutable import set.
+Unknown or empty rows give no preference. The renderer's separate legacy XR24
+allocation policy and candidate ordering are unchanged.
+
+A read-only query of this host's active card0 primary planes, 53 and 59, found
+eleven explicit modifiers for each format, including LINEAR. The current lists
+happen to match; the regression fixtures deliberately give XR24 and AR24 distinct
+ordered lists, and also exercise an AR24-only plane. The query took no DRM master,
+performed no TEST_ONLY or commit, and proves table membership alone.
+
+The frontend query now resolves its own connection's exact-format catalog rather
+than accepting a caller-supplied screen list. Its borrowed resolver allocates only
+the returned reply list, and binary-searches canonical screen modifiers instead
+of repeatedly scanning them under the authority lock. A healthy foreign device
+can still receive measured LINEAR preferences. An unavailable pinned bundle
+receives none; it can no longer masquerade as the healthy cross-device case.
+Device loss serializes under the same runtime-to-device lock order as installation.
+The already advertised screen inventory stays immutable, and existing connections
+are never redirected to a newer bundle.
+
+Seven new tests and strengthened socket cases cover independent format rows,
+strict unknown snapshots without changed renderer admission, no invented rows,
+canonicalization, device loss, old/new pinned catalogs, absent-device admission,
+and exact-format legacy queries. Focused results and the read-only plane queries
+are retained in `.artifacts/t070-exact-format-preferences/`.
+
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` passed on ten unchanged
+Rust source files: all-feature workspace tests and Clippy, layout and conformance
+checks, twenty archived regressions, hardware buffer-age pixel equivalence, and
+real GLX/EGL first-frame and pixmap-export pixels. The evidence directory retains
+the source hashes, full gate log, and final signed candidate identity.
+
+This still emits no SuboptimalCopy. The completion join must capture the exact
+successful Present identity and revalidate its current effective preferences
+before consuming that pending completion. The 250 ms asynchronous publisher
+cannot establish currency by itself: the owner's immediate placement/native
+context must still match the acknowledged snapshot. Native rollback also needs
+a monotonic context identity at that boundary. A mismatch must suppress optional
+advice without delaying ordinary Copy. No installation, physical paired-test
+acceptance or normal-launch acceptance is claimed here.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

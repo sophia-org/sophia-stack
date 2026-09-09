@@ -86,6 +86,10 @@ impl X11CoreSocketServerState {
         &self,
         generation: u64,
     ) -> Result<(), crate::XServerFrontendDeviceBundleError> {
+        let _runtime = self
+            .runtime
+            .lock()
+            .map_err(|_| crate::XServerFrontendDeviceBundleError::Unavailable)?;
         let devices = self
             .devices
             .lock()

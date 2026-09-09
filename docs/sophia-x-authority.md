@@ -862,13 +862,20 @@ is an advisory device number scoped to the exact window incarnation, with no
 path lookup or authority grant. Window preferences may change with an exact
 surface and output-topology generation, independently of screen modifiers;
 the returned preferences are restricted to the client's immutable import set.
+Each fourcc has its own measured plane modifiers. XR24 and AR24 preferences
+are derived independently from the strict cached plane snapshot; unknown or
+empty rows offer no preference. Renderer target allocation retains its separate
+admission policy. Plane support does not establish that a complete frame can flip.
 Tiled preferences also require the available connection bundle and the output's
 retained render node to have equal server-observed filesystem device, inode and
 device number. These facts are captured outside authority locks after backend
 card-to-render-node resolution. The backend brackets that resolution with held
 FD/current-node identity checks for both card and render nodes. Missing identity,
-node replacement or a different
-device restricts preferences to measured LINEAR; it never changes screen formats.
+node replacement or a different device restricts a healthy connection's
+preferences to measured LINEAR; it never changes screen formats. An unavailable
+pinned bundle offers no window preferences, including LINEAR. Queries resolve
+the requesting connection's pinned formats directly; a caller cannot substitute
+another device's screen list.
 A client hint can further restrict preferences but cannot establish device
 identity. Modifier queries perform no device I/O. Unknown device hints yield no
 matching window preference. Present SuboptimalCopy

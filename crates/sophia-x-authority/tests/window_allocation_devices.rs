@@ -103,6 +103,10 @@ fn client(frontend: &mut XServerFrontend) -> Client {
 }
 
 fn query(client: &mut Client) -> (Vec<u64>, Vec<u64>) {
+    query_depth(client, 24)
+}
+
+fn query_depth(client: &mut Client, depth: u8) -> (Vec<u64>, Vec<u64>) {
     let mut request = vec![
         X_DRI3_MAJOR_OPCODE,
         X_DRI3_GET_SUPPORTED_MODIFIERS_MINOR_OPCODE,
@@ -110,7 +114,7 @@ fn query(client: &mut Client) -> (Vec<u64>, Vec<u64>) {
         0,
     ];
     request.extend(client.window.to_le_bytes());
-    request.extend([24, 32, 0, 0]);
+    request.extend([depth, 32, 0, 0]);
     client.socket.write_all(&request).unwrap();
     let mut header = [0; 32];
     client.socket.read_exact(&mut header).unwrap();
@@ -159,7 +163,7 @@ fn preference(
         },
         formats: vec![XServerFrontendDmaBufImportFormat {
             format: DRM_FORMAT_XRGB8888,
-            modifiers: vec![0, TILED],
+            modifiers: vec![TILED, 0, TILED],
         }],
     }
 }
@@ -169,7 +173,7 @@ fn tiled_preferences_require_exact_available_connection_identity() {
     let first = identity();
     let provider = Arc::new(Provider {
         identity: Some(first),
-        modifiers: vec![0, TILED],
+        modifiers: vec![TILED, 0, TILED],
         observations: AtomicUsize::new(0),
     });
     let path =
@@ -237,6 +241,21 @@ fn tiled_preferences_require_exact_available_connection_identity() {
         };
         assert_eq!(query(&mut old), (expected, vec![0, TILED]));
     }
+    let mut both_formats = preference(old.surface, Some(first));
+    both_formats
+        .formats
+        .push(XServerFrontendDmaBufImportFormat {
+            format: sophia_protocol::DRM_FORMAT_ARGB8888,
+            modifiers: vec![0, TILED],
+        });
+    publish(&frontend, vec![both_formats]);
+    hint(&mut old, first.device_number);
+    assert_eq!(query(&mut old), (vec![0, TILED], vec![0, TILED]));
+    assert_eq!(
+        query_depth(&mut old, 32),
+        (vec![], vec![]),
+        "ARGB preferences cannot borrow the pinned XRGB screen inventory"
+    );
     publish(&frontend, vec![preference(old.surface, Some(first))]);
     hint(&mut old, rustix::fs::makedev(226, 999));
     assert_eq!(query(&mut old), (vec![], vec![0, TILED]));
@@ -267,7 +286,7 @@ fn tiled_preferences_require_exact_available_connection_identity() {
                 2,
                 Arc::new(Provider {
                     identity: Some(second),
-                    modifiers: vec![0, TILED],
+                    modifiers: vec![0],
                     observations: AtomicUsize::new(0),
                 }),
                 None,
@@ -284,17 +303,7 @@ fn tiled_preferences_require_exact_available_connection_identity() {
         ],
     );
     assert_eq!(query(&mut old), (vec![0], vec![0, TILED]));
-    assert_eq!(query(&mut new), (vec![0, TILED], vec![0, TILED]));
-    publish(
-        &frontend,
-        vec![
-            preference(old.surface, Some(first)),
-            preference(new.surface, Some(second)),
-        ],
-    );
-    frontend.mark_device_generation_unavailable(1).unwrap();
-    assert_eq!(query(&mut old), (vec![0], vec![0, TILED]));
-    assert_eq!(query(&mut new), (vec![0, TILED], vec![0, TILED]));
+    assert_eq!(query(&mut new), (vec![0], vec![0]));
     let mut without_linear = preference(old.surface, Some(second));
     without_linear.formats[0].modifiers = vec![TILED];
     publish(&frontend, vec![without_linear]);
@@ -303,6 +312,25 @@ fn tiled_preferences_require_exact_available_connection_identity() {
         (vec![], vec![0, TILED]),
         "never add LINEAR missing from output preferences"
     );
+    publish(
+        &frontend,
+        vec![
+            preference(old.surface, Some(first)),
+            preference(new.surface, Some(second)),
+        ],
+    );
+    assert_eq!(
+        query(&mut old),
+        (vec![0, TILED], vec![0, TILED]),
+        "a newer default catalog cannot narrow the old connection's measured inventory"
+    );
+    frontend.mark_device_generation_unavailable(1).unwrap();
+    assert_eq!(
+        query(&mut old),
+        (vec![], vec![0, TILED]),
+        "device loss removes all window preferences but preserves the screen contract"
+    );
+    assert_eq!(query(&mut new), (vec![0], vec![0]));
     frontend
         .install_device_bundle(Arc::new(
             XServerFrontendDeviceBundle::new(
@@ -335,13 +363,13 @@ fn tiled_preferences_require_exact_available_connection_identity() {
         "two absent identities are not evidence"
     );
     publish(&frontend, vec![preference(new.surface, Some(second))]);
-    assert_eq!(query(&mut new).0, vec![0, TILED]);
+    assert_eq!(query(&mut new).0, vec![0]);
     let mut topology = frontend.config().output_topology().clone();
     topology.generation += 1;
     frontend.update_output_topology(topology).unwrap();
     assert_eq!(
         query(&mut new),
-        (vec![], vec![0, TILED]),
+        (vec![], vec![0]),
         "stale output identity must not retain tiled preferences"
     );
     for _ in 0..3 {
@@ -354,6 +382,53 @@ fn tiled_preferences_require_exact_available_connection_identity() {
     );
 
     drop((old, new, unidentified));
+    frontend.wait_for_clients().unwrap();
+    drop(frontend);
+    std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn a_connection_admitted_without_a_device_cannot_borrow_a_later_bundle() {
+    let path = std::env::temp_dir().join(format!(
+        "sophia-window-no-device-{}.sock",
+        std::process::id()
+    ));
+    let config = XServerFrontendConfig::new(&path, NamespaceId::from_raw(84)).unwrap();
+    let topology_generation = config.output_topology().generation;
+    let mut frontend = XServerFrontend::bind(config).unwrap();
+    let mut old = client(&mut frontend);
+    let device = identity();
+    frontend
+        .install_device_bundle(Arc::new(
+            XServerFrontendDeviceBundle::new(
+                1,
+                Arc::new(Provider {
+                    identity: Some(device),
+                    modifiers: vec![0, TILED],
+                    observations: AtomicUsize::new(0),
+                }),
+                None,
+            )
+            .unwrap(),
+        ))
+        .unwrap();
+    let mut new = client(&mut frontend);
+    assert_eq!(
+        frontend
+            .update_window_allocation_preferences(XWindowAllocationPreferences {
+                generation: 1,
+                topology_generation,
+                windows: vec![
+                    preference(old.surface, Some(device)),
+                    preference(new.surface, Some(device)),
+                ],
+            })
+            .unwrap(),
+        XWindowAllocationUpdate::Applied
+    );
+    assert_eq!(query(&mut old), (vec![], vec![]));
+    assert_eq!(query(&mut new), (vec![0, TILED], vec![0, TILED]));
+    drop((old, new));
     frontend.wait_for_clients().unwrap();
     drop(frontend);
     std::fs::remove_file(path).unwrap();

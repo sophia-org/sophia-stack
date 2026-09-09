@@ -14,7 +14,10 @@ mod persistent_native_scanout {
     pub use layout_retirement::LiveProductionRetiredLayoutWitness;
     mod output_capabilities;
     mod render_devices;
-    pub use render_devices::{LiveOutputAllocationPreference, LiveRenderDeviceNodeIdentity};
+    pub use render_devices::{
+        LiveOutputAllocationFormatPreference, LiveOutputAllocationPreference,
+        LiveRenderDeviceNodeIdentity,
+    };
     mod renderer_handoff;
     mod renderer_images;
     mod state;
@@ -3881,8 +3884,8 @@ mod persistent_native_scanout {
 
 #[cfg(all(feature = "libdrm-events", feature = "gbm-probe"))]
 pub use persistent_native_scanout::{
-    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LiveOutputAllocationPreference,
-    LivePersistentRenderMetrics, LiveProductionCompletionTimestamp,
+    LIVE_PRODUCTION_PAGE_FLIP_HARD_STALL, LiveOutputAllocationFormatPreference,
+    LiveOutputAllocationPreference, LivePersistentRenderMetrics, LiveProductionCompletionTimestamp,
     LiveProductionCpuFrameQueueStatus, LiveProductionDirectScanoutTotals,
     LiveProductionHeadCompositionFrame, LiveProductionKmsCompletionSource,
     LiveProductionMirrorGenerationQueue, LiveProductionMirrorGroupBegin,

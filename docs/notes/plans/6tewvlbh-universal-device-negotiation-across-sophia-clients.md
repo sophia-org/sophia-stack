@@ -207,8 +207,10 @@ on owner/topology changes, including rollback to a previous numeric generation.
 These are observations, not a reusable flip permit or an emitted reallocation
 hint. The current frontend preference identity, membership of the exact tested
 alternative in that connection's effective window preferences, and physical
-acceptance remain gates. Window preferences currently publish XR24 only, so an
-AR24 comparison cannot support client advice until exact-format publication exists.
+acceptance remain gates. Window preferences publish independently measured XR24
+and AR24 rows, intersected with the connection's pinned import capabilities.
+An unavailable bundle offers no preferences. Publication alone does not join a
+retired comparison to the frontend's current effective preference identity.
 The native path conservatively withholds evidence for multi-output joins.
 
 ## Implementation checkpoints

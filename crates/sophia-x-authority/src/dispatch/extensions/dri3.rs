@@ -309,7 +309,7 @@ fn dispatch_dri3_request(
                     let format = if depth == 32 { sophia_protocol::DRM_FORMAT_ARGB8888 }
                         else { sophia_protocol::DRM_FORMAT_XRGB8888 };
                     let window_modifiers = runtime.window_allocation_modifiers(
-                        context.namespace, context.client_id, window, format, &screen_modifiers,
+                        context.namespace, context.client_id, window, format,
                     );
                     let outputs = if !matches!((depth, bits_per_pixel), (24 | 32, 32)) {
                         vec![XClientOutput::Error(crate::XClientError {

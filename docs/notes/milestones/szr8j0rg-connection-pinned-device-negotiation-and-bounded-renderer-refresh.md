@@ -186,3 +186,18 @@ This does not emit SuboptimalCopy or close the task. The presenting connection's
 current effective preferences, physical paired-test/flip acceptance and the
 normal no-adapter client exit remain separate gates. No installation or live
 session restart was performed.
+
+## Exact-format preferences and unavailable devices
+
+The checkpoint based on `cf8188cd` extends the native allocation-preference
+pattern to independent XR24 and AR24 rows. It preserves the renderer's allocation
+policy and intersects each row with the requesting connection's pinned catalog.
+An unavailable bundle now removes window preferences, including LINEAR, without
+redirecting the connection or changing its screen inventory. The resolver borrows
+the cached lists and uses bounded binary-search membership under the authority
+lock. The [investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#exact-format-preference-publication-after-cf8188cd)
+records source/reference evidence, seven new tests and the real read-only plane
+query. The full repository/GPU gate passed on unchanged Rust sources; the manifest
+and logs are in `.artifacts/t070-exact-format-preferences/`. The completion/preference
+join and physical acceptance remain open. No install or live-session restart
+was performed.

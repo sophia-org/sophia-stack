@@ -169,6 +169,16 @@ layout is unsupported, but an alternative's membership alone does not prove
 that it would pass atomic validation. Preserve that distinction in any evidence
 type; do not name a necessary condition as a sufficient one.
 
+Framebuffer creation may reject a layout before any original atomic request
+exists. The installed AMD control reproduces that case. A distinct proof arm
+must retain the actual explicit AddFB2 failure after successful plane imports,
+retry it against the current owner, and test the existing same-format fallback.
+The shared production request builder must establish that substituting that
+fallback framebuffer preserves every intended display property. A passing test
+and unchanged commit/retirement remain mandatory; neither EINVAL nor plane-table
+membership alone is sufficient. Diagnostic stages must distinguish this proof
+from two actual atomic tests.
+
 The proof task also resolves three open questions: whether atomic failure errno
 is retained anywhere useful; whether the live preferred modifier set is nonempty;
 and whether the cached direct-scanout test resets on buffer/layout change.
@@ -209,9 +219,11 @@ allocation preferences keep their existing parser and ordering. The source
 expires after one second; a newer offer or owner/topology transition invalidates
 it even when the scene trace or restored target generation is numerically equal.
 On a quiescent card turn, a matching-format fallback can supply an existing
-alternative framebuffer for two fresh comparable TEST_ONLY requests. Temporary
+alternative framebuffer for a fresh comparison. A creatable original uses two
+comparable TEST_ONLY requests; an explicit AddFB2 refusal uses the distinct
+framebuffer proof above and one alternative TEST_ONLY request. Temporary
 cleanup has an independent bounded retry owner and remains serviced while idle.
-Probe admission costs at most one pair per second per output, with no additional
+Probe admission costs at most one comparison per second per output, with no additional
 render or pixel copy.
 
 The comparison now follows its accepted alternative through exact physical

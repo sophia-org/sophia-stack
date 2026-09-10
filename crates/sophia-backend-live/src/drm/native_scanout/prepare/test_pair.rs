@@ -7,6 +7,8 @@ pub enum LibdrmNativeAtomicTestPairStatus {
     SelectionMismatch,
     GeometryMismatch,
     RequestMismatch,
+    FramebufferRejectionIneligible,
+    LayoutMismatch,
 }
 
 /// Observations from consecutive tests, without authorizing a later commit.

@@ -1,3 +1,6 @@
+#[cfg(all(test, feature = "libdrm-events"))]
+#[path = "../../tests/support/framebuffer_device.rs"]
+pub(crate) mod framebuffer_test_device;
 #[cfg(feature = "libdrm-events")]
 mod native_atomic;
 #[cfg(feature = "libdrm-events")]

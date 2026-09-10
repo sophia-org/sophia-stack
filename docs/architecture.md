@@ -846,17 +846,24 @@ probe admission have separate one-second rate limits. Only a known unsupported
 explicit layout and a supported alternative of the same format and extent may
 reach the comparison. Unknown capability data remains inconclusive.
 
-On a quiescent card turn, both framebuffer owners are prepared against current
-selection, cursor and VRR state. Two consecutive TEST_ONLY requests must differ
-only in the primary framebuffer. Both owners return regardless of outcome;
-temporary cleanup has its own bounded retry slot and runs even when ordinary
-rendering is idle. The alternative is the ordinary compositor result, so no
-extra pixel copy or probe-specific rendering is required. These observations
-do not authorize later commits or Present reallocation advice. A rejection
-before TEST_ONLY, including PRIME or framebuffer creation failure, preserves
-the ordinary composition fallback and its partial cleanup obligation.
+On a quiescent card turn, original preparation is retried against the current
+selection, cursor and VRR state. If its framebuffer can be created, consecutive
+TEST_ONLY requests must differ only in the primary framebuffer. An explicit
+AddFB2 refusal is a distinct observation: all source planes must have imported
+successfully, and a fresh EINVAL must precede the alternative's test. The shared
+production request builder substitutes the alternative's existing framebuffer
+into the original selection and policy; the resulting intended request must
+equal the alternative's canonical test request in full. No original atomic
+result is invented. PRIME, resource-pressure, access and unknown failures do
+not establish this comparison.
 
-A successful pair remains boxed on its prepared alternative until submission.
+Temporary cleanup has its own bounded retry slot and runs even when ordinary
+rendering is idle. The alternative is the ordinary compositor result, so no
+extra pixel copy or probe-specific rendering is required. Every refusal preserves
+the ordinary composition fallback and its partial cleanup obligation. These
+observations do not authorize later commits or Present reallocation advice.
+
+A successful comparison remains boxed on its prepared alternative until submission.
 Only a fresh original rejection with EINVAL, a passing alternative and unchanged
 canonical display request produce a compact witness. Real submission failure or
 a cursor-drop retry discards it; completion-fence bookkeeping grants no additional

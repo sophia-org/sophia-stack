@@ -1,5 +1,8 @@
 #![cfg(test)]
 
+#[path = "framebuffer_capture.rs"]
+mod framebuffer_capture;
+
 use super::*;
 use crate::{
     LibdrmNativeAtomicCommitFlagsReport, LibdrmNativeAtomicCommitRequestScope,

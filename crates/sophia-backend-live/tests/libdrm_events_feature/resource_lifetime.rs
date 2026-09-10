@@ -217,7 +217,10 @@ fn native_libdrm_primary_plane_resources_validate_size_and_lifetime() {
     );
     assert_eq!(
         multi_plane_non_linear_addfb2_failure.framebuffer,
-        Some(LibdrmNativePrimaryPlaneFramebufferCreateDetail::AddFb2ModifiersFailed)
+        Some(LibdrmNativePrimaryPlaneFramebufferCreateDetail::AddFb2ModifiersFailed {
+            error_kind: io::ErrorKind::PermissionDenied,
+            raw_os_error: None,
+        })
     );
     assert!(multi_plane_non_linear_addfb2_failure.resources.is_none());
     assert!(multi_plane_non_linear_addfb2_failure.cleanup.is_none());

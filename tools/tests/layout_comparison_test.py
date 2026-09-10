@@ -51,6 +51,7 @@ class LayoutComparisonTests(unittest.TestCase):
         self.assertEqual(result["native_generation"], 9)
         self.assertEqual(result["preference_generation"], 17)
         self.assertEqual(result["probe_serial"], 3)
+        self.assertEqual(result["original_stage"], "Atomic")
         self.assertNotIn("task_complete", result)
         for format_ in (875713112, 875713089):
             with self.subTest(format=format_):
@@ -64,6 +65,36 @@ class LayoutComparisonTests(unittest.TestCase):
         # Identical scene labels are allowed only when the source identity differs.
         rows.append(TESTED.replace("source_image=817", "source_image=818"))
         self.assertEqual(self.verify(rows), self.verify())
+
+    def test_explicit_original_stages_preserve_the_owned_evidence_chain(self):
+        for stage in ("Atomic", "Framebuffer"):
+            tested = TESTED.replace("schema=1", f"schema=3 original_stage={stage}")
+            session = [tested, *SESSION[1:]]
+            with self.subTest(stage=stage):
+                expected = dict(self.verify(), original_stage=stage)
+                self.assertEqual(self.verify(session), expected)
+                for old, new in (
+                    ("original_errno=22", "original_errno=16"),
+                    ("original_status=Rejected", "original_status=Unknown"),
+                    ("alternative_status=Submitted", "alternative_status=Rejected"),
+                    ("alternative_errno=none", "alternative_errno=22"),
+                    ("source_image=817", "source_image=818"),
+                    ("scene_generation=91", "scene_generation=92"),
+                ):
+                    with self.subTest(change=new), self.assertRaises(VERIFIER.EvidenceError):
+                        self.verify([tested.replace(old, new), *SESSION[1:]])
+                with self.assertRaises(VERIFIER.EvidenceError):
+                    self.verify([TESTED, *session])
+
+    def test_unknown_or_missing_stage_never_becomes_a_framebuffer_proof(self):
+        for replacement in (
+            "schema=3", "schema=3 original_stage=Unknown",
+            "schema=3 original_stage=Prime", "schema=3 original_stage=framebuffer",
+            "schema=1 original_stage=Framebuffer", "schema=1 original_stage=Unknown",
+            "schema=2 original_stage=Atomic", "schema=4 original_stage=Framebuffer",
+        ):
+            with self.subTest(replacement=replacement), self.assertRaises(VERIFIER.EvidenceError):
+                self.verify([TESTED.replace("schema=1", replacement), *SESSION[1:]])
 
     def test_every_chain_edge_is_required(self):
         for index in range(len(SESSION)):

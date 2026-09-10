@@ -604,6 +604,89 @@ rotation bytes. The recorder remained running. A candidate containing the
 transport repair must repeat the isolated comparison before the compressed
 Copy can be attributed to a particular preparation or atomic-test refusal.
 
+
+## Framebuffer rejection on 7ac6f1ea
+
+Installed session `00000001789004130781-aa0cb0a1-abdf-4e85-8d15-b7806e096b68`
+runs signed `7ac6f1eac239b4dde29c66cbd55fc4219ae190f4` with both owner test
+variables enabled. The running binary, manifest and immutable installed package
+agree on SHA-256 `b3745c4e9412627c03dbab69eee8b4df2978291aa9901fef50b0834b90d27aa3`.
+The package uses `native-session`; the developer build used its
+`atomic-scanout-live` feature alias and has a different hash. No source condition
+branches on that alias, but the two binaries are not claimed byte-identical.
+
+The isolated secondary-output XR24 controls each completed 120 submissions.
+LINEAR received 120 Flip completions and 119 pre-teardown Idle events; the real
+two-plane `0x0200000028a6bf04` allocation received 120 Copy and 120 Idle events.
+The same bar was restored after each run and Kitty remained open. The new trace
+transport captured one actual atomic `Submitted` result for LINEAR, at sequence
+56779. The compressed run contains no atomic or layout-probe record. Its copy
+path therefore still lacks a captured original preparation result; this absence
+alone does not identify which earlier gate refused it.
+
+A separate, non-master DRM diagnostic supplies the driver discriminator. It
+obtains the render FD through DRI3, resolves the PCI-identical primary node,
+allocates and fills the same explicit layouts through GBM, imports each plane
+through PRIME, and calls AddFB2 with the actual modifier. It performs no atomic
+commit, modeset, master acquisition or window mapping. Both compressed planes
+import successfully into the same GEM handle. AddFB2 then returns EINVAL (22),
+while the LINEAR control succeeds. Every created framebuffer and unique imported
+handle is released. This reproduces a framebuffer-stage rejection for the actual
+layout; it is not a trace of the running owner's ioctl.
+
+Read-only XR24 and AR24 queries cover all ten planes on the DRM device. Each
+active primary plane's eleven-modifier set equals the union across all planes;
+the tested compressed modifier is absent. Linux v6.18's
+[AMD framebuffer constructor](https://raw.githubusercontent.com/torvalds/linux/v6.18/drivers/gpu/drm/amd/amdgpu/amdgpu_display.c)
+requires some device plane to support a format/modifier before creating the
+framebuffer. The [DRM plane check](https://raw.githubusercontent.com/torvalds/linux/v6.18/drivers/gpu/drm/drm_plane.c)
+uses the driver's format callback. These are pinned reference sources, not a
+verification of every change in the installed 6.18.46 kernel. Together with the
+measured AddFB2 refusal, they expose why requiring an original atomic rejection
+cannot exercise this particular layout on this device.
+
+The repair preserves that stage distinction. An explicit non-linear AddFB2
+failure retains errno and error kind after complete PRIME import. It can retain
+an otherwise eligible source for the existing bounded fallback comparison.
+When the exact fallback is ready, original preparation runs again. If it now
+succeeds, the existing paired-atomic path applies. If it again refuses at AddFB2
+with EINVAL, the shared production request builder combines the original's
+selection, discovered properties and policy with the alternative's real
+framebuffer. That intended request must exactly equal the alternative's test
+request, including cursor, VRR and flags. Only the alternative is tested in this
+arm; there is no invented original TEST_ONLY result.
+
+Unknown stages, PRIME failure, resource-pressure/access errors, changed layout,
+selection or request suppress the optional witness. Passing TEST_ONLY still
+needs an unchanged actual commit, exact retirement and the existing current
+preference/transaction join. No extra render or pixel copy is introduced. The
+one-second candidate lifetime, rate bounds and separate cleanup obligation stay
+in force. Schema 3 identifies the original stage as `Atomic` or `Framebuffer`;
+the reader retains legacy schema-1 atomic records without reinterpreting them.
+
+Physical evidence is retained in `.artifacts/t070-live-7ac6f1ea/`, including probe
+and source identities, private framebuffer results, full plane inventories and
+per-run sequence intervals. The LINEAR interval is 56772–58285 (1514 records);
+the compressed interval is 64550–66267 (1718 records). Both are contiguous and
+unique. Capture reports no discarded records, lost rotation bytes or storage
+errors and remains running. No physical pixel capture was performed. The new
+framebuffer proof arm still requires installed-owner acceptance; neither t070
+nor the separate Chromium no-override exit is closed by these controls.
+
+The implementation passed `SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check`
+with host permissions for local sockets and offscreen GPU fixtures. This covers
+101 backend library tests, 300 native-feature integration tests, all-feature
+workspace tests and Clippy, thirteen comparison-reader cases, twenty archive
+fixtures, buffer-age pixels and GLX/EGL first-frame/pixmap-export pixels. The new
+tests exercise actual preparation and submit hooks, shared-plane cleanup,
+non-EINVAL refusals, changed cursor/VRR/request state, independent cleanup
+retries and exact retirement. The final run has no compiler or Clippy warnings.
+Its log and the unchanged 22-file source manifest are retained as
+`full-check-final.log` and `final-source-before-gate.json` in the same artifact
+directory. The manifest is captured after the final test-fixture mount repair;
+the earlier gate passed with a duplicate-module warning. These deterministic
+checks do not substitute for an installed physical comparison.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

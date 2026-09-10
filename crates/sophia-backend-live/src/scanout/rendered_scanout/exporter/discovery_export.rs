@@ -49,7 +49,7 @@ where
             report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Submitted,
         );
         if report.status == crate::LibdrmNativeAtomicCommitSubmitStatus::Rejected {
-            self.capture_layout_probe_source();
+            self.capture_layout_probe_source(None);
         }
         tracing::info!(
             target: "sophia_scanout_evidence",
@@ -63,6 +63,38 @@ where
             report.request_scope,
             report.commit_flags.nonblocking,
             report.commit_flags.allow_modeset,
+        );
+    }
+
+    fn record_direct_scanout_framebuffer_rejection(
+        &mut self,
+        rejection: crate::LibdrmNativeFramebufferRejection,
+    ) {
+        if !self.direct_scanout_outstanding() {
+            return;
+        }
+        if rejection.raw_os_error() == Some(22)
+            && rejection.error_kind() == std::io::ErrorKind::InvalidInput
+        {
+            self.capture_layout_probe_source(Some(rejection.descriptor()));
+        }
+        let now = std::time::Instant::now();
+        if self
+            .layout_probe
+            .last_framebuffer_report
+            .is_some_and(|last| now.duration_since(last) < std::time::Duration::from_secs(1))
+        {
+            return;
+        }
+        self.layout_probe.last_framebuffer_report = Some(now);
+        tracing::info!(
+            target: "sophia_scanout_evidence",
+            "sophia_live_layout_probe schema=3 status=FramebufferRejected original_stage=Framebuffer output={} scene_generation={} format={} original_modifier={} original_errno={}",
+            self.output.raw(),
+            self.outstanding_direct_generation(),
+            rejection.descriptor().format,
+            rejection.descriptor().modifier.unwrap_or(sophia_protocol::DRM_FORMAT_MOD_INVALID),
+            rejection.raw_os_error().map_or_else(|| "none".to_owned(), |errno| errno.to_string()),
         );
     }
 
@@ -93,9 +125,20 @@ where
             test.and_then(|test| test.raw_os_error)
                 .map_or_else(|| "none".to_owned(), |errno| errno.to_string())
         };
+        let (original_stage, original_status, original_errno) = match report.tests.original {
+            Some(crate::LiveScanoutLayoutOriginalTest::Atomic(original)) => {
+                ("Atomic", status(Some(original)), errno(Some(original)))
+            }
+            Some(crate::LiveScanoutLayoutOriginalTest::Framebuffer { raw_os_error, .. }) => (
+                "Framebuffer",
+                "Rejected",
+                raw_os_error.map_or_else(|| "none".to_owned(), |value| value.to_string()),
+            ),
+            None => ("Atomic", "none", "none".to_owned()),
+        };
         tracing::info!(
             target: "sophia_scanout_evidence",
-            "sophia_live_layout_probe schema=1 output={} scene_generation={} source_image={} status={:?} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
+            "sophia_live_layout_probe schema=3 output={} scene_generation={} source_image={} status={:?} original_stage={} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
             self.output.raw(),
             report
                 .original
@@ -103,9 +146,10 @@ where
                 .map_or(0, |trace| trace.scene_generation),
             report.source_image.raw(),
             report.tests.status,
-            status(report.tests.original),
+            original_stage,
+            original_status,
             status(report.tests.alternative),
-            errno(report.tests.original),
+            original_errno,
             errno(report.tests.alternative),
             report.format,
             report.original_modifier,

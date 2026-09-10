@@ -31,7 +31,10 @@ pub enum LibdrmNativePrimaryPlaneFramebufferCreateDetail {
     CreatedWithAddFb2Modifiers,
     CreatedWithLegacyAddFb,
     AddFb2Failed,
-    AddFb2ModifiersFailed,
+    AddFb2ModifiersFailed {
+        error_kind: io::ErrorKind,
+        raw_os_error: Option<i32>,
+    },
     AddFb2ModifiersThenAddFb2ThenLegacyAddFbFailed,
     AddFb2ThenLegacyAddFbFailed,
     NotAttempted,
@@ -473,9 +476,12 @@ where
                 detail: LibdrmNativePrimaryPlaneFramebufferCreateDetail::CreatedWithAddFb2Modifiers,
                 framebuffer: Some(framebuffer),
             },
-            Err(_) if has_non_linear_modifier(buffer) => {
+            Err(error) if has_non_linear_modifier(buffer) => {
                 LibdrmNativePrimaryPlaneFramebufferCreateResult {
-                    detail: LibdrmNativePrimaryPlaneFramebufferCreateDetail::AddFb2ModifiersFailed,
+                    detail: LibdrmNativePrimaryPlaneFramebufferCreateDetail::AddFb2ModifiersFailed {
+                        error_kind: error.kind(),
+                        raw_os_error: error.raw_os_error(),
+                    },
                     framebuffer: None,
                 }
             }

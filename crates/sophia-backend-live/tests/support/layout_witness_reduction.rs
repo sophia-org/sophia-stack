@@ -54,9 +54,12 @@ fn report() -> LiveScanoutLayoutProbeReport {
         format: sophia_renderer_live::LIVE_RENDERER_SCANOUT_FORMAT_XRGB8888,
         original_modifier: 7,
         alternative_modifier: 0,
-        tests: LibdrmNativeAtomicTestPairReport {
+        tests: LiveScanoutLayoutComparison {
             status: LibdrmNativeAtomicTestPairStatus::Tested,
-            original: Some(observation(14, Some(22))),
+            original: Some(LiveScanoutLayoutOriginalTest::Atomic(observation(
+                14,
+                Some(22),
+            ))),
             alternative: Some(observation(15, None)),
         },
     }
@@ -109,11 +112,90 @@ fn layout_witness_requires_the_exact_current_request_and_correlation() {
             .is_none()
     );
     let mut changed = report;
-    changed.tests.original.as_mut().unwrap().request = Some(current);
+    let Some(LiveScanoutLayoutOriginalTest::Atomic(original)) = &mut changed.tests.original else {
+        panic!("fixture owns an atomic observation");
+    };
+    original.request = Some(current);
     assert!(
         changed
             .witness_for_current(Some(report.alternative), descriptor, current)
             .is_none(),
         "same framebuffer is not an alternate layout comparison"
     );
+}
+
+#[test]
+fn framebuffer_refusal_needs_an_equivalent_fresh_success_and_exact_committing_request() {
+    let mut report = report();
+    let current = request(15, 9).evidence().unwrap();
+    report.tests.original = Some(LiveScanoutLayoutOriginalTest::Framebuffer {
+        intended_request: Some(current),
+        error_kind: std::io::ErrorKind::InvalidInput,
+        raw_os_error: Some(22),
+    });
+    let mut descriptor = LiveRendererScanoutBufferDescriptor::new(
+        sophia_protocol::Size {
+            width: 4,
+            height: 4,
+        },
+        16,
+        report.format,
+        15,
+    );
+    descriptor.modifier = Some(0);
+    assert!(
+        report
+            .witness_for_current(Some(report.alternative), descriptor, current)
+            .is_some()
+    );
+    for case in 0..11 {
+        let mut changed = report;
+        match case {
+            0 => changed.tests.status = LibdrmNativeAtomicTestPairStatus::RequestMismatch,
+            1 => changed.tests.original = None,
+            2..=5 => {
+                let Some(LiveScanoutLayoutOriginalTest::Framebuffer {
+                    intended_request,
+                    error_kind,
+                    raw_os_error,
+                }) = &mut changed.tests.original
+                else {
+                    unreachable!()
+                };
+                match case {
+                    2 => *intended_request = None,
+                    3 => *intended_request = request(15, 10).evidence(),
+                    4 => *raw_os_error = Some(12),
+                    5 => *error_kind = std::io::ErrorKind::Other,
+                    _ => unreachable!(),
+                }
+            }
+            6 => changed.tests.alternative = Some(observation(15, Some(22))),
+            7 => changed.tests.alternative = None,
+            8 => changed.tests.alternative.as_mut().unwrap().request = request(16, 9).evidence(),
+            9 => changed.original_modifier = changed.alternative_modifier,
+            10 => {
+                changed.tests.alternative.as_mut().unwrap().status =
+                    LibdrmNativeAtomicCommitSubmitStatus::WouldBlock
+            }
+            _ => unreachable!(),
+        }
+        assert!(
+            changed
+                .witness_for_current(Some(report.alternative), descriptor, current)
+                .is_none(),
+            "case {case}"
+        );
+    }
+    for mutated in [request(16, 9), request(15, 10), request(15, 9).blocking()] {
+        assert!(
+            report
+                .witness_for_current(
+                    Some(report.alternative),
+                    descriptor,
+                    mutated.evidence().unwrap()
+                )
+                .is_none()
+        );
+    }
 }

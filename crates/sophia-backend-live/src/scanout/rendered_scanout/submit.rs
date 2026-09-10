@@ -100,6 +100,9 @@ where
     // PRIME import and framebuffer creation can refuse before TEST_ONLY.
     // The direct exporter still owns the composed form, and partial resource
     // cleanup must travel with its deferred result just as after a test refusal.
+    if let Some(rejection) = prepare.framebuffer_rejection {
+        exporter.record_direct_scanout_framebuffer_rejection(rejection);
+    }
     let recovered_direct = matches!(
         prepare.status,
         LiveRenderedPrimaryPlaneScanoutPrepareStatus::PrimaryPlanePrepareFailed

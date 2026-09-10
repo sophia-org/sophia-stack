@@ -356,6 +356,23 @@ fn paired_layout_observations_survive_without_resource_payloads() {
         reduced_record(&format!("{record} xid=123 payload=secret error=private")),
         Some(record.to_owned())
     );
+    for stage in ["Atomic", "Framebuffer"] {
+        let staged = record.replace("schema=1", &format!("schema=3 original_stage={stage}"));
+        assert_eq!(
+            reduced_record(&format!("{staged} xid=123 payload=secret error=private")),
+            Some(staged)
+        );
+        assert_eq!(
+            reduced_record(&format!("sophia_other_event original_stage={stage}")),
+            Some("sophia_other_event".to_owned())
+        );
+    }
+    let refused = "sophia_live_layout_probe schema=3 status=FramebufferRejected original_stage=Framebuffer output=2 scene_generation=91 format=875713112 original_modifier=144115188077027331 original_errno=22";
+    assert_eq!(reduced_record(refused), Some(refused.to_owned()));
+    for status in ["FramebufferRejectionIneligible", "LayoutMismatch"] {
+        let record = format!("sophia_live_layout_probe schema=3 status={status}");
+        assert_eq!(reduced_record(&record), Some(record));
+    }
     let retired = "sophia_live_layout_probe schema=2 status=RetiredCopy transaction=71 output=2 scene_generation=91 source_image=817 native_generation=9 format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
     assert_eq!(
         reduced_record(&format!("{retired} xid=123 device_path=/private/card")),
@@ -368,6 +385,10 @@ fn paired_layout_observations_survive_without_resource_payloads() {
     );
     for field in [
         "status=secret",
+        "original_stage=secret",
+        "original_stage=Unknown",
+        "original_stage=Prime",
+        "original_stage=framebuffer",
         "original_status=secret",
         "alternative_status=secret",
         "original_errno=-22",

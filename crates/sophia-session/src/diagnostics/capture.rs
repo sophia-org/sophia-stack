@@ -343,6 +343,7 @@ pub fn reduced_record(line: &str) -> Option<String> {
                     | "source_image"
                     | "native_generation"
                     | "preference_generation"
+                    | "original_stage"
                     | "original_status"
                     | "alternative_status"
                     | "original_errno"
@@ -539,11 +540,15 @@ fn atomic_test_field(record: &str, key: &str, value: &str) -> bool {
 
 fn layout_probe_field(key: &str, value: &str) -> bool {
     match key {
+        "original_stage" => matches!(value, "Atomic" | "Framebuffer"),
         "status" => matches!(
             value,
             "Tested"
                 | "RetiredCopy"
                 | "PreferenceMatched"
+                | "FramebufferRejected"
+                | "FramebufferRejectionIneligible"
+                | "LayoutMismatch"
                 | "MissingRequestEvidence"
                 | "SelectionMismatch"
                 | "GeometryMismatch"

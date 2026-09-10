@@ -110,6 +110,13 @@ pub trait LiveRenderedScanoutBufferExporter {
         );
     }
 
+    /// Actual explicit framebuffer refusal after complete DMA-BUF import.
+    fn record_direct_scanout_framebuffer_rejection(
+        &mut self,
+        _rejection: crate::LibdrmNativeFramebufferRejection,
+    ) {
+    }
+
     /// The direct buffer reached the driver. Release the composed form kept
     /// against a refusal; never the client's buffer, which is on glass.
     fn commit_direct_scanout(&mut self) {}

@@ -19,6 +19,7 @@ pub(super) struct ExporterLayoutProbe {
     available: bool,
     last_capture: Option<Instant>,
     last_attempt: Option<Instant>,
+    pub(super) last_framebuffer_report: Option<Instant>,
 }
 
 impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExporter<R> {
@@ -53,7 +54,10 @@ impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExp
         self.layout_probe.last_report
     }
 
-    pub(super) fn capture_layout_probe_source(&mut self) {
+    pub(super) fn capture_layout_probe_source(
+        &mut self,
+        expected: Option<LiveRendererScanoutBufferDescriptor>,
+    ) -> bool {
         let now = Instant::now();
         if !self.layout_probe.available
             || self.layout_probe.cleanup.is_some()
@@ -62,27 +66,30 @@ impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExp
                 .last_capture
                 .is_some_and(|last| now.duration_since(last) < PROBE_INTERVAL)
         {
-            return;
+            return false;
         }
         let (Some(frame), Some(target), Some(formats)) = (
             &self.direct_fallback,
             self.last_target,
             &self.layout_probe.formats,
         ) else {
-            return;
+            return false;
         };
         let Ok(buffer) = frame.direct_scanout_buffer(target.size) else {
-            return;
+            return false;
         };
         let descriptor = buffer.descriptor;
+        if expected.is_some_and(|expected| expected != descriptor) {
+            return false;
+        }
         if layout_support(formats, descriptor) != LibdrmNativePlaneFormatSupport::Unsupported {
-            return;
+            return false;
         }
         let Ok(format) = drm::buffer::DrmFourcc::try_from(descriptor.format) else {
-            return;
+            return false;
         };
         if formats.modifiers(format).is_none_or(|rows| rows.is_empty()) {
-            return;
+            return false;
         }
         let original = LiveRendererFrameCorrelation {
             request: None,
@@ -95,7 +102,9 @@ impl<R: RenderDeviceDiscoveryBackend> NativeGbmRenderedScanoutBufferDiscoveryExp
             .capture(buffer, original, now, now + PROBE_INTERVAL)
         {
             self.layout_probe.last_capture = Some(now);
+            return true;
         }
+        false
     }
 
     pub(super) fn take_layout_source(

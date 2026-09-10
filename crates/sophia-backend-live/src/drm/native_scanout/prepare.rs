@@ -3,6 +3,8 @@ use std::os::fd::OwnedFd;
 
 mod test_pair;
 pub use test_pair::*;
+mod framebuffer_test;
+pub use framebuffer_test::*;
 
 /// Complete native resources and atomic request for one head, before the
 /// kernel has accepted a page flip.
@@ -133,6 +135,7 @@ pub struct LibdrmNativePrimaryPlaneScanoutPrepareResult {
     pub format_table: Option<LibdrmNativePrimaryPlaneFormatTableStatus>,
     pub resources: Option<LibdrmNativePrimaryPlaneResourceCreateStatus>,
     pub framebuffer: Option<LibdrmNativePrimaryPlaneFramebufferCreateDetail>,
+    pub framebuffer_rejection: Option<LibdrmNativeFramebufferRejection>,
     pub request: Option<LibdrmNativeAtomicRequestBuildStatus>,
     pub request_scope: Option<LibdrmNativeAtomicCommitRequestScope>,
     pub commit_flags: Option<LibdrmNativeAtomicCommitFlagsReport>,
@@ -174,6 +177,7 @@ impl LibdrmNativePrimaryPlaneScanoutPrepareResult {
             format_table: None,
             resources: None,
             framebuffer: None,
+            framebuffer_rejection: None,
             request: None,
             request_scope: None,
             commit_flags: None,
@@ -277,6 +281,7 @@ where
     };
     let format_table =
         LibdrmNativePrimaryPlaneFormatTableStatus::from_property_handles(property_handles);
+    let imported_dma_bufs = plane_fds.is_some();
     let resources = match (policy.allow_modeset, plane_fds) {
         (true, Some(plane_fds)) => create_native_primary_plane_resources_from_dma_bufs(
             device, selected, descriptor, plane_fds,
@@ -310,6 +315,23 @@ where
         result.format_table = Some(format_table);
         result.resources = Some(resources.status);
         result.framebuffer = resources.framebuffer;
+        if imported_dma_bufs
+            && resources.status
+                == LibdrmNativePrimaryPlaneResourceCreateStatus::FramebufferCreateFailed
+            && let Some(LibdrmNativePrimaryPlaneFramebufferCreateDetail::AddFb2ModifiersFailed {
+                error_kind,
+                raw_os_error,
+            }) = resources.framebuffer
+        {
+            result.framebuffer_rejection = Some(LibdrmNativeFramebufferRejection {
+                descriptor,
+                selected,
+                property_handles,
+                policy,
+                error_kind,
+                raw_os_error,
+            });
+        }
         result.cleanup = resources.cleanup;
         return result;
     };
@@ -341,29 +363,7 @@ where
         result.cleanup = destroy.cleanup;
         return result;
     };
-    let request_owner = if policy.allow_modeset {
-        request_owner.allow_modeset()
-    } else {
-        request_owner
-    };
-    let request_owner = if policy.page_flip_event {
-        request_owner
-    } else {
-        request_owner.without_page_flip_event()
-    };
-    let request_owner = if policy.nonblocking {
-        request_owner
-    } else {
-        request_owner.blocking()
-    };
-    // A validating commit asks the driver about this exact framebuffer and
-    // changes nothing. The flag owner clears the page-flip event for it,
-    // since there is no flip to report and the kernel refuses the pair.
-    let request_owner = if policy.test_only {
-        request_owner.test_only()
-    } else {
-        request_owner
-    };
+    let request_owner = apply_scanout_submit_policy(request_owner, policy);
     let request_scope = request_owner.reduced_scope();
     if request_scope != policy.expected_request_scope() {
         let commit_flags = request_owner.reduced_flags();
@@ -402,6 +402,7 @@ where
         format_table: Some(format_table),
         resources: Some(resources.status),
         framebuffer: resources.framebuffer,
+        framebuffer_rejection: None,
         request: Some(LibdrmNativeAtomicRequestBuildStatus::Built),
         request_scope: Some(request_scope),
         commit_flags: Some(commit_flags),
@@ -422,6 +423,25 @@ where
         }),
         cleanup: None,
     }
+}
+
+fn apply_scanout_submit_policy(
+    mut request: LibdrmNativeAtomicCommitRequest,
+    policy: LibdrmNativePrimaryPlaneScanoutSubmitPolicy,
+) -> LibdrmNativeAtomicCommitRequest {
+    if policy.allow_modeset {
+        request = request.allow_modeset();
+    }
+    if !policy.page_flip_event {
+        request = request.without_page_flip_event();
+    }
+    if !policy.nonblocking {
+        request = request.blocking();
+    }
+    if policy.test_only {
+        request = request.test_only();
+    }
+    request
 }
 
 #[expect(

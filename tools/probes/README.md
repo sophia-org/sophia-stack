@@ -177,11 +177,15 @@ python3 -B tools/verify_layout_comparison.py \
   --session-log /path/to/bounded-session.log --probe-log /path/to/probe.log
 ```
 
-The reader joins the paired tests to retirement by source-image identity, then
+The reader joins the layout comparison to retirement by source-image identity, then
 to current preference comparison by transaction and native generation. It checks
 the unique routed completion clock against the probe's received ordinary Copy,
 submission and actual allocation. Repeated test attempts, shared completion
 clocks, implicit layouts and missing stages are inconclusive and fail the check.
+Schema 3 distinguishes original atomic-test rejection from framebuffer-creation
+rejection; both require the alternative's actual passing test and exact retirement.
+Schema 1 remains the older atomic-pair record. A framebuffer refusal alone cannot
+pass this reader.
 `--transaction` selects an existing comparison in a longer bounded run. Old logs
 without these identities cannot prove the join. Session identity and capture
 health remain prerequisites checked by the caller; the reader does not declare

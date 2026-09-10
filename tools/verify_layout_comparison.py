@@ -115,8 +115,14 @@ def verify(session_lines, probe_lines, transaction=None):
         and number(r, "source_image", 1) == source
         and layout(r) == pair
     ], "paired test for the exact source (repeated attempts are ambiguous)")
-    if (number(tested, "schema") != 1
-            or number(tested, "scene_generation", 1) != scene
+    schema = number(tested, "schema")
+    if schema == 1 and tested.get("original_stage", "Atomic") == "Atomic":
+        original_stage = "Atomic"
+    elif schema == 3 and tested.get("original_stage") in ("Atomic", "Framebuffer"):
+        original_stage = tested["original_stage"]
+    else:
+        raise EvidenceError("unsupported paired-test schema or original stage")
+    if (number(tested, "scene_generation", 1) != scene
             or tested.get("original_status") != "Rejected"
             or tested.get("original_errno") != "22"
             or tested.get("alternative_status") != "Submitted"
@@ -174,6 +180,7 @@ def verify(session_lines, probe_lines, transaction=None):
         raise EvidenceError("probe run did not finish successfully")
     return {
         "evidence": "retired_preference_comparison",
+        "original_stage": original_stage,
         "transaction": transaction, "source_image": source, "output": pair[0],
         "format": pair[1], "original_modifier": pair[2],
         "alternative_modifier": pair[3], "native_generation": context,

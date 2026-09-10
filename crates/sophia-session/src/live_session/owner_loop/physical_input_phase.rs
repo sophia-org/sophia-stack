@@ -507,6 +507,15 @@ macro_rules! drain_physical_input {
                 }
             }
             for action in report.wm_actions.iter().copied() {
+                if is_reserved_session_action(action)
+                    && action != SHELL_HELP_SHORTCUT_ACTION
+                    && !is_shell_switcher_shortcut(action)
+                {
+                    if let Some(wm) = wm_session.as_mut() {
+                        wm.enqueue_command_shortcut(action, &mut session_launches, secondary_children.len())?;
+                    }
+                    continue;
+                }
                 if action==SHELL_HELP_SHORTCUT_ACTION || is_shell_switcher_shortcut(action){
                     if let Some(shell)=metadata_shell.as_mut() && shell.launcher_busy(){
                         shell.cancel_launcher()?;launcher_capture.present(None,0,&[],true);
@@ -578,6 +587,10 @@ macro_rules! drain_physical_input {
                 let wm = wm_session
                     .as_mut()
                     .ok_or("WM shortcut activated without a live WM session")?;
+                if wm.public.as_ref().is_none_or(|public| !public.configured) {
+                    crate::session_println!("sophia_live_wm schema=2 status=physical_action_withheld reason=policy_replacement");
+                    continue;
+                }
                 match wm.enqueue_action(action, &layout, output)? {
                     LiveOrderedWmActionAdmission::Admitted => {
                         crate::session_println!(

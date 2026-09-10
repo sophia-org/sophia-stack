@@ -611,15 +611,36 @@ fn execute_committed_session_actions(
                 requests.open_launcher = true;
                 continue;
             }
-            let placement_classification = config
-                .application_for_action(action)
-                .and_then(|application| application.placement_classification);
-            match launches.enqueue(
+            let command = if config.normal_session {
+                config.application_for_action(action).cloned()
+            } else {
+                let program = match application {
+                    TERMINAL_APPLICATION_ID => Some(config.terminal.as_str()),
+                    LAUNCHER_APPLICATION_ID => config.session_launcher.as_deref(),
+                    BROWSER_APPLICATION_ID => config.session_browser.as_deref(),
+                    _ => None,
+                };
+                program.map(|program| crate::session_actions::SessionLaunchCommand {
+                    id: format!("role-{}", application.raw()),
+                    executable: program.into(),
+                    arguments: Vec::new(),
+                    placement_classification: None,
+                })
+            };
+            let Some(command) = command else {
+                crate::session_eprintln!(
+                    "sophia_session_app schema=2 status=rejected source=action transaction={} reason=unavailable_command",
+                    transaction.raw(),
+                );
+                continue;
+            };
+            match launches.enqueue_command(
                 SessionLaunchIntent {
                     transaction,
                     application,
-                    placement_classification,
+                    placement_classification: command.placement_classification,
                 },
+                std::sync::Arc::new(command),
                 children.len(),
             ) {
                 SessionLaunchQueueOutcome::Queued { depth } => crate::session_println!(
@@ -715,25 +736,30 @@ fn execute_committed_session_actions(
         *launch_admission_started_at=Some(Instant::now());
         return Ok(requests);
     }
-    let action = WmSessionAction::LaunchApplication {
-        application: intent.application,
+    let Some(command) = launches.take_admitted_command(intent.transaction) else {
+        let _ = launches.fail_current();
+        *launch_admission_started_at = None;
+        crate::session_eprintln!(
+            "sophia_session_app schema=2 status=rejected source=action transaction={} reason=missing_retained_command",
+            intent.transaction.raw(),
+        );
+        return Ok(requests);
     };
     let spawned = if config.normal_session {
-        let app = config
-            .application_for_action(action)
-            .ok_or("WM requested an unadvertised session application")?;
-        PersistentXtermSessionConfig::spawn_session_application(app, &config.display, xauthority, config.control_socket.as_deref())
-            .map(|child| (Some(app.id.clone()), child))
+        PersistentXtermSessionConfig::spawn_session_application(
+            &command,
+            &config.display,
+            xauthority,
+            config.control_socket.as_deref(),
+        )
+        .map(|child| (Some(command.id.clone()), child))
     } else {
-        let program = match intent.application {
-            TERMINAL_APPLICATION_ID => Some(config.terminal.as_str()),
-            LAUNCHER_APPLICATION_ID => config.session_launcher.as_deref(),
-            BROWSER_APPLICATION_ID => config.session_browser.as_deref(),
-            _ => None,
-        }
-        .ok_or("WM requested an unadvertised session executable")?;
-        spawn_approved_application(program, &config.display, xauthority)
-            .map(|child| (None, child))
+        spawn_approved_application(
+            &command.executable.to_string_lossy(),
+            &config.display,
+            xauthority,
+        )
+        .map(|child| (None, child))
     };
     match spawned {
         Ok((id, child)) => {
@@ -752,7 +778,14 @@ fn execute_committed_session_actions(
                 intent.transaction,
                 child,
             ));
-            *launch_admission_started_at = Some(Instant::now());
+            let observes_proof_surface = config.launch_surface_proof_requested();
+            *launch_admission_started_at = if !observes_proof_surface
+                && launches.complete_spawn(intent.transaction).is_some()
+            {
+                None
+            } else {
+                Some(Instant::now())
+            };
         }
         Err(error) => {
             let _ = launches.fail_current();

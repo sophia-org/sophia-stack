@@ -1,8 +1,137 @@
 use sophia_protocol::{SessionApplicationId, SurfaceId, TransactionId};
 use sophia_session::session_actions::{
-    SESSION_ACTION_APPLICATION_CAPACITY, SessionLaunchIntent, SessionLaunchQueue,
-    SessionLaunchQueueOutcome,
+    SESSION_ACTION_APPLICATION_CAPACITY, SessionLaunchCommand, SessionLaunchIntent,
+    SessionLaunchQueue, SessionLaunchQueueOutcome,
 };
+use std::sync::Arc;
+
+fn command(id: &str, placement: Option<u64>) -> Arc<SessionLaunchCommand> {
+    Arc::new(SessionLaunchCommand {
+        id: id.to_owned(),
+        executable: format!("/usr/bin/{id}").into(),
+        arguments: vec!["--original".to_owned()],
+        placement_classification: placement,
+    })
+}
+
+#[test]
+fn queued_commands_retain_complete_specs_and_are_taken_only_by_exact_admission() {
+    let mut queue = SessionLaunchQueue::default();
+    let mut selected = command("original", Some(91));
+    let retained = Arc::downgrade(&selected);
+    queue.enqueue(intent(1), 0);
+    queue.enqueue_command(intent(2), selected.clone(), 0);
+    Arc::make_mut(&mut selected).executable = "/usr/bin/replacement".into();
+    Arc::make_mut(&mut selected).arguments = vec!["--replacement".to_owned()];
+    Arc::make_mut(&mut selected).placement_classification = Some(92);
+    queue.begin_next(true).unwrap();
+    assert!(queue.take_admitted_command(intent(2).transaction).is_none());
+    queue.fail_current().unwrap();
+    let admitted = queue.begin_next(true).unwrap();
+    assert_eq!(admitted.placement_classification, Some(91));
+    assert!(queue.take_admitted_command(intent(1).transaction).is_none());
+    let captured = queue.take_admitted_command(admitted.transaction).unwrap();
+    assert_eq!(captured.executable.to_str(), Some("/usr/bin/original"));
+    assert_eq!(captured.arguments, ["--original"]);
+    assert_eq!(captured.placement_classification, Some(91));
+    assert!(queue.take_admitted_command(admitted.transaction).is_none());
+    assert!(queue.complete_spawn(admitted.transaction).is_none());
+    assert!(
+        queue
+            .complete_successful_exit(intent(1).transaction, false)
+            .is_none()
+    );
+    assert!(
+        queue
+            .complete_successful_exit(admitted.transaction, true)
+            .is_none()
+    );
+    assert!(
+        queue
+            .complete_successful_exit(admitted.transaction, false)
+            .is_some()
+    );
+    drop(captured);
+    assert!(retained.upgrade().is_none());
+}
+
+#[test]
+fn process_only_spawn_does_not_wait_for_a_window_or_steal_the_next_admission() {
+    let mut queue = SessionLaunchQueue::default();
+    queue.enqueue_command(intent(1), command("headless", None), 0);
+    queue.enqueue_command(intent(2), command("placed", Some(7)), 0);
+    let first = queue.begin_next(true).unwrap();
+    queue.take_admitted_command(first.transaction).unwrap();
+    assert!(queue.complete_spawn(intent(2).transaction).is_none());
+    assert!(queue.complete_spawn(first.transaction).is_some());
+    let second = queue.begin_next(true).unwrap();
+    queue.take_admitted_command(second.transaction).unwrap();
+    assert!(
+        queue
+            .complete_successful_exit(first.transaction, false)
+            .is_none()
+    );
+    assert!(queue.complete_spawn(second.transaction).is_none());
+    assert!(
+        queue
+            .complete_successful_exit(second.transaction, false)
+            .is_some()
+    );
+    assert_eq!(queue.timed_out(), 0);
+    assert!(queue.admission().is_none());
+}
+
+#[test]
+fn command_capacity_cancellation_and_catalog_identity_remain_independent() {
+    let mut queue = SessionLaunchQueue::default();
+    let command = command("bounded", None);
+    let retained = Arc::downgrade(&command);
+    for raw in 1..=SESSION_ACTION_APPLICATION_CAPACITY as u64 {
+        assert!(matches!(
+            queue.enqueue_command(intent(raw), command.clone(), 0),
+            SessionLaunchQueueOutcome::Queued { .. }
+        ));
+    }
+    assert_eq!(
+        queue.enqueue_command(intent(99), command.clone(), 0),
+        SessionLaunchQueueOutcome::RejectedCapacity
+    );
+    drop(command);
+    queue.begin_next(true).unwrap();
+    assert_eq!(
+        queue.cancel_pending(),
+        SESSION_ACTION_APPLICATION_CAPACITY - 1
+    );
+    assert!(retained.upgrade().is_some());
+    queue.fail_current().unwrap();
+    assert!(retained.upgrade().is_none());
+
+    queue.enqueue_catalog(intent(100), 0);
+    queue.begin_next(true).unwrap();
+    assert!(
+        queue
+            .take_admitted_command(intent(100).transaction)
+            .is_none()
+    );
+    assert!(queue.complete_spawn(intent(100).transaction).is_none());
+    assert!(
+        queue
+            .complete_successful_exit(intent(100).transaction, false)
+            .is_none()
+    );
+    assert!(
+        queue
+            .complete_successful_exit(intent(100).transaction, true)
+            .is_none()
+    );
+    assert!(queue.dispatch_catalog(intent(100).transaction));
+    queue.observe_surface(SurfaceId::new(11, 1)).unwrap();
+    assert!(
+        queue
+            .complete_successful_exit(intent(100).transaction, true)
+            .is_some()
+    );
+}
 
 fn intent(raw: u64) -> SessionLaunchIntent {
     SessionLaunchIntent {

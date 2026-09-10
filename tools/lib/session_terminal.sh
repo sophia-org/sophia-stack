@@ -1,6 +1,20 @@
 # Terminal adapters own client-specific arguments; the session launcher owns
 # only the application role and lifecycle.
 
+sophia_session_uses_application_defaults() {
+    [[ "$1" == hagia && "$2" != true && "$3" != true ]]
+}
+
+sophia_append_session_application_default_args() {
+    local destination="$1" role="$2" executable="$3"
+    local -n arguments="$destination"
+    [[ -n "$executable" ]] || return 0
+    arguments+=(
+        "--session-app-default=$role=$executable"
+        "--session-action-default=$role=$role"
+    )
+}
+
 sophia_resolve_session_terminal_kind() {
     local executable="$1" requested="${2:-}" resolved
     if [[ -n "$requested" ]]; then

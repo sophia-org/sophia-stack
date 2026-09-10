@@ -44,9 +44,9 @@ You may omit these selections to use the launcher's defaults. An explicit
 command-line selection wins over the profile. The profile's WM selection wins
 over `config.kdl`'s older `external-wm` setting; both win over a launcher default.
 
-The names in `startup` refer to applications registered in Sophia's
-`config.kdl` or by the session launcher. Their executable paths and arguments
-stay in that registry. Listing an application here grants it no native shell
+The names in `startup` refer to applications declared in this profile or to
+existing Sophia registrations. Define everyday commands here; use `use-core`
+when you deliberately want an advanced registration from Sophia's `config.kdl`. Listing an application here grants it no native shell
 role. Use `startup` with no arguments to start no applications at login.
 
 ## Configure each part where it belongs
@@ -61,7 +61,8 @@ keeps its own settings:
 | Choose layouts, gaps, and navigation | Your WM's policy configuration |
 | Change a panel's widgets or appearance | Your panel's configuration |
 | Change shortcut-help startup behavior | Your native shell's configuration |
-| Register an application or change its command | Sophia `config.kdl`, application registry |
+| Define a command or change what a shortcut launches | Desktop profile, `session.application` or inline `shortcut.bind` |
+| Configure advanced application metadata | Sophia `config.kdl`, explicitly referenced with `use-core` |
 
 The profile can carry WM settings in its `policy` section. Sophia passes that
 section to the chosen WM for validation. You can keep it in a separate file
@@ -83,7 +84,35 @@ session {
 }
 ```
 
-These names refer to your registered applications. Ordinary Hagia login does
+Define commands alongside the bindings that launch them:
+
+```kdl
+session {
+    application "terminal" { exec "kitty"; }
+    application "browser" { exec "brave-origin"; }
+    application "work" { use-core "work-browser"; }
+    terminal "terminal"
+    browser "browser"
+}
+shortcut {
+    profile "desktop"
+    bind "Super+Return" "session:spawn-terminal"
+    bind "Super+b" { launch "browser"; }
+    bind "Super+e" { exec "thunar"; }
+    bind "Super+Shift+b" { launch "work"; }
+}
+```
+
+Arguments are separate quoted strings after `exec`'s executable. They pass
+literally to the program; spaces, dollar signs and wildcard characters are not
+reinterpreted. A command that needs a shell must name it explicitly, for example
+`exec "sh" "-c" "printf hello"`. PATH basenames and absolute executables work.
+The WM receives no executable or argument data; Session performs each launch.
+Changing a command or binding takes effect on profile reload, together, once
+held shortcut keys are released. Invalid edits preserve the prior working
+commands and bindings. Existing queued launches retain their original command.
+
+The role names above refer to your declared applications. Ordinary Hagia login does
 not require a focused application window. The focused-frame startup deadline
 is reserved for the launcher profiles that explicitly exercise applications.
 There is no replacement timeout for opening your first application. Empty and
@@ -143,7 +172,9 @@ compatibility and your current shell selection remain the development priority.
 Login applications start once when the session opens. Reloading the WM or
 restarting it does not run that list again. Changing component selections or
 the startup list takes effect at your next login. A live profile reload reports
-session changes as deferred while applying the settings it can change live.
+non-launch Session changes as deferred while applying commands and bindings
+together. A command-only edit does not restart Hagia. A policy edit waits for
+the replacement WM to accept its configuration, with rollback on failure.
 The running component selections and startup list remain unchanged.
 
 Sophia supervises the native WM and shell through their existing recovery

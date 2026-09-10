@@ -508,7 +508,8 @@ fn a_reload_that_left_the_displays_alone_builds_no_topology() {
 
     let effects = desktop_profile_reload_effects(&before, &after);
     assert!(!effects.output_changed);
-    assert_eq!(effects.deferred, vec![DesktopAuthority::Shortcut]);
+    assert!(effects.deferred.is_empty());
+    assert!(!effects.policy_changed);
 }
 
 #[test]
@@ -527,7 +528,7 @@ fn a_reload_that_changed_the_displays_asks_for_a_topology_and_defers_nothing_els
 }
 
 #[test]
-fn every_other_authority_is_still_deferred_by_a_reload() {
+fn input_shell_and_broker_authorities_remain_deferred_by_a_reload() {
     // The honesty half: these were applied when the session started and a
     // reload cannot revisit them, so each one says so rather than letting a
     // changed key look effective.
@@ -535,8 +536,6 @@ fn every_other_authority_is_still_deferred_by_a_reload() {
 
     let sections = [
         DesktopAuthority::Shell,
-        DesktopAuthority::Shortcut,
-        DesktopAuthority::Session,
         DesktopAuthority::Input,
         DesktopAuthority::Broker,
     ];

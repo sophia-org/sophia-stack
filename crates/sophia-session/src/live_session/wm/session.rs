@@ -99,6 +99,11 @@ struct LiveWmSession {
     /// the shell connection; this is the committed result only.
     shell_reservation_bands: Vec<sophia_protocol::OutputReservation>,
     shortcuts: Option<WmShortcutRouter>,
+    command_registry: SessionCommandRegistry,
+    desktop_reload: Option<PendingDesktopReload>,
+    _other_authority_fragments: Option<sophia_config::DesktopProfileFragments>,
+    pending_policy_launch_spec: Option<ProcessLaunchSpec>,
+    pending_policy_configuration: Option<(sophia_protocol::PolicyConfiguration, sophia_engine::WmShortcutRegistry)>,
     wm_chrome_supported: bool,
     chrome: sophia_protocol::WmChromePolicy,
     fallback_chrome: sophia_engine::SurfaceChromeStyle,

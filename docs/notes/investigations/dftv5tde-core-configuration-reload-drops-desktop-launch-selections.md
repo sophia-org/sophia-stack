@@ -92,3 +92,15 @@ establish unmodified-browser GPU acceptance for t069.
 
 Open work is tracked in [todo.md](../../../todo.md); the accepted GPU feedback
 work remains separate in the [installed signaling record](../milestones/urqkkdzp-exact-copied-present-evidence-gates-reallocation-advice.md#installed-acceptance-on-2026-09-10).
+
+
+## Desktop command integration
+
+The approved [application-command plan](../plans/1agxbuuf-application-commands-in-the-desktop-profile.md)
+now includes this reload repair in its command registry transaction. The pending
+user migration defines the direct Brave command in the desktop profile rather
+than replacing the core registration. Core reload preserves that applied launch
+slice and serializes with policy replacement. Its external regressions retain
+the active/pending rollback checks and add removal of already-executed startup
+references. Installed-owner acceptance remains required; the earlier core-only
+candidate is superseded by the paired Session/Hagia candidate in that plan.

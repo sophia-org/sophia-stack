@@ -1,9 +1,27 @@
 use std::collections::VecDeque;
+use std::path::PathBuf;
+use std::sync::Arc;
 
 use sophia_protocol::{SessionApplicationId, SurfaceId, TransactionId};
 
 pub const SESSION_ACTION_APPLICATION_CAPACITY: usize = 16;
 pub const SESSION_ACTION_SURFACE_CAPACITY: usize = 16;
+
+/// Session-owned executable data, retained independently of later configuration.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct SessionLaunchCommand {
+    pub id: String,
+    pub executable: PathBuf,
+    pub arguments: Vec<String>,
+    pub placement_classification: Option<u64>,
+}
+
+#[derive(Debug)]
+struct QueuedLaunch {
+    intent: SessionLaunchIntent,
+    catalog: bool,
+    command: Option<Arc<SessionLaunchCommand>>,
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct SessionLaunchIntent {
@@ -46,7 +64,8 @@ pub enum SessionLaunchQueueOutcome {
 
 #[derive(Debug, Default)]
 pub struct SessionLaunchQueue {
-    pending: VecDeque<(SessionLaunchIntent, bool)>,
+    pending: VecDeque<QueuedLaunch>,
+    admitted_command: Option<Arc<SessionLaunchCommand>>,
     admission_from_catalog: bool,
     catalog_dispatch: Option<TransactionId>,
     admission: Option<SessionLaunchAdmission>,
@@ -67,7 +86,7 @@ impl SessionLaunchQueue {
             self.pending
                 .back_mut()
                 .expect("successful enqueue retains an entry")
-                .1 = true;
+                .catalog = true;
         }
         result
     }
@@ -91,12 +110,12 @@ impl SessionLaunchQueue {
     }
     pub fn cancel_catalog(&mut self, transaction: TransactionId) {
         self.pending
-            .retain(|(intent, catalog)| !catalog || intent.transaction != transaction);
+            .retain(|launch| !launch.catalog || launch.intent.transaction != transaction);
         if self.catalog_dispatch == Some(transaction) {
             self.catalog_dispatch = None;
         }
         if self.catalog_admission(transaction) {
-            self.admission = None;
+            self.take_admission();
         }
     }
 
@@ -111,11 +130,83 @@ impl SessionLaunchQueue {
             self.rejected = self.rejected.saturating_add(1);
             return SessionLaunchQueueOutcome::RejectedCapacity;
         }
-        self.pending.push_back((intent, false));
+        self.pending.push_back(QueuedLaunch {
+            intent,
+            catalog: false,
+            command: None,
+        });
         self.peak_depth = self.peak_depth.max(self.pending.len());
         SessionLaunchQueueOutcome::Queued {
             depth: self.pending.len(),
         }
+    }
+
+    /// Capture an authorized command before it can wait behind another launch.
+    pub fn enqueue_command(
+        &mut self,
+        mut intent: SessionLaunchIntent,
+        command: Arc<SessionLaunchCommand>,
+        active_applications: usize,
+    ) -> SessionLaunchQueueOutcome {
+        intent.placement_classification = command.placement_classification;
+        let result = self.enqueue(intent, active_applications);
+        if matches!(result, SessionLaunchQueueOutcome::Queued { .. }) {
+            self.pending
+                .back_mut()
+                .expect("accepted launch is queued")
+                .command = Some(command);
+        }
+        result
+    }
+
+    pub fn take_admitted_command(
+        &mut self,
+        transaction: TransactionId,
+    ) -> Option<Arc<SessionLaunchCommand>> {
+        if self.admission_from_catalog
+            || self
+                .admission
+                .is_none_or(|entry| entry.intent.transaction != transaction)
+        {
+            return None;
+        }
+        self.admitted_command.take()
+    }
+
+    /// A process without placement metadata does not owe a first window.
+    pub fn complete_spawn(&mut self, transaction: TransactionId) -> Option<SessionLaunchAdmission> {
+        let admission = self.admission?;
+        if self.admission_from_catalog
+            || admission.intent.transaction != transaction
+            || admission.intent.placement_classification.is_some()
+        {
+            return None;
+        }
+        self.take_admission()
+    }
+
+    pub fn complete_successful_exit(
+        &mut self,
+        transaction: TransactionId,
+        catalog: bool,
+    ) -> Option<SessionLaunchAdmission> {
+        if self.admission_from_catalog != catalog
+            || self
+                .admission
+                .is_none_or(|entry| entry.intent.transaction != transaction)
+            || (catalog
+                && self
+                    .admission
+                    .is_some_and(|entry| !entry.has_observed_surface()))
+        {
+            return None;
+        }
+        self.take_admission()
+    }
+
+    fn take_admission(&mut self) -> Option<SessionLaunchAdmission> {
+        self.admitted_command = None;
+        self.admission.take()
     }
 
     /// Admission is independent of application proof evidence. The owner only
@@ -124,8 +215,10 @@ impl SessionLaunchQueue {
         if !admission_pipeline_idle || self.admission.is_some() {
             return None;
         }
-        let (intent, catalog) = self.pending.pop_front()?;
-        self.admission_from_catalog = catalog;
+        let queued = self.pending.pop_front()?;
+        let intent = queued.intent;
+        self.admission_from_catalog = queued.catalog;
+        self.admitted_command = queued.command;
         self.admission = Some(SessionLaunchAdmission {
             intent,
             observed_surfaces: [None; SESSION_ACTION_SURFACE_CAPACITY],
@@ -172,17 +265,17 @@ impl SessionLaunchQueue {
         {
             return None;
         }
-        self.admission.take()
+        self.take_admission()
     }
 
     pub fn fail_current(&mut self) -> Option<SessionLaunchAdmission> {
-        self.admission.take()
+        self.take_admission()
     }
 
     pub fn complete_observed_exit(&mut self) -> Option<SessionLaunchAdmission> {
         self.admission
             .is_some_and(|admission| admission.has_observed_surface())
-            .then(|| self.admission.take())
+            .then(|| self.take_admission())
             .flatten()
     }
 
@@ -203,11 +296,11 @@ impl SessionLaunchQueue {
             return None;
         }
         self.withdrawn = self.withdrawn.saturating_add(1);
-        self.admission.take()
+        self.take_admission()
     }
 
     pub fn timeout_current(&mut self) -> Option<SessionLaunchAdmission> {
-        let admission = self.admission.take()?;
+        let admission = self.take_admission()?;
         self.timed_out = self.timed_out.saturating_add(1);
         Some(admission)
     }

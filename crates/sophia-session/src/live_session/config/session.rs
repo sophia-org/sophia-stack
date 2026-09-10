@@ -30,17 +30,12 @@ pub(super) fn session_action_evidence_name(action: WmSessionAction) -> &'static 
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct SessionApplicationSpec {
-    pub(super) id: String,
-    pub(super) executable: std::path::PathBuf,
-    pub(super) arguments: Vec<String>,
-    pub(super) placement_classification: Option<u64>,
-}
+pub(super) use crate::session_actions::SessionLaunchCommand as SessionApplicationSpec;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SessionApplicationConfig {
     pub(super) applications: BTreeMap<String, SessionApplicationSpec>,
+    pub(super) command_names: BTreeSet<String>,
     pub(super) startup: Vec<String>,
     pub(super) terminal: Option<String>,
     pub(super) launcher: Option<String>,
@@ -53,6 +48,7 @@ impl Default for SessionApplicationConfig {
     fn default() -> Self {
         Self {
             applications: BTreeMap::new(),
+            command_names: BTreeSet::new(),
             startup: Vec::new(),
             terminal: None,
             launcher: None,
@@ -64,6 +60,13 @@ impl Default for SessionApplicationConfig {
 }
 
 impl SessionApplicationConfig {
+    pub(super) fn named_command(&self, name: &str) -> Option<&SessionApplicationSpec> {
+        self.command_names
+            .contains(name)
+            .then(|| self.applications.get(name))
+            .flatten()
+    }
+
     fn application_for_profile_name(
         &self,
         name: &str,
@@ -98,23 +101,18 @@ impl SessionApplicationConfig {
         startup_overridden: bool,
     ) -> Result<(), SessionApplicationConfigError> {
         self.application_catalog = candidate.application_catalog.clone();
-        if !terminal_overridden
-            && let Some(terminal) = candidate.terminal.as_deref()
-        {
+        if !terminal_overridden && let Some(terminal) = candidate.terminal.as_deref() {
             self.terminal = self.application_for_profile_name(terminal)?;
         }
-        if !browser_overridden
-            && let Some(browser) = candidate.browser.as_deref()
-        {
+        if !browser_overridden && let Some(browser) = candidate.browser.as_deref() {
             self.browser = self.application_for_profile_name(browser)?;
         }
-        if !startup_overridden
-            && let Some(startup) = candidate.startup.as_deref()
-        {
+        if !startup_overridden && let Some(startup) = candidate.startup.as_deref() {
             let mut selected = Vec::with_capacity(startup.len());
             for name in startup {
-                let id = self.application_for_profile_name(name)?
-                    .ok_or_else(|| SessionApplicationConfigError::UnknownApplication(name.clone()))?;
+                let id = self.application_for_profile_name(name)?.ok_or_else(|| {
+                    SessionApplicationConfigError::UnknownApplication(name.clone())
+                })?;
                 if selected.contains(&id) {
                     return Err(SessionApplicationConfigError::DuplicateStartup(id));
                 }
@@ -150,6 +148,9 @@ impl SessionApplicationConfig {
         let mut dropped = Vec::new();
         for binding in &shortcuts.bindings {
             let available = match binding.target {
+                sophia_config::DesktopShortcutTarget::LaunchApplication(ref name) => {
+                    self.named_command(name).is_some()
+                }
                 sophia_config::DesktopShortcutTarget::PolicyAction(_) => true,
                 sophia_config::DesktopShortcutTarget::Session(
                     sophia_config::DesktopSessionShortcut::CloseFocused,
@@ -164,7 +165,8 @@ impl SessionApplicationConfig {
                     sophia_config::DesktopSessionShortcut::LaunchBrowser,
                 ) => self.browser.is_some(),
                 sophia_config::DesktopShortcutTarget::Session(
-                    sophia_config::DesktopSessionShortcut::WindowSwitcher | sophia_config::DesktopSessionShortcut::ShortcutHelp,
+                    sophia_config::DesktopSessionShortcut::WindowSwitcher
+                    | sophia_config::DesktopSessionShortcut::ShortcutHelp,
                 ) => shell_enabled,
                 sophia_config::DesktopShortcutTarget::Session(
                     sophia_config::DesktopSessionShortcut::ApplicationLauncher,
@@ -184,9 +186,10 @@ impl SessionApplicationConfig {
                 return Err(SessionApplicationConfigError::UnavailableShortcutCapability);
             }
             if let sophia_config::DesktopShortcutTarget::Session(shortcut) = binding.target
-                && !dropped.contains(&shortcut) {
-                    dropped.push(shortcut);
-                }
+                && !dropped.contains(&shortcut)
+            {
+                dropped.push(shortcut);
+            }
         }
         Ok(dropped)
     }
@@ -194,6 +197,7 @@ impl SessionApplicationConfig {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub(super) struct SessionApplicationOverrides {
+    defaults: Vec<SessionApplicationSpec>,
     additions: Vec<SessionApplicationSpec>,
     argument_extensions: Vec<(String, String)>,
     startup: Option<Vec<String>>,
@@ -201,27 +205,37 @@ pub(super) struct SessionApplicationOverrides {
     terminal: Option<String>,
     launcher: Option<String>,
     browser: Option<String>,
+    terminal_default: Option<String>,
+    browser_default: Option<String>,
 }
 
 impl SessionApplicationOverrides {
     pub(super) fn parse(args: &[String]) -> Result<Self, SessionApplicationConfigError> {
-        let defaults = args.iter().filter_map(|arg| arg.strip_prefix("--session-start-default=")).collect::<Vec<_>>();
+        let defaults = args
+            .iter()
+            .filter_map(|arg| arg.strip_prefix("--session-start-default="))
+            .collect::<Vec<_>>();
         if defaults.len() > 1 {
-            return Err(SessionApplicationConfigError::DuplicateApplication("startup default".to_owned()));
+            return Err(SessionApplicationConfigError::DuplicateApplication(
+                "startup default".to_owned(),
+            ));
         }
         let startup_default = defaults.first().map(|id| (*id).to_owned());
-        if let Some(id) = &startup_default { validate_session_app_id(id)?; }
+        if let Some(id) = &startup_default {
+            validate_session_app_id(id)?;
+        }
         let mut additions = Vec::new();
         let mut addition_ids = BTreeSet::new();
         for value in args
             .iter()
             .filter_map(|argument| argument.strip_prefix("--session-app="))
         {
-            let (id, executable) = value
-                .split_once('=')
-                .ok_or(SessionApplicationConfigError::InvalidCli(
-                    "--session-app expects ID=/absolute/executable",
-                ))?;
+            let (id, executable) =
+                value
+                    .split_once('=')
+                    .ok_or(SessionApplicationConfigError::InvalidCli(
+                        "--session-app expects ID=/absolute/executable",
+                    ))?;
             validate_session_app_id(id)?;
             let executable = std::path::PathBuf::from(executable);
             if !executable.is_absolute() || executable.as_os_str().is_empty() {
@@ -242,16 +256,76 @@ impl SessionApplicationOverrides {
             });
         }
 
+        let mut defaults = Vec::new();
+        let mut default_ids = BTreeSet::new();
+        for value in args
+            .iter()
+            .filter_map(|arg| arg.strip_prefix("--session-app-default="))
+        {
+            let (id, executable) =
+                value
+                    .split_once('=')
+                    .ok_or(SessionApplicationConfigError::InvalidCli(
+                        "--session-app-default expects ID=EXECUTABLE",
+                    ))?;
+            validate_session_app_id(id)?;
+            if executable.is_empty() || executable.len() > 4096 || executable.contains('\0') {
+                return Err(SessionApplicationConfigError::InvalidCli(
+                    "invalid default executable",
+                ));
+            }
+            if defaults.len() >= 32 || !default_ids.insert(id.to_owned()) {
+                return Err(SessionApplicationConfigError::DuplicateApplication(
+                    id.to_owned(),
+                ));
+            }
+            defaults.push(SessionApplicationSpec {
+                id: id.to_owned(),
+                executable: executable.into(),
+                arguments: Vec::new(),
+                placement_classification: None,
+            });
+        }
+        let mut terminal_default = None;
+        let mut browser_default = None;
+        for value in args
+            .iter()
+            .filter_map(|arg| arg.strip_prefix("--session-action-default="))
+        {
+            let (role, id) =
+                value
+                    .split_once('=')
+                    .ok_or(SessionApplicationConfigError::InvalidCli(
+                        "--session-action-default expects terminal|browser=ID",
+                    ))?;
+            validate_session_app_id(id)?;
+            let target = match role {
+                "terminal" => &mut terminal_default,
+                "browser" => &mut browser_default,
+                _ => {
+                    return Err(SessionApplicationConfigError::InvalidCli(
+                        "invalid default launch role",
+                    ));
+                }
+            };
+            if target.replace(id.to_owned()).is_some() {
+                return Err(SessionApplicationConfigError::DuplicateAction(
+                    role.to_owned(),
+                ));
+            }
+        }
+
         let mut argument_extensions = Vec::new();
         for value in args
             .iter()
             .filter_map(|argument| argument.strip_prefix("--session-app-arg="))
         {
-            let (id, argument) = value
-                .split_once('=')
-                .ok_or(SessionApplicationConfigError::InvalidCli(
-                    "--session-app-arg expects ID=ARG",
-                ))?;
+            let (id, argument) =
+                value
+                    .split_once('=')
+                    .ok_or(SessionApplicationConfigError::InvalidCli(
+                        "--session-app-arg expects ID=ARG",
+                    ))?;
             if argument.len() > 4_096 {
                 return Err(SessionApplicationConfigError::InvalidCli(
                     "--session-app-arg accepts at most 4096 bytes",
@@ -285,11 +359,12 @@ impl SessionApplicationOverrides {
             .iter()
             .filter_map(|argument| argument.strip_prefix("--session-action-app="))
         {
-            let (action, id) = value
-                .split_once('=')
-                .ok_or(SessionApplicationConfigError::InvalidCli(
-                    "--session-action-app expects terminal|launcher|browser=ID",
-                ))?;
+            let (action, id) =
+                value
+                    .split_once('=')
+                    .ok_or(SessionApplicationConfigError::InvalidCli(
+                        "--session-action-app expects terminal|launcher|browser=ID",
+                    ))?;
             let slot = match action {
                 "terminal" => &mut terminal,
                 "launcher" => &mut launcher,
@@ -308,6 +383,7 @@ impl SessionApplicationOverrides {
         }
 
         Ok(Self {
+            defaults,
             additions,
             argument_extensions,
             startup,
@@ -315,27 +391,68 @@ impl SessionApplicationOverrides {
             terminal,
             launcher,
             browser,
+            terminal_default,
+            browser_default,
         })
     }
 
     pub(super) fn prepare(
         &self,
-        mut applications: SessionApplicationConfig,
+        applications: SessionApplicationConfig,
         candidate: &sophia_config::DesktopSessionCandidate,
     ) -> Result<SessionApplicationConfig, SessionApplicationConfigError> {
-        for addition in &self.additions {
-            if applications.applications.len() >= 32 {
-                return Err(SessionApplicationConfigError::ApplicationLimit);
-            }
-            if applications
-                .applications
-                .insert(addition.id.clone(), addition.clone())
-                .is_some()
-            {
+        self.prepare_with_startup(applications, candidate, None)
+    }
+
+    pub(super) fn prepare_live_reload(
+        &self,
+        applications: SessionApplicationConfig,
+        candidate: &sophia_config::DesktopSessionCandidate,
+        startup: &[String],
+    ) -> Result<SessionApplicationConfig, SessionApplicationConfigError> {
+        self.prepare_with_startup(applications, candidate, Some(startup))
+    }
+
+    fn prepare_with_startup(
+        &self,
+        mut applications: SessionApplicationConfig,
+        candidate: &sophia_config::DesktopSessionCandidate,
+        retained_startup: Option<&[String]>,
+    ) -> Result<SessionApplicationConfig, SessionApplicationConfigError> {
+        let core = applications.applications.clone();
+        for declared in &candidate.applications {
+            if !applications.command_names.insert(declared.name.clone()) {
                 return Err(SessionApplicationConfigError::DuplicateApplication(
-                    addition.id.clone(),
+                    declared.name.clone(),
                 ));
             }
+            let command = match &declared.command {
+                sophia_config::DesktopApplicationCommand::Exec {
+                    executable,
+                    arguments,
+                } => SessionApplicationSpec {
+                    id: declared.name.clone(),
+                    executable: executable.clone(),
+                    arguments: arguments.clone(),
+                    placement_classification: None,
+                },
+                sophia_config::DesktopApplicationCommand::UseCore(name) => {
+                    let mut command = core.get(name).cloned().ok_or_else(|| {
+                        SessionApplicationConfigError::UnknownApplication(name.clone())
+                    })?;
+                    command.id.clone_from(&declared.name);
+                    command
+                }
+            };
+            insert_application(&mut applications, command)?;
+        }
+        for default in &self.defaults {
+            if !applications.applications.contains_key(&default.id) {
+                insert_application(&mut applications, default.clone())?;
+            }
+        }
+        for addition in &self.additions {
+            insert_application(&mut applications, addition.clone())?;
         }
         for (id, argument) in &self.argument_extensions {
             let application = applications
@@ -352,19 +469,28 @@ impl SessionApplicationOverrides {
             candidate,
             self.terminal.is_some(),
             self.browser.is_some(),
-            self.startup.is_some(),
+            self.startup.is_some() || retained_startup.is_some(),
         )?;
-        if let Some(startup) = &self.startup {
+        if retained_startup.is_none()
+            && let Some(startup) = &self.startup
+        {
             for id in startup {
                 require_application(&applications, id)?;
             }
             applications.startup.clone_from(startup);
         }
-        if self.startup.is_none() && candidate.startup.is_none() && applications.startup.is_empty()
+        if retained_startup.is_none()
+            && self.startup.is_none()
+            && candidate.startup.is_none()
+            && applications.startup.is_empty()
             && let Some(id) = &self.startup_default
         {
             require_application(&applications, id)?;
             applications.startup.push(id.clone());
+        }
+        // Startup already ran; its identifiers describe existing child bookkeeping.
+        if let Some(startup) = retained_startup {
+            applications.startup = startup.to_vec();
         }
         for id in [&self.terminal, &self.launcher, &self.browser]
             .into_iter()
@@ -381,8 +507,45 @@ impl SessionApplicationOverrides {
         if let Some(browser) = &self.browser {
             applications.browser = Some(browser.clone());
         }
+        for (role, fallback, profile_role, explicit) in [
+            (
+                &mut applications.terminal,
+                &self.terminal_default,
+                &candidate.terminal,
+                &self.terminal,
+            ),
+            (
+                &mut applications.browser,
+                &self.browser_default,
+                &candidate.browser,
+                &self.browser,
+            ),
+        ] {
+            if role.is_none()
+                && profile_role.is_none()
+                && explicit.is_none()
+                && let Some(fallback) = fallback
+                && applications.applications.contains_key(fallback)
+            {
+                *role = Some(fallback.clone());
+            }
+        }
         Ok(applications)
     }
+}
+
+fn insert_application(
+    applications: &mut SessionApplicationConfig,
+    command: SessionApplicationSpec,
+) -> Result<(), SessionApplicationConfigError> {
+    if !applications.applications.contains_key(&command.id) && applications.applications.len() >= 32
+    {
+        return Err(SessionApplicationConfigError::ApplicationLimit);
+    }
+    applications
+        .applications
+        .insert(command.id.clone(), command);
+    Ok(())
 }
 
 fn validate_session_app_id(id: &str) -> Result<(), SessionApplicationConfigError> {
@@ -435,20 +598,26 @@ impl fmt::Display for SessionApplicationConfigError {
             Self::ArgumentLimit(id) => {
                 write!(formatter, "session app {id:?} accepts at most 32 arguments")
             }
-            Self::DuplicateApplication(id) => write!(formatter, "duplicate --session-app ID {id:?}"),
+            Self::DuplicateApplication(id) => {
+                write!(formatter, "duplicate --session-app ID {id:?}")
+            }
             Self::DuplicateStartup(id) => write!(formatter, "duplicate --session-start ID {id:?}"),
             Self::DuplicateAction(action) => {
                 write!(formatter, "duplicate session action mapping {action:?}")
             }
             Self::UnknownApplication(id) => {
-                write!(formatter, "session configuration references unknown app {id:?}")
+                write!(
+                    formatter,
+                    "session configuration references unknown app {id:?}"
+                )
             }
             Self::AmbiguousProfileIdentity(name) => write!(
                 formatter,
                 "desktop session application identity {name:?} is ambiguous"
             ),
-            Self::UnavailableShortcutCapability => formatter
-                .write_str("desktop shortcut references an unavailable session capability"),
+            Self::UnavailableShortcutCapability => {
+                formatter.write_str("desktop shortcut references an unavailable session capability")
+            }
         }
     }
 }

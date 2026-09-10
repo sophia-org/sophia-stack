@@ -61,6 +61,7 @@ struct PersistentXtermSessionConfig {
     applications: SessionApplicationConfig,
     session_application_overrides: SessionApplicationOverrides,
     session_profile: PreparedSessionProfile,
+    active_launch_profile: Option<sophia_config::DesktopSessionCandidate>,
     control_access: sophia_config::DesktopControlAccess,
     control_socket: Option<std::path::PathBuf>,
     application_catalog: Option<sophia_config::ApplicationCatalogConfig>,
@@ -221,20 +222,6 @@ impl PersistentXtermSessionConfig {
         Ok(Some(asset))
     }
 
-    /// Adopts the output profile a reloaded desktop profile prepared.
-    ///
-    /// The prepared type is private to this module, so a reload cannot build
-    /// one where it runs; it hands the candidate here instead. Replacing the
-    /// profile does not change any display by itself -- it changes what the
-    /// next topology candidate is built from.
-    pub(crate) fn replace_output_profile(
-        &mut self,
-        candidate: sophia_config::DesktopOutputCandidate,
-    ) -> Result<(), sophia_config::DesktopProfileCandidateSlotError> {
-        self.output_profile = PreparedOutputProfile::new(candidate)?;
-        Ok(())
-    }
-
     pub(super) fn keyboard_mapper(&self) -> XCoreKeyboardMapper {
         XCoreKeyboardMapper::with_locks(self.initial_caps_lock, self.initial_num_lock)
     }
@@ -333,7 +320,8 @@ impl PersistentXtermSessionConfig {
         let display = arg_value(args, "--display").unwrap_or_else(|| ":77".to_owned());
         let display_number = parse_display_number(&display)?;
         let normal_session = args.iter().any(|arg| arg == "--session-mode=normal")
-            || !core_snapshot.session.applications.is_empty();
+            || !core_snapshot.session.applications.is_empty()
+            || !session_profile.candidate().applications.is_empty();
         let exit_when_startup_exits = args.iter().any(|arg| arg == "--exit-when-startup-exits");
         let startup_ready_timeout = arg_value(args, "--startup-ready-timeout-ms")
             .as_deref()
@@ -1047,6 +1035,7 @@ impl PersistentXtermSessionConfig {
             control_socket: None,
             application_catalog,
             session_profile,
+            active_launch_profile: None,
             max_ticks,
             inject_text,
             expect_physical_text,
@@ -1223,6 +1212,10 @@ impl PersistentXtermSessionConfig {
             .stdout(Stdio::inherit())
             .stderr(Stdio::inherit());
         Ok(command.spawn()?)
+    }
+
+    fn launch_surface_proof_requested(&self) -> bool {
+        self.firefox_proof_requested() || self.exit_after_input_proof || self.expect_physical_text.is_some()
     }
 
     fn firefox_proof_requested(&self) -> bool {

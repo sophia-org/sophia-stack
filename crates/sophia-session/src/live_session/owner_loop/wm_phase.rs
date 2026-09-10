@@ -18,11 +18,12 @@
         }
     }
     if let Some(wm) = wm_session.as_mut() {
-        if profile_reload_requested {
-            profile_reload_requested = false;
-            // Requests its own restart when it has something to restart for,
-            // so an unchanged or refused profile costs the desktop nothing.
-            let _ = wm.reload_desktop_profile(config)?;
+        let launch_input_idle = client_keys.pending_len() == 0
+            && input_delivery.pending.is_empty()
+            && wm.shortcuts.as_ref().is_none_or(WmShortcutRouter::shortcut_idle);
+        wm.settle_desktop_reload(config, launch_input_idle)?;
+        if profile_reload_requested && launch_input_idle && !config_reload_pending {
+            profile_reload_requested = matches!(wm.reload_desktop_profile(config)?, DesktopProfileReloadOutcome::Deferred);
         }
         if wm_restart_requested {
             wm_restart_requested = false;

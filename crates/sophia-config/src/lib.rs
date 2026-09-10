@@ -1,3 +1,4 @@
+mod application_command;
 mod defaults;
 mod desktop_profile;
 mod desktop_profile_activation;
@@ -14,6 +15,7 @@ mod shortcut_candidate;
 mod types;
 mod watch;
 
+pub use application_command::*;
 pub use defaults::*;
 pub use desktop_profile::*;
 pub use desktop_profile_activation::*;

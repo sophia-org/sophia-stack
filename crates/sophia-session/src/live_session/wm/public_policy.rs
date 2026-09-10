@@ -217,6 +217,7 @@ struct LivePublicPolicyState {
     shortcut_profile_slot:
         sophia_config::DesktopProfileCandidateSlot<sophia_config::DesktopShortcutCandidate>,
     actions: Vec<sophia_protocol::PolicyActionRegistration>,
+    accepted_configuration: Option<sophia_protocol::PolicyConfiguration>,
     /// One-shot trusted launch classes retained until the surface's manage
     /// projection commits. Reconnects replay them; rejected/stale cycles do not
     /// consume them.
@@ -1075,6 +1076,9 @@ impl LivePublicPolicyState {
     }
 
     fn take_output_topology_reload_request(&mut self) -> bool {
+        if self.output_candidate_active() {
+            return false;
+        }
         std::mem::take(&mut self.output_topology_reload_pending)
     }
 
@@ -1106,8 +1110,7 @@ impl LivePublicPolicyState {
             return Ok(false);
         };
         if authority.active_transaction().is_some() {
-            // Something is already mid-flight. Refusing is right: a reload can
-            // be repeated, whereas interrupting a transaction cannot be undone.
+            // Admission cannot interrupt an owned topology transaction.
             crate::session_eprintln!(
                 "sophia_live_output_authority schema=3 status=reload_declined reason=candidate_active"
             );
@@ -2200,6 +2203,7 @@ impl LiveWmSession {
             prepared: None,
             shortcut_profile_slot,
             actions: Vec::new(),
+            accepted_configuration: None,
             launch_classifications: BTreeMap::new(),
             outputs: outputs.to_vec(),
             output_bounds,
@@ -2240,6 +2244,12 @@ impl LiveWmSession {
             work_area_relayout_required: false,
             shell_reservation_bands: Vec::new(),
             shortcuts: None,
+            command_registry: SessionCommandRegistry::prepare(1, &config.applications)?
+                .with_policy_launch_roles(config.launch_surface_proof_requested()),
+            desktop_reload: None,
+            _other_authority_fragments: None,
+            pending_policy_launch_spec: None,
+            pending_policy_configuration: None,
             wm_chrome_supported: true,
             chrome: sophia_protocol::WmChromePolicy::default(),
             fallback_chrome: config.surface_chrome_style,
@@ -2311,50 +2321,7 @@ impl LiveWmSession {
                 configuration,
             })) => {
                 defer_cycle = true;
-                let admitted_slots = public
-                    .session_operations
-                    .iter()
-                    .map(|operation| operation.slot)
-                    .collect::<BTreeSet<_>>();
-                let slots_valid = configuration.actions.iter().all(|action| {
-                    action
-                        .session_operation_slot
-                        .is_none_or(|slot| admitted_slots.contains(&slot))
-                });
-                if !slots_valid {
-                    crate::session_eprintln!("sophia_live_wm_configuration schema=1 status=rejected reason=unavailable_session_slot");
-                }
-                let registry = slots_valid
-                    .then(|| {
-                        resolve_public_shortcuts(
-                            public
-                                .shortcut_profile_slot
-                                .candidate()
-                                .expect("public policy retains its prepared shortcut candidate"),
-                            &configuration,
-                        )
-                    })
-                    .and_then(|result| {
-                        if let Err(reason) = &result {
-                            crate::session_eprintln!("sophia_live_wm_configuration schema=1 status=rejected reason={reason:?}");
-                        }
-                        result.ok()
-                    });
-                let outcome = match registry {
-                    Some(registry)
-                        if configuration.connection_epoch == public.connection_epoch => {
-                        self.chrome = configuration.chrome;
-                        self.stage_visual_chrome(self.candidate_chrome_style());
-                        self.shortcuts = Some(sophia_engine::WmShortcutRouter::new(registry));
-                        public.actions = configuration.actions.clone();
-                        // Invalidate queued scripts in this same turn, before another cause can dispatch.
-                        public.control_generation = 0;
-                        public.control_catalog_serial = public.control_catalog_serial.checked_add(1).ok_or("control catalog serial exhausted")?;
-                        public.configured = true;
-                        sophia_protocol::PolicyProjectionOutcome::Committed
-                    }
-                    _ => sophia_protocol::PolicyProjectionOutcome::RejectedInvalid,
-                };
+                let outcome = self.stage_policy_configuration(&mut public, &configuration)?;
                 public.submit_or_defer(PolicyTransportCommand::ConfigurationOutcome {
                         transaction,
                         generation: configuration.generation,
@@ -2689,14 +2656,25 @@ impl LiveWmSession {
         if restart_requested && !process_exited {
             self.supervisor.terminate()?;
         }
+        if self.desktop_reload.as_ref().is_some_and(|pending| pending.replacement_spec.is_none()) {
+            self.pending_policy_launch_spec = self.rollback_desktop_reload();
+        }
+        let replacement = self.pending_policy_launch_spec.take().or_else(|| {
+            self.desktop_reload.as_mut().and_then(|pending| pending.replacement_spec.take())
+        });
+        if let Some(spec) = replacement {
+            self.supervisor = ProcessSupervisor::new(SupervisedProcessKind::WindowManager, spec);
+        }
         let mut public = self.public.take().expect("public WM state is present");
         public.worker.take();
+        self.pending_policy_configuration = None;
         self.control_lifetime.take();
         for (_, ticket) in std::mem::take(&mut public.control_tickets) {
             ticket.finish(if ticket.dispatched() { sophia_protocol::ControlOutcome::Indeterminate } else { sophia_protocol::ControlOutcome::Stale });
         }
         let _ = public.reducer.disconnect(public.connection_epoch);
-        self.shortcuts = None;
+        // Retain the key ledger until replacement acceptance; never synthesize releases.
+
         self.force_transport_restart = false;
         self.restarts = self.restarts.saturating_add(1);
         if let Some(output_service) = public.output_service.as_ref() {
@@ -2727,6 +2705,12 @@ impl LiveWmSession {
             Ok(Some(started)) => started,
             Ok(None) => return Err("public WM supervisor did not restart the policy process".into()),
             Err(error) => {
+                if self.desktop_reload.is_some() {
+                    self.public = Some(public);
+                    self.pending_policy_launch_spec = self.rollback_desktop_reload();
+                    self.force_transport_restart = true;
+                    return Ok(None);
+                }
                 if self.committed == 0 {
                     return Err(error.into());
                 }
@@ -3014,161 +2998,4 @@ impl LiveWmSession {
 
 include!("public_policy/proposal.rs");
 
-/// What re-reading the desktop profile did.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum DesktopProfileReloadOutcome {
-    /// The file on disk says what the running session already believes.
-    Unchanged,
-    /// The file could not be read or did not validate. Nothing was touched;
-    /// the session keeps running on the profile it already had.
-    Declined,
-    /// New fragments are staged and the policy client must be replaced to
-    /// read them.
-    RestartRequired,
-}
-
-/// What a reloaded desktop profile changed, split by who can act on it.
-///
-/// The policy authority is carried by a client restart and the output
-/// authority by a topology transaction. Every other authority was applied by
-/// the session when it started, and saying so beats letting an operator
-/// believe a key they changed took effect.
-///
-/// Deciding on the profile's own values, rather than on the topology a
-/// candidate would resolve to, is what keeps a reload that edited a keybinding
-/// from disturbing a display: no change in the output section means no
-/// transaction is ever built, so nothing can blink.
-struct DesktopProfileReloadEffects {
-    output_changed: bool,
-    deferred: Vec<sophia_config::DesktopAuthority>,
-}
-
-fn desktop_profile_reload_effects(
-    before: &sophia_config::DesktopProfileGeneration,
-    after: &sophia_config::DesktopProfileGeneration,
-) -> DesktopProfileReloadEffects {
-    let mut effects = DesktopProfileReloadEffects {
-        output_changed: false,
-        deferred: Vec::new(),
-    };
-    for authority in sophia_config::DesktopAuthority::ALL {
-        if authority == sophia_config::DesktopAuthority::Policy {
-            continue;
-        }
-        let previous = before.candidates.get(&authority);
-        let next = after.candidates.get(&authority);
-        if previous.map(|candidate| &candidate.values) == next.map(|candidate| &candidate.values) {
-            continue;
-        }
-        if authority == sophia_config::DesktopAuthority::Output {
-            effects.output_changed = true;
-        } else {
-            effects.deferred.push(authority);
-        }
-    }
-    effects
-}
-
-impl LiveWmSession {
-    /// Re-reads the desktop profile and stages it for the policy client.
-    ///
-    /// Reload is a restart, because that is the only moment the policy client
-    /// reads its profile: the activation barrier runs once per connection, and
-    /// the client learns its candidate from an environment variable set when it
-    /// was launched. A replacement process re-runs that barrier against the
-    /// fragments this stages, and its checkpoint carries the windows across, so
-    /// what the operator sees is the configuration changing under a desktop
-    /// that did not go away.
-    ///
-    /// Nothing is written until the new profile has been read and validated, so
-    /// a broken config file is refused with everything still running on the
-    /// last profile that worked.
-    pub(crate) fn reload_desktop_profile(
-        &mut self,
-        config: &mut PersistentXtermSessionConfig,
-    ) -> Result<DesktopProfileReloadOutcome, Box<dyn std::error::Error>> {
-        let Some(public) = self.public.as_mut() else {
-            crate::session_eprintln!(
-                "sophia_live_desktop_profile schema=1 status=reload_declined reason=no_policy_client"
-            );
-            return Ok(DesktopProfileReloadOutcome::Declined);
-        };
-        if public.profile_key.is_none() {
-            crate::session_eprintln!(
-                "sophia_live_desktop_profile schema=1 status=reload_declined reason=activation_not_negotiated"
-            );
-            return Ok(DesktopProfileReloadOutcome::Declined);
-        }
-        let active_generation = config.desktop_profile.generation.raw();
-        crate::session_println!(
-            "sophia_live_desktop_profile schema=1 status=reload_requested generation={active_generation}"
-        );
-
-        let next_generation = sophia_config::ConfigGeneration::from_raw(
-            active_generation.saturating_add(1),
-        );
-        let loaded = sophia_config::load_prepared_desktop_profile(
-            config.desktop_profile_source.as_deref(),
-            next_generation,
-        );
-        let sophia_config::PreparedDesktopProfile {
-            profile: reloaded,
-            candidates: reloaded_candidates,
-            ..
-        } = match loaded {
-            Ok(loaded) => loaded,
-            Err(error) => {
-                // The refusal has to name what it refused, because the operator
-                // is looking at a desktop that did not change and needs to know
-                // whether that is their typo or our bug.
-                crate::session_eprintln!(
-                    "sophia_live_desktop_profile schema=1 status=reload_declined reason=invalid detail={error}"
-                );
-                return Ok(DesktopProfileReloadOutcome::Declined);
-            }
-        };
-        if reloaded.digest == config.desktop_profile.digest {
-            crate::session_println!(
-                "sophia_live_desktop_profile schema=1 status=reload_unchanged generation={active_generation} digest={}",
-                config.desktop_profile.digest,
-            );
-            return Ok(DesktopProfileReloadOutcome::Unchanged);
-        }
-
-        let effects = desktop_profile_reload_effects(&config.desktop_profile, &reloaded);
-        for authority in &effects.deferred {
-            crate::session_eprintln!(
-                "sophia_live_desktop_profile schema=1 status=reload_deferred authority={} reason=applied_at_session_start",
-                authority.name(),
-            );
-        }
-        let output_changed = effects.output_changed;
-
-        let fragments =
-            sophia_config::restage_desktop_profile(&reloaded, &public._profile_fragments)?;
-        let key = sophia_config::DesktopProfileActivationKey::from(&reloaded);
-        sophia_config::validate_desktop_profile_fragments(&fragments, key)?;
-        let digest = reloaded.digest;
-        let generation = reloaded.generation.raw();
-
-        public._profile_fragments = fragments;
-        public.profile_key = Some(key);
-        if output_changed {
-            // The prepared candidate replaces the one startup used, so the
-            // owner loop builds its plan from the profile now on disk. The
-            // flag is all that is set here: turning it into a topology needs
-            // the native scanout, which lives in the owner loop.
-            config.replace_output_profile(reloaded_candidates.output)?;
-            public.output_topology_reload_pending = true;
-            crate::session_println!(
-                "sophia_live_desktop_profile schema=1 status=reload_output_pending"
-            );
-        }
-        config.desktop_profile = reloaded;
-        self.request_deliberate_restart();
-        crate::session_println!(
-            "sophia_live_desktop_profile schema=1 status=reload_staged generation={generation} digest={digest}"
-        );
-        Ok(DesktopProfileReloadOutcome::RestartRequired)
-    }
-}
+include!("profile_reload.rs");

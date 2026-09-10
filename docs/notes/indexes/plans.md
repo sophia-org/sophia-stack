@@ -7,6 +7,7 @@ order live in the todo.txt-format files above. Start with the first open task in
 `+critical` by its `order:` value unless the user selects another scope.
 Candidates and deferred tasks require explicit promotion before implementation.
 
+- [Application commands in the desktop profile](../plans/1agxbuuf-application-commands-in-the-desktop-profile.md)
 - [Critical Path](../plans/queue-01-critical-path.md)
 - [Parallel Production Readiness](../plans/queue-11-parallel-production-readiness.md)
 - [Candidate Queue](../plans/queue-12-candidate-queue.md)

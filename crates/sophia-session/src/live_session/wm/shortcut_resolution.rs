@@ -26,14 +26,16 @@ fn session_shortcut_identity(
 fn resolve_public_shortcuts(
     candidate: &sophia_config::DesktopShortcutCandidate,
     configuration: &sophia_protocol::PolicyConfiguration,
+    policy_generation: u64,
+    commands: &SessionCommandRegistry,
 ) -> Result<sophia_engine::WmShortcutRegistry, &'static str> {
-    if candidate.generation.raw() != configuration.generation {
+    if policy_generation != configuration.generation {
         return Err("shortcut and policy generations differ");
     }
     if configuration
         .actions
         .iter()
-        .any(|action| matches!(action.action, SHELL_SWITCHER_SHORTCUT_ACTION | SHELL_HELP_SHORTCUT_ACTION))
+        .any(|action| is_reserved_session_action(action.action))
     {
         return Err("policy action collides with a reserved session shortcut");
     }
@@ -69,6 +71,8 @@ fn resolve_public_shortcuts(
             continue;
         }
         let action = match &binding.target {
+            sophia_config::DesktopShortcutTarget::LaunchApplication(name) => commands.action(name)
+                .ok_or("shortcut names an unresolved application command")?,
             sophia_config::DesktopShortcutTarget::PolicyAction(name) => policy_actions
                 .get(name.as_str())
                 .copied()
@@ -79,6 +83,10 @@ fn resolve_public_shortcuts(
             sophia_config::DesktopShortcutTarget::Session(
                 sophia_config::DesktopSessionShortcut::ShortcutHelp,
             ) => SHELL_HELP_SHORTCUT_ACTION,
+            sophia_config::DesktopShortcutTarget::Session(sophia_config::DesktopSessionShortcut::LaunchTerminal)
+                if commands.roles.contains_key(&TERMINAL_APPLICATION_ID) => commands.roles[&TERMINAL_APPLICATION_ID],
+            sophia_config::DesktopShortcutTarget::Session(sophia_config::DesktopSessionShortcut::LaunchBrowser)
+                if commands.roles.contains_key(&BROWSER_APPLICATION_ID) => commands.roles[&BROWSER_APPLICATION_ID],
             sophia_config::DesktopShortcutTarget::Session(shortcut) => session_shortcut_identity(
                 *shortcut,
             )

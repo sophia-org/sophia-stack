@@ -100,6 +100,8 @@ fn run_desktop_profile(
                 println!(
                     "// Profile selections before launcher overrides; omitted components inherit defaults."
                 );
+                print!("{}", sophia_config::render_desktop_profile_source(profile)?);
+                return Ok(());
             }
             println!("schema 1");
             for authority in sophia_config::DesktopAuthority::ALL {

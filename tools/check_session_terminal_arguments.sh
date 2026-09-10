@@ -42,4 +42,6 @@ if command -v xterm >/dev/null 2>&1; then
         grep -Eq '^XTerm\([0-9]+\)$'
 fi
 
+python3 -B "$ROOT_DIR/tools/tests/session_application_arguments_test.py"
+
 echo "session terminal argument checks passed"

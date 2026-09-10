@@ -382,6 +382,7 @@ fn shortcut_rows(candidate: &sophia_config::DesktopShortcutCandidate) -> Vec<She
             let action = match &b.target {
                 T::PolicyAction(n) => format!("policy:{n}"),
                 T::Session(op) => format!("session:{}", op.profile_name()),
+                T::LaunchApplication(name) => format!("application:{name}"),
             };
             ShellShortcut {
                 slot: (i + 1) as u16,

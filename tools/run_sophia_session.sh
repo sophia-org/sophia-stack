@@ -91,6 +91,11 @@ if [[ "$TRUECOLOR_PROOF" == true && "$SESSION_PROFILE" != hagia ]]; then
     echo "The TrueColor proof requires the Hagia session profile." >&2
     exit 1
 fi
+normal_application_defaults=false
+if sophia_session_uses_application_defaults \
+    "$SESSION_PROFILE" "$FIREFOX_M10_ANY_PROOF" "$TRUECOLOR_PROOF"; then
+    normal_application_defaults=true
+fi
 SESSION_LABEL="Sophia $SESSION_PROFILE session"
 runtime_root="${XDG_RUNTIME_DIR:-/tmp}"
 tty_name="$(tty 2>/dev/null || true)"
@@ -225,7 +230,12 @@ if [[ "$SESSION_PROFILE" == hagia ]]; then
     else
         hagia_browser_bin="${SOPHIA_HAGIA_BROWSER_BIN:-$(command -v helium || command -v firefox || true)}"
     fi
-    if [[ -z "$hagia_browser_bin" || ! -x "$hagia_browser_bin" ]]; then
+    if [[ "$normal_application_defaults" == true ]]; then
+        if [[ -n "$hagia_browser_bin" && ! -x "$hagia_browser_bin" ]]; then
+            echo "The default browser is not executable: $hagia_browser_bin" >&2
+            exit 1
+        fi
+    elif [[ -z "$hagia_browser_bin" || ! -x "$hagia_browser_bin" ]]; then
         echo "The Hagia profile requires Helium, Firefox, or SOPHIA_HAGIA_BROWSER_BIN." >&2
         exit 1
     fi
@@ -529,14 +539,22 @@ if [[ "$SESSION_PROFILE" == standalone ]]; then
     fi
 else
     terminal_bin="${SOPHIA_TERMINAL_BIN:-$(command -v kitty || true)}"
-    if [[ -z "$terminal_bin" || ! -x "$terminal_bin" ]]; then
+    terminal_kind=""
+    if [[ "$normal_application_defaults" == true ]]; then
+        if [[ -n "$terminal_bin" && ! -x "$terminal_bin" ]]; then
+            echo "The default terminal is not executable: $terminal_bin" >&2
+            exit 1
+        fi
+    elif [[ -z "$terminal_bin" || ! -x "$terminal_bin" ]]; then
         echo "The graphical session requires Kitty or xterm; set SOPHIA_TERMINAL_BIN if it is installed elsewhere." >&2
         exit 1
     fi
-    terminal_kind="$(
-        sophia_resolve_session_terminal_kind \
-            "$terminal_bin" "${SOPHIA_TERMINAL_KIND:-}"
-    )"
+    if [[ "$normal_application_defaults" != true ]]; then
+        terminal_kind="$(
+            sophia_resolve_session_terminal_kind \
+                "$terminal_bin" "${SOPHIA_TERMINAL_KIND:-}"
+        )"
+    fi
     if [[ "$FIREFOX_M10_ANY_PROOF" == true && "$terminal_kind" != kitty ]]; then
         echo "The Firefox proof profiles require the Kitty terminal adapter." >&2
         exit 1
@@ -768,15 +786,16 @@ for spec in sys.argv[1:]:
         )
     fi
 else
-    if [[ "$SESSION_STARTUP" == none ]]; then
-        sophia_append_session_terminal_registration_args \
-            session_args "$terminal_kind" "$terminal_bin"
-    elif [[ "$SESSION_PROFILE" == hagia && "$FIREFOX_M10_ANY_PROOF" != true && "$TRUECOLOR_PROOF" != true ]]; then
-        sophia_append_session_terminal_registration_args \
-            session_args "$terminal_kind" "$terminal_bin"
+    if [[ "$normal_application_defaults" == true ]]; then
+        sophia_append_session_application_default_args session_args terminal "$terminal_bin"
         # The ordinary desktop profile selects startup apps. Proofs retain an
         # explicit CLI selection; the normal terminal is only a fallback.
-        session_args+=(--session-start-default=terminal)
+        if [[ "$SESSION_STARTUP" != none && -n "$terminal_bin" ]]; then
+            session_args+=(--session-start-default=terminal)
+        fi
+    elif [[ "$SESSION_STARTUP" == none ]]; then
+        sophia_append_session_terminal_registration_args \
+            session_args "$terminal_kind" "$terminal_bin"
     else
         sophia_append_session_terminal_base_args \
             session_args "$terminal_kind" "$terminal_bin"
@@ -797,7 +816,7 @@ else
         session_args+=(
             "--session-app-arg=terminal=$ROOT_DIR/tools/fixtures/firefox_m10_kitty_probe.sh"
         )
-    else
+    elif [[ "$normal_application_defaults" != true ]]; then
         sophia_append_session_terminal_title_args \
             session_args "$terminal_kind" "Sophia ${SESSION_PROFILE^} TTY3"
     fi
@@ -850,6 +869,8 @@ if [[ "$SESSION_PROFILE" == hagia ]]; then
             "--session-app-arg=browser=$firefox_m10_profile_dir"
             "--session-app-arg=browser=$firefox_page"
         )
+    elif [[ "$normal_application_defaults" == true ]]; then
+        sophia_append_session_application_default_args session_args browser "$hagia_browser_bin"
     else
         session_args+=(
             "--session-app=browser=$hagia_browser_bin"

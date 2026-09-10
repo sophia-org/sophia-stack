@@ -132,7 +132,9 @@ macro_rules! service_core_config_reload {
         let input_idle = client_keys.pending_len() == 0
             && input_delivery.pending.is_empty()
             && wm_shortcuts_idle;
-        if config_reload_pending && input_idle {
+        if config_reload_pending && input_idle
+            && wm_session.as_ref().is_none_or(|wm| !wm.launch_reload_busy())
+        {
             config_reload_pending = false;
             let path = config
                 .core_config_source
@@ -140,7 +142,11 @@ macro_rules! service_core_config_reload {
                 .as_deref()
                 .expect("only file-backed config creates a watcher");
             match sophia_config::read_config_file(path) {
-                Ok(bytes) => match config.reload_core_config(&bytes) {
+                Ok(bytes) => match if let Some(wm) = wm_session.as_mut() {
+                    wm.reload_core_launches(config, &bytes)
+                } else {
+                    config.reload_core_config(&bytes)
+                } {
                     Ok(report)
                         if report.disposition
                             == sophia_config::ReloadDisposition::Applied =>

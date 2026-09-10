@@ -1,5 +1,10 @@
 #![cfg(test)]
 
+#[path = "desktop_launch_reload.rs"]
+mod desktop_launch_reload;
+#[path = "session_command_registry.rs"]
+mod session_command_registry;
+
 use super::*;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -179,6 +184,27 @@ fn failed_application_preparation_keeps_active_and_pending_restart_state() {
     let mut fixture = ConfigFixture::new(&[]);
     let config = &mut fixture.config;
     activate_session_profile(config);
+    let mut live_profile = config.session_profile.slot().active().unwrap().clone();
+    live_profile
+        .applications
+        .push(sophia_config::DesktopApplication {
+            name: "retained-panel".to_owned(),
+            command: sophia_config::DesktopApplicationCommand::UseCore("panel".to_owned()),
+            provenance: sophia_config::DesktopValueProvenance {
+                path: fixture.directory.join("desktop.kdl"),
+                ordinal: 0,
+            },
+        });
+    config.applications = config
+        .session_application_overrides
+        .prepare_live_reload(
+            PersistentXtermSessionConfig::applications_from_core(config.core_config_state.active())
+                .unwrap(),
+            &live_profile,
+            &config.applications.startup,
+        )
+        .unwrap();
+    config.active_launch_profile = Some(live_profile);
     let active = config.core_config_state.active().clone();
     let applications = config.applications.clone();
     let restart = format!("{DIRECT_CORE}input {{ seat \"seat-for-restart\"; }}\n");
@@ -191,10 +217,7 @@ fn failed_application_preparation_keeps_active_and_pending_restart_state() {
     assert_eq!(config.applications, applications);
     let pending = config.core_config_state.pending_restart().unwrap().clone();
 
-    let duplicate = DIRECT_CORE.replace(
-        "    startup 4",
-        "    application \"terminal\" id=6 executable=\"/usr/bin/false\"\n    startup 4",
-    );
+    let invalid_reference = DIRECT_CORE.replace("    startup 4", "    startup 99");
     let missing = DIRECT_CORE
         .replace(
             "    application \"panel\" id=4 executable=\"/usr/bin/true\"\n",
@@ -202,8 +225,8 @@ fn failed_application_preparation_keeps_active_and_pending_restart_state() {
         )
         .replace("    startup 4\n", "");
     for rejected in [
-        duplicate.clone(),
-        format!("{duplicate}input {{ seat \"another-restart\"; }}\n"),
+        invalid_reference.clone(),
+        format!("{invalid_reference}input {{ seat \"another-restart\"; }}\n"),
         missing,
         "not a valid core configuration".to_owned(),
     ] {

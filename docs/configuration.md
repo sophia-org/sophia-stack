@@ -19,7 +19,7 @@ authority sections. The [user guide](desktop-composition.md) covers component
 selection, private settings, startup, and migration.
 
 `config.kdl` belongs to the session and Engine/compositor mechanism. It owns
-the application registry, startup applications, physical input source, XKB
+advanced application registrations, startup defaults, physical input source, XKB
 RMLVO, repeat timing, output policy, namespace profile, external-WM launch
 specification, diagnostic policy, and fallback compositor chrome plus hard
 chrome limits. Cursor theme, nominal size, and semantic shape are compositor
@@ -52,15 +52,71 @@ session {
 }
 ```
 
-The list accepts 0–32 distinct names and resolves them against the trusted core
-application registry. Unknown or aliased duplicate identities are rejected.
-An explicit empty `startup` suppresses both core startup and launcher fallback.
-Executable paths and arguments remain in the core `session.application`
-registry; the WM never launches them. Explicit `--session-start=ID` selections
+The list accepts 0–32 distinct names and resolves them against the effective
+Session registry. That registry includes profile commands, explicit advanced
+core references, retained legacy registrations, and launcher defaults. Unknown
+or aliased duplicate identities are rejected. An explicit empty `startup`
+suppresses both core startup and launcher fallback. Session owns executable
+paths and arguments; the WM never receives or launches them. Explicit
+`--session-start=ID` selections
 still override configuration. `--session-start-default=ID` is a launcher fallback
 used only when neither the desktop profile nor the core registry selects a
 startup list. The ordinary Hagia launcher uses this fallback for its terminal;
 proof invocations retain explicit startup selections.
+
+### Application commands beside bindings
+
+The selected desktop profile supports literal executable/argument vectors:
+
+```kdl
+session {
+    application "terminal" { exec "kitty"; }
+    application "browser" { exec "brave-origin"; }
+    application "work-browser" { use-core "brave-work"; }
+    terminal "terminal"
+    browser "browser"
+}
+shortcut {
+    profile "desktop"
+    bind "Super+Return" "session:spawn-terminal"
+    bind "Super+b" { launch "browser"; }
+    bind "Super+e" { exec "thunar"; }
+    bind "Super+Shift+b" { launch "work-browser"; }
+}
+```
+
+`exec` accepts a PATH basename or absolute executable and up to 32 literal
+arguments, each at most 4096 bytes. It performs no shell expansion; use an
+explicit `sh -c` command when shell evaluation is intended. Relative executable
+paths and control characters are refused. At most 32 named and inline commands
+may be declared together. Application names are bounded ASCII identities;
+`__shortcut_` is reserved for trusted lowering.
+
+A named application has exactly one `exec` or `use-core` body. `launch` resolves
+only a declaration in this profile. `use-core` imports the complete named core
+registration, including placement metadata; it does not merge fields from an
+equal-name profile registration. Legacy terminal/browser/startup references
+remain supported. Explicit CLI registrations replace complete specifications
+and retain precedence. The launcher's `--session-app-default=ID=EXECUTABLE`
+and `--session-action-default=terminal|browser=ID` supply absent defaults without
+arguments specific to an application. Proof launchers keep explicit overrides.
+
+Trusted preparation lowers inline commands into the Session fragment and
+leaves only references in the Shortcut fragment. Policy contains neither.
+The shortcut router uses a reserved, generation-scoped action range; policy
+registrations cannot claim that range. A queued launch retains its complete
+immutable command across reloads. Successful commands without placement metadata
+release launch admission after spawning; they need not create a window.
+
+Commands, role selections and bindings reload as one Session publication after
+the physical key ledger becomes idle. Command-only edits reuse the accepted
+policy configuration without restarting the WM or rebuilding output topology.
+Launch generations are separate from policy connection/configuration identities.
+Policy edits stage immutable files and wait for replacement configuration
+acceptance; failed replacement restores the previous launch bundle and policy
+paths. Core reload serializes with this preparation. Startup commands are never
+replayed. Input, Shell, Broker and non-launch Session settings retain their
+existing deferred behavior; Output changes use the topology transaction.
 
 A registered session application may set `placement-class=N`, where `N` is a
 nonzero opaque `u64`. For an action-launched application, the session attaches
@@ -279,8 +335,8 @@ then applies that overlay and the canonical typed session candidate to a clone
 of the trusted application registry. The ordering preserves CLI superiority,
 and any unknown, duplicate, ambiguous, or over-limit reference rejects the
 clone without changing accepted state. This preparation is retained admission
-data; it does not activate the session participant or enable desktop-profile
-reload.
+data. The launch reload transaction uses the same preparation before publishing
+the effective registry and shortcut router together.
 Startup now places the canonical typed session payload in the generic
 session-owned slot before deriving that effective configuration. The retained
 slot is exactly `Prepared`, advertises the profile's activation key, and is
@@ -327,11 +383,14 @@ active while the synchronous batch is settling, but no graphical consumer is
 admitted until every authority has activated the same key; failure rolls all
 participants back before launch. This identity promotion does not itself apply
 an output modeset or install a watched reload source.
-That synchronous startup visibility rule is not a live-reload protocol. Watched
-desktop-profile reload remains disabled until cross-authority transports,
-durable recovery, and an explicit global visibility barrier populate the
-executor handlers; Sophia's existing core and native WM reload behavior is
-unchanged.
+The synchronous startup barrier remains distinct from live reload. An explicit
+`session:reload-profile` action applies the bounded launch/shortcut transaction
+above and existing policy/output mechanisms. It does not reactivate all seven
+authority participants. The startup Session participant retains its original
+payload; a separate exact source snapshot identifies the applied launch slice.
+Core application preparation overlays only that slice's commands and roles.
+There is no automatic desktop-file watcher or general cross-authority live
+visibility barrier.
 
 ## Host scripting access
 
@@ -392,8 +451,8 @@ Core reload is whole-file atomic:
 Application reload preparation uses the retained CLI overlay and the active
 desktop session selections. A prepared profile is eligible only before a
 session profile has activated; a staged replacement never supersedes active
-selections. The candidate core snapshot and its resolved launch table publish
-together. An invalid merged reference rejects the reload while preserving the
+selections. The candidate core snapshot, resolved launch table and local command router
+publish together. Core and desktop launch preparations cannot overlap. An invalid resolved reference rejects the reload while preserving the
 active snapshot, launch table, and any earlier pending-restart candidate.
 Reload never replays startup applications.
 

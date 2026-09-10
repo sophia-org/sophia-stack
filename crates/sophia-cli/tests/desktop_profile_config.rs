@@ -28,6 +28,86 @@ fn sophia() -> Command {
 }
 
 #[test]
+fn printed_effective_inline_commands_are_valid_source_and_stay_out_of_policy() {
+    let root = temporary_directory();
+    let path = root.join("commands.kdl");
+    write_profile(
+        &path,
+        r#"schema 1
+session { application "named" { exec "named-program"; }; }
+shortcut {
+  profile "desktop"
+  bind "Super+a" { exec "inline-program" "literal-private-argv" "a space" ""; }
+  bind "Super+b" { launch "named"; }
+}
+policy { layout "tile"; }
+"#,
+    );
+    let option = format!("--desktop-profile={}", path.display());
+    let output = sophia()
+        .args(["config", "print-effective", &option])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "{output:?}");
+    let source = String::from_utf8(output.stdout).unwrap();
+    assert!(!source.contains("__shortcut_"));
+    let effective = root.join("effective.kdl");
+    write_profile(&effective, &source);
+    let check = sophia()
+        .args([
+            "config",
+            "check",
+            &format!("--desktop-profile={}", effective.display()),
+        ])
+        .output()
+        .unwrap();
+    assert!(check.status.success(), "{check:?}");
+    let original = sophia_config::load_prepared_desktop_profile(
+        Some(&path),
+        sophia_config::ConfigGeneration::INITIAL,
+    )
+    .unwrap();
+    let restored = sophia_config::load_prepared_desktop_profile(
+        Some(&effective),
+        sophia_config::ConfigGeneration::INITIAL,
+    )
+    .unwrap();
+    assert_eq!(
+        original.candidates.shortcut.bindings,
+        restored.candidates.shortcut.bindings
+    );
+    assert_eq!(
+        original.candidates.session.applications.len(),
+        restored.candidates.session.applications.len()
+    );
+    for (before, after) in original
+        .candidates
+        .session
+        .applications
+        .iter()
+        .zip(&restored.candidates.session.applications)
+    {
+        assert_eq!(before.name, after.name);
+        assert_eq!(before.command, after.command);
+    }
+    let policy = sophia()
+        .args(["config", "print-policy", &option])
+        .output()
+        .unwrap();
+    assert!(policy.status.success(), "{policy:?}");
+    let policy = String::from_utf8(policy.stdout).unwrap();
+    for private in [
+        "inline-program",
+        "literal-private-argv",
+        "named-program",
+        "__shortcut_",
+    ] {
+        assert!(!policy.contains(private), "{private}");
+    }
+    fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn config_check_validates_every_typed_desktop_candidate() {
     let root = temporary_directory();
     let path = root.join("config.kdl");

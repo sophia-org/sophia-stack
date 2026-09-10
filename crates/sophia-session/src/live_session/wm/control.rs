@@ -33,8 +33,10 @@ impl LiveWmSession {
         _output: sophia_engine::HeadlessOutput,
     ) -> Result<u64, String> {
         let public = self.public.as_mut().ok_or("policy unavailable")?;
-        if self.control_restart.is_some() {
-            return Err("restart already active".into());
+        if self.control_restart.is_some() || self.desktop_reload.is_some()
+            || self.force_transport_restart || self.pending_policy_launch_spec.is_some()
+        {
+            return Err("restart or profile replacement already active".into());
         }
         let epoch = public.next_connection_epoch;
         public.next_connection_epoch = epoch.checked_add(1).ok_or("WM epoch exhausted")?;
@@ -56,7 +58,7 @@ impl LiveWmSession {
         self.supervisor_state = state;
         public.transport_unavailable = true;
         public.configured = false;
-        self.shortcuts = None;
+        self.pending_policy_configuration = None;
         self.force_transport_restart = false;
         self.restarts = self.restarts.saturating_add(1);
         let _ = public.reducer.disconnect(public.connection_epoch);

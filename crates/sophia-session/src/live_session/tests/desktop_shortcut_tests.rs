@@ -1,4 +1,5 @@
 use super::*;
+use crate::live_session::{SessionApplicationConfig, SessionCommandRegistry};
 
 fn shortcut_candidate(
     bindings: Vec<sophia_config::DesktopShortcutBinding>,
@@ -58,7 +59,13 @@ fn desktop_shortcuts_resolve_against_the_policy_action_catalog() {
         chrome: sophia_protocol::WmChromePolicy::default(),
     };
 
-    let mut registry = resolve_public_shortcuts(&candidate, &configuration).unwrap();
+    let mut registry = resolve_public_shortcuts(
+        &candidate,
+        &configuration,
+        candidate.generation.raw(),
+        &SessionCommandRegistry::prepare(1, &SessionApplicationConfig::default()).unwrap(),
+    )
+    .unwrap();
     assert_eq!(registry.binding_count(), 3);
     assert_eq!(
         registry.handle_key(
@@ -89,7 +96,12 @@ fn desktop_shortcuts_reject_unregistered_policy_semantics() {
     };
 
     assert_eq!(
-        resolve_public_shortcuts(&candidate, &configuration),
+        resolve_public_shortcuts(
+            &candidate,
+            &configuration,
+            candidate.generation.raw(),
+            &SessionCommandRegistry::prepare(1, &SessionApplicationConfig::default()).unwrap()
+        ),
         Err("shortcut names an unregistered policy action")
     );
 }
@@ -109,7 +121,13 @@ fn descriptor_switcher_shortcut_is_session_owned() {
         chrome: sophia_protocol::WmChromePolicy::default(),
     };
 
-    let mut registry = resolve_public_shortcuts(&candidate, &configuration).unwrap();
+    let mut registry = resolve_public_shortcuts(
+        &candidate,
+        &configuration,
+        candidate.generation.raw(),
+        &SessionCommandRegistry::prepare(1, &SessionApplicationConfig::default()).unwrap(),
+    )
+    .unwrap();
     let decision = registry.handle_key(
         25,
         WmModifierMask {
@@ -136,7 +154,12 @@ fn policy_cannot_claim_the_descriptor_switcher_action_identity() {
     };
 
     assert_eq!(
-        resolve_public_shortcuts(&candidate, &configuration),
+        resolve_public_shortcuts(
+            &candidate,
+            &configuration,
+            candidate.generation.raw(),
+            &SessionCommandRegistry::prepare(1, &SessionApplicationConfig::default()).unwrap()
+        ),
         Err("policy action collides with a reserved session shortcut")
     );
 }

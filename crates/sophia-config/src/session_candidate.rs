@@ -25,6 +25,7 @@ pub struct DesktopSessionCandidate {
     pub logout_enabled: Option<bool>,
     pub control: DesktopControlAccess,
     pub components: crate::DesktopComponents,
+    pub applications: Vec<crate::DesktopApplication>,
 }
 
 fn schema_error(message: impl Into<String>) -> DesktopProfileError {
@@ -150,10 +151,26 @@ pub fn prepare_desktop_session_candidate(
         logout_enabled: None,
         control: DesktopControlAccess::Disabled,
         components: crate::DesktopComponents::default(),
+        applications: Vec::new(),
     };
     for value in &candidate.values {
         let node = single_node(&value.encoded)?;
         match node.name().value() {
+            "application" => {
+                let application =
+                    crate::application_command::parse_application(&node, &value.provenance)?;
+                if prepared.applications.len() >= crate::SOPHIA_CONFIG_MAX_APPLICATIONS
+                    || prepared
+                        .applications
+                        .iter()
+                        .any(|old| old.name == application.name)
+                {
+                    return Err(schema_error(
+                        "duplicate or excessive application registry entries",
+                    ));
+                }
+                prepared.applications.push(application);
+            }
             "terminal" => prepared.terminal = Some(application_name(&node, "terminal")?),
             "browser" => prepared.browser = Some(application_name(&node, "browser")?),
             "application-catalog" => {

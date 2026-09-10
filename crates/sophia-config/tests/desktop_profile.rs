@@ -673,16 +673,8 @@ fn rejects_unsafe_sources_symlinks_depth_and_aggregate_size() {
     fs::remove_dir_all(root).unwrap();
 }
 
-/// A reload rewrites the fragments the running client will read again.
-///
-/// Staging refuses to overwrite, which is correct at startup and useless for a
-/// reload: the policy client was launched with one of these paths in its
-/// environment and reads that same path when it restarts, so the new profile
-/// has to arrive at the old location. The paths must not move and the content
-/// must be what staging would have written, or the activation key stops
-/// matching what the client loads.
 #[test]
-fn restaging_replaces_fragments_in_place_for_a_newer_generation() {
+fn restaging_preserves_fragments_owned_by_the_previous_generation() {
     let root = temporary_directory("restage");
     let first = load_desktop_profile(None, ConfigGeneration::INITIAL).unwrap();
     let staged = stage_desktop_profile(&first, &root).unwrap();
@@ -696,31 +688,34 @@ fn restaging_replaces_fragments_in_place_for_a_newer_generation() {
 
     for (index, authority) in DesktopAuthority::ALL.into_iter().enumerate() {
         let path = restaged.path(authority);
-        assert_eq!(
+        assert_ne!(
             path, paths_before[index],
-            "a reload must not move the fragment the client was told to read"
+            "each generation must own distinct immutable fragment paths"
         );
         assert_eq!(
             fs::metadata(path).unwrap().permissions().mode() & 0o777,
             0o600,
-            "a replaced fragment stays owner-only"
+            "a staged fragment stays owner-only"
         );
         let source = fs::read_to_string(path).unwrap();
         assert!(source.contains("profile-generation 7"));
         assert!(source.contains(&format!("profile-digest \"{}\"", second.digest)));
+        assert!(
+            fs::read_to_string(&paths_before[index])
+                .unwrap()
+                .contains("profile-generation 1")
+        );
     }
     assert_eq!(restaged.generation, ConfigGeneration::from_raw(7));
 
-    // Nothing is left behind mid-write: the replacement file is renamed over
-    // its target, so a reader arriving at any moment sees one whole profile.
-    for entry in fs::read_dir(&root).unwrap() {
-        let name = entry.unwrap().file_name();
-        assert!(
-            !name.to_string_lossy().contains("replacing"),
-            "a staging file survived the rename: {name:?}"
-        );
+    drop(staged);
+    for (index, authority) in DesktopAuthority::ALL.into_iter().enumerate() {
+        assert!(!paths_before[index].exists());
+        assert!(restaged.path(authority).exists());
     }
-    fs::remove_dir_all(root).unwrap();
+    drop(restaged);
+    assert!(fs::read_dir(&root).unwrap().next().is_none());
+    fs::remove_dir(root).unwrap();
 }
 
 #[test]

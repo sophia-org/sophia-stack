@@ -3,8 +3,12 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod application_commands;
+mod application_source;
 mod staging;
 
+pub(crate) use application_commands::lower_application_commands;
+pub use application_source::render_desktop_profile_source;
 pub use staging::*;
 
 use kdl::{KdlDocument, KdlNode};
@@ -294,6 +298,7 @@ pub fn load_prepared_desktop_profile(
         sources: expansion.sources,
         candidates,
     };
+    let profile = lower_application_commands(&profile)?;
     let candidates = prepare_desktop_profile_candidates(&profile)?;
     Ok(PreparedDesktopProfile {
         profile,
@@ -457,6 +462,7 @@ pub fn prepare_desktop_profile_candidates(
             )));
         }
     }
+    let profile = lower_application_commands(profile)?;
     let candidate = |authority| {
         profile
             .candidates
@@ -464,34 +470,35 @@ pub fn prepare_desktop_profile_candidates(
             .expect("all desktop authority candidates validated")
     };
     let session = crate::prepare_desktop_session_candidate(candidate(DesktopAuthority::Session))?;
-    if !desktop_profile_shell_enabled(profile)
+    if !desktop_profile_shell_enabled(&profile)
         && (session.components.shell_client.is_some() || session.components.shell_config.is_some())
     {
         return Err(DesktopProfileError::Schema(
             "shell component selections require shell { enabled #true; }".to_owned(),
         ));
     }
+    let shortcut =
+        crate::prepare_desktop_shortcut_candidate(candidate(DesktopAuthority::Shortcut))?;
+    for binding in &shortcut.bindings {
+        if let crate::DesktopShortcutTarget::LaunchApplication(name) = &binding.target
+            && !session
+                .applications
+                .iter()
+                .any(|application| &application.name == name)
+        {
+            return Err(DesktopProfileError::Schema(format!(
+                "shortcut references undeclared application {name:?}"
+            )));
+        }
+    }
     Ok(PreparedDesktopProfileCandidates {
-        shortcut: crate::prepare_desktop_shortcut_candidate(candidate(DesktopAuthority::Shortcut))?,
+        shortcut,
         session,
         input: crate::prepare_desktop_input_candidate(candidate(DesktopAuthority::Input))?,
         output: crate::prepare_desktop_output_candidate(candidate(DesktopAuthority::Output))?,
     })
 }
 
-/// Rewrites already-staged fragments to carry a newer profile generation.
-///
-/// Staging refuses to overwrite, which is right when a session starts: a
-/// fragment already there means another session owns this directory. A reload
-/// is the one case where replacing them is the whole point, and the paths must
-/// not move, because the running policy client was launched with one of them
-/// named in its environment and will read that same path when it restarts.
-///
-/// Each fragment is written beside its target and renamed over it, so a reader
-/// arriving mid-write sees either the old profile or the new one. A failure
-/// part-way leaves the fragments it has not reached still holding the previous
-/// generation, which the activation key then refuses as a mismatch rather than
-/// admitting a half-swapped profile.
 #[derive(Default)]
 struct Expansion {
     files: usize,
@@ -657,6 +664,7 @@ fn partition(
         })?;
         for child in children.nodes() {
             validate_setting(authority, child)?;
+            application_commands::validate_source_names(authority, child)?;
             let key = setting_key(authority, child)?;
             if authority != DesktopAuthority::Policy && !keys.insert(key.clone()) {
                 return Err(DesktopProfileError::Schema(format!(
@@ -714,6 +722,7 @@ fn validate_setting(
         DesktopAuthority::Shell => ["enabled", "panel"].contains(&name),
         DesktopAuthority::Shortcut => ["profile", "bind", "pointer-bind"].contains(&name),
         DesktopAuthority::Session => [
+            "application",
             "terminal",
             "browser",
             "logout",

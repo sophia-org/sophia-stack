@@ -467,11 +467,14 @@
                     });
                     if exiting_admission
                         && status.success()
-                        && let Some(admission) = session_launches.complete_observed_exit()
+                        && let Some(admission) = session_launches.complete_successful_exit(
+                            launch_transaction.expect("exiting admission has a transaction"),
+                            secondary_children[secondary_index].catalog_launch,
+                        )
                     {
                         launch_admission_started_at = None;
                         crate::session_println!(
-                            "sophia_session_app schema=2 status=completed id={id} source=action transaction={} reason=normal_exit_after_surface exit_status={status}",
+                            "sophia_session_app schema=2 status=completed id={id} source=action transaction={} reason=normal_exit exit_status={status}",
                             admission.intent.transaction.raw(),
                         );
                     } else if exiting_admission

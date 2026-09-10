@@ -1,5 +1,6 @@
 include!("wm/policy_map.rs");
 include!("wm/policy_session_directory.rs");
+include!("wm/application_commands.rs");
 include!("wm/shortcut_resolution.rs");
 include!("wm/public_policy.rs");
 include!("wm/profile_preparation.rs");

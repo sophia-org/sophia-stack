@@ -77,6 +77,7 @@ impl DesktopSessionShortcut {
 pub enum DesktopShortcutTarget {
     PolicyAction(String),
     Session(DesktopSessionShortcut),
+    LaunchApplication(String),
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -311,6 +312,11 @@ fn parse_target(
         .split_once(':')
         .ok_or_else(|| schema_error("target must have an explicit authority prefix"))?;
     match authority {
+        "application" if kind == DesktopShortcutBindingKind::Key => {
+            Ok(DesktopShortcutTarget::LaunchApplication(
+                crate::application_command::application_identity(target)?.to_owned(),
+            ))
+        }
         "policy" => Ok(DesktopShortcutTarget::PolicyAction(policy_action(target)?)),
         "session" if kind == DesktopShortcutBindingKind::Pointer => Err(schema_error(
             "pointer bindings cannot invoke session capabilities",

@@ -687,6 +687,65 @@ directory. The manifest is captured after the final test-fixture mount repair;
 the earlier gate passed with a duplicate-module warning. These deterministic
 checks do not substitute for an installed physical comparison.
 
+## Installed framebuffer comparison on 99103568
+
+Session `00000001789006756289-f89b1df3-f967-461a-8ff3-2335f7cb95c3` runs signed
+`99103568d9bcd81db6a79b86a65743e40f8e0eec`. The live native owner, installed
+manifest and validated release agree on SHA-256
+`525a1a5d2dcd1d6e529f7dfec796583bdf9f896a5774b12b2d1152013c7ce390`.
+Direct scanout and visual-progress diagnostics are enabled in the owner. The
+manifest identifies the original launcher; the separate native owner is PID
+22230, identified through its session environment, authority-file ownership,
+executable hash and process start identity.
+
+Four isolated controls used the secondary output at 1920 by 1080. Its bar was
+temporarily hidden and restored around each run; the existing Kitty window was
+untouched. Each probe allocated two real buffers and completed 120 submissions.
+
+| Format and layout | Client completions | Alternate-layout evidence |
+| --- | --- | --- |
+| XR24 LINEAR | 120 Flip, 119 Idle before teardown | Actual passing atomic control |
+| XR24 `0x0200000028a6bf04` | 120 Copy, 120 Idle | Complete framebuffer-stage proof |
+| AR24 LINEAR | 120 Flip, 119 Idle before teardown | Actual passing atomic control |
+| AR24 `0x0200000028a6bf04` | 120 Copy, 120 Idle | Inconclusive; no comparison record |
+
+The XR24 proof joins transaction/source image/scene 17811 on output 2. Fresh
+framebuffer creation rejects the original with EINVAL. The existing alternative
+`0x0200000028a67f04` passes the exact request test and reaches `RetiredCopy` under
+native generation 9. `PreferenceMatched` names generation 12. The routed
+Complete and client Copy agree on UST 488836429313 and MSC 29264694; that client
+event belongs to serial 60 and the actual compressed allocation. The bounded
+reader returns `retired_preference_comparison`, `original_stage=Framebuffer`,
+and exits zero. An independent read-only review reproduced that result.
+
+The XR24 compressed interval, sequences 31284–33012, contains 1729 unique,
+contiguous records. The other controls retain their own checked sequence
+intervals. Immediate health snapshots can precede the interval because health
+publication is periodic; final health at sequence 68700 bounds all four runs
+and reports zero discarded records, lost rotation bytes and storage errors.
+Capture remains running. All probe windows are gone, the same bar and Kitty
+remain mapped, and the native owner has not changed. No input, owner restart,
+VT transition or physical pixel capture was performed.
+
+AR24 produced three bounded `FramebufferRejected` records and ordinary copied
+completions. It produced no `Tested`, `RetiredCopy` or `PreferenceMatched` chain,
+and the reader correctly rejects it. Source review identifies a candidate
+asymmetry: XR24 may try measured preferred modifiers, while AR24 tries LINEAR
+and implicit allocation. The live record does not contain capture success or
+the alternative descriptor, so it does not establish that this explains the
+missing AR24 comparison. Its successful copy is not alternate-layout evidence.
+
+The XR24 result satisfies the narrow t070 prerequisite together with the
+deterministic request, stale-state and cleanup regressions already validated on
+this candidate. It establishes neither AR24 proof nor protocol signaling.
+SuboptimalCopy still needs client opt-in, copied-disposition restrictions,
+current eligibility and one emission per exact surface/preference generation.
+The separate Chromium no-override failure and t069 end-to-end exit are unchanged.
+
+Evidence is retained under `.artifacts/t070-live-99103568/`: owner and probe
+identities, allocation/feedback logs, bounded session extracts, geometry and
+health snapshots, and the successful XR24 and refused AR24 reader results.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

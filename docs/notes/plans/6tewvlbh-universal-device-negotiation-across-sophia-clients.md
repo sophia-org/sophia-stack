@@ -151,8 +151,11 @@ no-override launch exit remains unchanged.
 ## SuboptimalCopy gate
 
 The 2026-09-09 contrary-path review found no sufficient counterfactual proof
-that a different allocation would flip. Keep signaling disabled until that gate
-passes. This is conformant: Present reallocation advice is optional. The five
+that a different allocation would flip. The installed `99103568` XR24 comparison
+now supplies that narrow prerequisite, as recorded in the
+[physical acceptance](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#installed-framebuffer-comparison-on-99103568).
+Signaling still requires all conditions below. Present reallocation advice is
+optional, and unavailable proof must preserve ordinary completion. The five
 tracked obligations are:
 
 | Condition | Implementation seam | Evidence and exit |
@@ -244,7 +247,10 @@ Native context identities do not repeat across reconstruction or rollback.
 Contention, changed state and unavailable devices suppress the optional match
 without delaying ordinary Copy. The native path conservatively withholds evidence
 for multi-output joins, and the frontend does not substitute parent preferences
-for child presentations. Physical paired-test/retirement acceptance remains open;
+for child presentations. Installed `99103568` supplies one complete XR24
+framebuffer-rejection/alternative-test/retirement/current-preference chain on
+output 2. AR24 completed ordinary rendering but remains unproven. This accepts
+the t070 prerequisite without generalizing the proof to other layouts or outputs;
 only then may the deferred signaling obligations proceed.
 
 A generic explicit-layout DRI3 probe supplies real XR24/AR24 allocations without

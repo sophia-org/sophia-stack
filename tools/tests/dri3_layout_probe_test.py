@@ -69,10 +69,11 @@ class Dri3LayoutProbeTests(unittest.TestCase):
                 self.assertNotIn("event=finished", result.stdout)
 
     def test_valid_request_requires_explicit_display(self):
-        result = self.run_probe(VALID)
-        self.assertEqual(result.returncode, 2, result.stderr)
-        self.assertIn("stage=display_unset", result.stderr)
-        self.assertNotIn("event=finished", result.stdout)
+        for arguments in (VALID, [*VALID, "--suboptimal"]):
+            result = self.run_probe(arguments)
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertIn("stage=display_unset", result.stderr)
+            self.assertNotIn("event=finished", result.stdout)
 
     def test_setup_wait_is_inside_the_process_deadline(self):
         # This endpoint accepts only this child and never answers X setup.

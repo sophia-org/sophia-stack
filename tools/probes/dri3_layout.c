@@ -32,7 +32,7 @@ struct options {
     int x, y, width, height;
     uint32_t format, frames, timeout_ms;
     uint64_t modifier;
-    bool list_only, has_geometry, has_format, has_modifier;
+    bool list_only, has_geometry, has_format, has_modifier, suboptimal;
 };
 
 struct buffer {
@@ -213,6 +213,7 @@ static void usage(FILE *output)
 {
     fprintf(output, "usage: dri3_layout --geometry X,Y,W,H --format XR24|AR24\n"
                     "       [--modifier VALUE] [--list-only] [--frames 1..120] [--timeout-ms 100..10000]\n"
+                    "       [--suboptimal]\n"
                     "Present requires --modifier. List-only never maps or presents a window.\n"
                     "Geometry: signed 16-bit position, positive dimensions <=4096.\n");
 }
@@ -224,6 +225,10 @@ static bool parse(int argc, char **argv, struct options *options)
         const char *arg = argv[index];
         if (!strcmp(arg, "--list-only")) {
             options->list_only = true;
+            continue;
+        }
+        if (!strcmp(arg, "--suboptimal")) {
+            options->suboptimal = true;
             continue;
         }
         if (index + 1 >= argc)
@@ -642,9 +647,12 @@ static bool run_frames(struct probe *probe)
                 buffer->serial = ++probe->submitted;
                 buffer->submitted_ms = now_ms();
                 xcb_present_pixmap(probe->connection, probe->window, buffer->pixmap, buffer->serial,
-                    0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, NULL);
-                printf("dri3_layout event=submit serial=%" PRIu32 " pixmap=%" PRIu32 " buffer=%u format=%" PRIu32 " modifier=%" PRIu64 "\n",
-                    buffer->serial, buffer->pixmap, slot, probe->options.format, gbm_bo_get_modifier(buffer->bo));
+                    0, 0, 0, 0, 0, 0, 0,
+                    probe->options.suboptimal ? XCB_PRESENT_OPTION_SUBOPTIMAL : 0,
+                    0, 0, 0, 0, NULL);
+                printf("dri3_layout event=submit serial=%" PRIu32 " pixmap=%" PRIu32 " buffer=%u format=%" PRIu32 " modifier=%" PRIu64 " suboptimal=%u\n",
+                    buffer->serial, buffer->pixmap, slot, probe->options.format, gbm_bo_get_modifier(buffer->bo),
+                    probe->options.suboptimal ? 1u : 0u);
                 if (xcb_flush(probe->connection) <= 0)
                     return fail("present_flush");
                 sent = true;

@@ -253,6 +253,7 @@ impl XPresentSessionObserver {
                     {
                         Ok(route) => {
                             let routed = route.routed;
+                            let mode = route.mode;
                             if matches!(
                                 route.layout_comparison,
                                 Some(sophia_x_authority::XPresentLayoutComparisonResult::Matched)
@@ -275,7 +276,9 @@ impl XPresentSessionObserver {
                             if routed
                                 && matches!(
                                     mode,
-                                    XPresentCompletionMode::Copy | XPresentCompletionMode::Flip
+                                    XPresentCompletionMode::Copy
+                                        | XPresentCompletionMode::Flip
+                                        | XPresentCompletionMode::SuboptimalCopy
                                 )
                             {
                                 self.displayed_cadence.observe(ust);

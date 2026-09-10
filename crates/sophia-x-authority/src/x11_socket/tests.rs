@@ -654,6 +654,7 @@ fn clearing_old_present_selection_preserves_active_window_feedback() {
             pixmap,
             1,
             Some(idle_fence),
+            false,
         )
         .unwrap();
 
@@ -717,7 +718,7 @@ fn present_feedback_reaches_every_matching_event_selection() {
     }
     broker
         .registry
-        .queue_present(transaction, client, window, pixmap, 2, None)
+        .queue_present(transaction, client, window, pixmap, 2, None, false)
         .unwrap();
 
     assert_eq!(
@@ -747,7 +748,7 @@ fn present_feedback_reaches_every_matching_event_selection() {
     let disconnected = TransactionId::from_raw(204);
     broker
         .registry
-        .queue_present(disconnected, client, window, pixmap, 3, None)
+        .queue_present(disconnected, client, window, pixmap, 3, None, false)
         .unwrap();
     drop(registration);
     assert_eq!(
@@ -786,7 +787,7 @@ fn present_protocol_capacity_covers_both_lifecycle_phases() {
         .unwrap();
     broker
         .registry
-        .queue_present(transaction, client, window, pixmap, 1, None)
+        .queue_present(transaction, client, window, pixmap, 1, None, false)
         .unwrap();
 
     assert_eq!(
@@ -937,7 +938,7 @@ fn present_feedback_reaches_the_client_that_subscribed_not_the_one_that_presente
         .unwrap();
     broker
         .registry
-        .queue_present(transaction, owner, window, pixmap, 2, None)
+        .queue_present(transaction, owner, window, pixmap, 2, None, false)
         .unwrap();
 
     assert_eq!(
@@ -986,7 +987,7 @@ fn a_present_from_a_client_that_did_not_create_the_window_is_admitted() {
 
     broker
         .registry
-        .queue_present(transaction, presenter, window, pixmap, 3, None)
+        .queue_present(transaction, presenter, window, pixmap, 3, None, false)
         .expect("the window decides the surface; the presenter need not own it");
 
     assert_eq!(
@@ -1019,6 +1020,7 @@ fn a_present_to_a_window_without_a_route_names_the_window() {
         XResourceId::new(0x400041, 1),
         1,
         None,
+        false,
     );
     assert_eq!(
         refused,
@@ -1102,7 +1104,7 @@ fn a_notify_msc_ahead_of_the_clock_waits_for_a_completion_to_ripen() {
     // A completion at msc 42 advances the clock past the target and ripens it.
     broker
         .registry
-        .queue_present(transaction, owner, window, pixmap, 5, None)
+        .queue_present(transaction, owner, window, pixmap, 5, None, false)
         .unwrap();
     assert_eq!(
         broker.route_present_complete(transaction, 100, 42, XPresentCompletionMode::Flip),

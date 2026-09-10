@@ -887,10 +887,17 @@ presenter, buffer and layout before the pixmap XID can be reused. At Complete it
 rechecks current window geometry, mapping, context and exact-format membership
 in that presenter's available pinned bundle. The accepted alternative must still
 be preferred and the original must not. A busy authority rejects the optional
-comparison without waiting. The comparison is informational: stale or unavailable
-state preserves ordinary Copy, clock advancement and Idle delivery. Client opt-in
-and reallocation-signal suppression remain separate requirements; no comparison
-result authorizes a later commit or changes the wire completion mode.
+comparison without waiting. Stale or unavailable state preserves ordinary Copy,
+clock advancement and Idle delivery. The comparison never authorizes a later
+commit. For an actual copied completion, the frontend may emit SuboptimalCopy
+only when that exact Present opted in without requesting forced copying and the
+current comparison succeeds. It claims at most one notice per exact surface in
+an accepted preference generation, after accepting the first Complete and before
+subscriber delivery. A partial or failed delivery does not restore that claim;
+some subscribers may already have received the notice. Ordinary Copy does not
+reset it. A valid replacement preference generation does. Retained and directly
+flipped ownership keep their existing Flip mode and Idle ordering. The effective
+wire mode is returned to the session for diagnostics and displayed-frame pacing.
 
 The ordinary fallback can prefer the original fourcc without another render.
 A required renderer format is strict; an optional preference may return to normal

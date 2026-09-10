@@ -824,8 +824,9 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             pixmap,
                             serial,
                             idle_fence,
+                            options,
                             ..
-                        } => Some((*window, *pixmap, *serial, *idle_fence)),
+                        } => Some((*window, *pixmap, *serial, *idle_fence, options & 0x0a == 0x08)),
                         _ => None,
                     };
                     let present_request = match &request {
@@ -912,7 +913,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     // client that silently stopped drawing. One request was
                     // wrong; the conversation is not over.
                     let mut present_queue_refused = None;
-                    let queued_present = if let Some((window, pixmap, serial, idle_fence)) =
+                    let queued_present = if let Some((window, pixmap, serial, idle_fence, suboptimal)) =
                         pending_present
                         && let Some(routing) = protocol_routing.as_ref()
                     {
@@ -923,6 +924,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             pixmap,
                             serial,
                             idle_fence,
+                            suboptimal,
                         ) {
                             Ok(()) => true,
                             Err(error) => {
@@ -1495,7 +1497,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     if queued_present
                         && let Some(routing) = protocol_routing.as_ref()
                         && let Some(present) = present_submission.as_ref()
-                        && let Some((window, pixmap, _, _)) = pending_present
+                        && let Some((window, pixmap, _, _, _)) = pending_present
                         && let Some(subject) = runtime.present_allocation_subject(
                             namespace, client.raw(), window, pixmap, present,
                         )

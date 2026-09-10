@@ -62,6 +62,8 @@ struct XPendingPresent {
     pixmap: XResourceId,
     serial: u32,
     idle_fence: Option<XResourceId>,
+    // Advice is permitted only when opted in without forced copying.
+    suboptimal: bool,
     phases: crate::XPresentFeedbackPhases,
     allocation_subject: Option<crate::runtime::XPresentAllocationSubject>,
 }
@@ -531,6 +533,7 @@ impl XServerFrontendRouteRegistry {
         pixmap: XResourceId,
         serial: u32,
         idle_fence: Option<XResourceId>,
+        suboptimal: bool,
     ) -> Result<(), XServerFrontendRouteError> {
         // The window decides which surface a present reaches; the presenting
         // client does not have to be the one that created it. A browser's GPU
@@ -586,6 +589,7 @@ impl XServerFrontendRouteRegistry {
                 pixmap,
                 serial,
                 idle_fence,
+                suboptimal,
                 phases: crate::XPresentFeedbackPhases::default(),
                 allocation_subject: None,
             },
@@ -612,11 +616,17 @@ impl XServerFrontendRouteRegistry {
         mode: XPresentCompletionMode,
         comparison: Option<crate::XPresentLayoutComparison>,
     ) -> Result<crate::XPresentCompleteRouteOutcome, XServerFrontendRouteError> {
-        let (presentation, layout_comparison) = {
+        // Reallocation advice is decided here from the current transaction and
+        // preference state. A caller-supplied mode cannot replace that decision.
+        let mode = match mode {
+            XPresentCompletionMode::SuboptimalCopy => XPresentCompletionMode::Copy,
+            mode => mode,
+        };
+        let (presentation, layout_comparison, mode) = {
             let authority = comparison
                 .and_then(|_| self.runtime.get())
                 .and_then(std::sync::Weak::upgrade);
-            let runtime = authority.as_ref().and_then(|authority| authority.try_lock().ok());
+            let mut runtime = authority.as_ref().and_then(|authority| authority.try_lock().ok());
             let mut pending = self
                 .pending_presentations
                 .entries
@@ -625,6 +635,7 @@ impl XServerFrontendRouteRegistry {
             let Some(presentation) = pending.get_mut(&transaction) else {
                 return Ok(crate::XPresentCompleteRouteOutcome {
                     routed: false,
+                    mode,
                     layout_comparison: None,
                 });
             };
@@ -644,15 +655,30 @@ impl XServerFrontendRouteRegistry {
             if !presentation.phases.observe_complete() {
                 return Ok(crate::XPresentCompleteRouteOutcome {
                     routed: false,
+                    mode,
                     layout_comparison: None,
                 });
             }
+            let advise = presentation.suboptimal
+                && layout_comparison == Some(crate::XPresentLayoutComparisonResult::Matched)
+                && comparison.zip(presentation.allocation_subject).is_some_and(
+                    |(comparison, subject)| {
+                        runtime.as_mut().is_some_and(|runtime| {
+                            runtime.claim_present_reallocation(subject, comparison)
+                        })
+                    },
+                );
+            let mode = if advise {
+                XPresentCompletionMode::SuboptimalCopy
+            } else {
+                mode
+            };
             let presentation = *presentation;
             if presentation.phases.finished() {
                 pending.remove(&transaction);
                 self.pending_presentations.capacity_changed.notify_all();
             }
-            (presentation, layout_comparison)
+            (presentation, layout_comparison, mode)
         };
         // Every completion advances the presentation clock, and the clock is
         // what answers a NotifyMSC. Ripened deferrals flush here because this
@@ -689,6 +715,7 @@ impl XServerFrontendRouteRegistry {
         if subscriptions.is_empty() {
             return Ok(crate::XPresentCompleteRouteOutcome {
                 routed: false,
+                mode,
                 layout_comparison,
             });
         }
@@ -715,6 +742,7 @@ impl XServerFrontendRouteRegistry {
         }
         Ok(crate::XPresentCompleteRouteOutcome {
             routed: true,
+            mode,
             layout_comparison,
         })
     }

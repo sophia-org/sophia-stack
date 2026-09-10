@@ -64,5 +64,7 @@ pub enum XPresentLayoutComparisonResult {
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct XPresentCompleteRouteOutcome {
     pub routed: bool,
+    /// Effective completion mode after current frontend validation.
+    pub mode: crate::XPresentCompletionMode,
     pub layout_comparison: Option<XPresentLayoutComparisonResult>,
 }

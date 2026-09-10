@@ -15,6 +15,29 @@ pub(crate) struct XPresentAllocationSubject {
 }
 
 impl XAuthorityRuntime {
+    /// Claims one reallocation notice per surface in the accepted preference generation.
+    pub(crate) fn claim_present_reallocation(
+        &mut self,
+        subject: XPresentAllocationSubject,
+        comparison: crate::XPresentLayoutComparison,
+    ) -> bool {
+        if !self.compare_present_layout(subject, comparison) {
+            return false;
+        }
+        let Some(entry) = self
+            .window_allocation
+            .preferences
+            .get_mut(&subject.window_surface)
+        else {
+            return false;
+        };
+        if entry.reallocation_claimed {
+            return false;
+        }
+        entry.reallocation_claimed = true;
+        true
+    }
+
     pub(crate) fn present_allocation_subject(
         &self,
         namespace: NamespaceId,

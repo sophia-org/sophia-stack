@@ -655,6 +655,9 @@ fn interaction_field(record: &str, key: &str, value: &str) -> bool {
         ),
         ("sophia_live_compositor_chrome_set", "status") => value == "composed",
         ("sophia_live_session_present_feedback", "kind") => matches!(value, "idle" | "complete"),
+        ("sophia_live_session_present_feedback", "mode") => {
+            matches!(value, "Copy" | "Flip" | "Skip" | "SuboptimalCopy")
+        }
         ("sophia_live_session_present", "status") => value == "retired",
         _ => false,
     }

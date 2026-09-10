@@ -132,6 +132,8 @@ device, using an explicitly selected modifier. It records the actual GBM layout,
 per-plane descriptor sizes, queried screen/window preferences and received
 Present Complete/Idle events. It generates muted opaque pixels through GBM's
 mapping API; it does not capture the desktop or inject input.
+`--suboptimal` opts each Present into reallocation advice. The default leaves
+that bit clear. The probe records advice but does not reallocate in response.
 
 ```sh
 cc -std=c11 -O2 -Wall -Wextra -Werror tools/probes/dri3_layout.c \
@@ -179,13 +181,18 @@ python3 -B tools/verify_layout_comparison.py \
 
 The reader joins the layout comparison to retirement by source-image identity, then
 to current preference comparison by transaction and native generation. It checks
-the unique routed completion clock against the probe's received ordinary Copy,
+the unique routed completion clock against the probe's received completion,
 submission and actual allocation. Repeated test attempts, shared completion
 clocks, implicit layouts and missing stages are inconclusive and fail the check.
 Schema 3 distinguishes original atomic-test rejection from framebuffer-creation
 rejection; both require the alternative's actual passing test and exact retirement.
 Schema 1 remains the older atomic-pair record. A framebuffer refusal alone cannot
-pass this reader.
+pass this reader. The default expects ordinary Copy. `--expect-mode suboptimal`
+instead requires the exact submission's recorded opt-in, the server's retained
+SuboptimalCopy mode, and the client's matching completion. It does not accept a
+hint without the full proof chain. This checks one transaction; verifying that
+the run contains at most one hint per surface/preference generation remains a
+separate acceptance check.
 `--transaction` selects an existing comparison in a longer bounded run. Old logs
 without these identities cannot prove the join. Session identity and capture
 health remain prerequisites checked by the caller; the reader does not declare

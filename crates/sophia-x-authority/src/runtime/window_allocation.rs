@@ -5,7 +5,13 @@ struct XWindowAllocationState {
     generation: u64,
     topology_generation: u64,
     hints: BTreeMap<sophia_protocol::SurfaceId, crate::XDrmDeviceHint>,
-    preferences: BTreeMap<sophia_protocol::SurfaceId, crate::XWindowAllocationPreference>,
+    preferences: BTreeMap<sophia_protocol::SurfaceId, XWindowAllocationEntry>,
+}
+
+#[derive(Debug)]
+struct XWindowAllocationEntry {
+    preference: crate::XWindowAllocationPreference,
+    reallocation_claimed: bool,
 }
 
 struct XEffectiveWindowAllocationPreference<'a> {
@@ -93,7 +99,13 @@ impl XAuthorityRuntime {
                 row.modifiers.sort_unstable();
                 row.modifiers.dedup();
             }
-            replacement.insert(window.surface, window);
+            replacement.insert(
+                window.surface,
+                XWindowAllocationEntry {
+                    preference: window,
+                    reallocation_claimed: false,
+                },
+            );
         }
         self.window_allocation = XWindowAllocationState {
             generation: snapshot.generation,
@@ -140,7 +152,11 @@ impl XAuthorityRuntime {
             return None;
         }
         let record = self.windows.get(window)?;
-        let preference = self.window_allocation.preferences.get(&record.surface)?;
+        let preference = &self
+            .window_allocation
+            .preferences
+            .get(&record.surface)?
+            .preference;
         if self
             .window_allocation
             .hints

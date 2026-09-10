@@ -1,5 +1,14 @@
 #![cfg(all(test, unix))]
 
+#[path = "present_suboptimal_completion.rs"]
+mod present_suboptimal_completion;
+
+#[path = "present_reallocation_claim.rs"]
+mod present_reallocation_claim;
+
+#[path = "present_suboptimal.rs"]
+mod present_suboptimal;
+
 use super::*;
 use crate::{
     XAuthorityRequestKind, XAuthorityRequestPacket, XAuthorityResponseOutcome,
@@ -189,7 +198,7 @@ impl Fixture {
     fn admit(&self) {
         self.broker
             .registry
-            .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None)
+            .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None, false)
             .unwrap();
         let mut runtime = self.state.runtime.lock().unwrap();
         let response =
@@ -234,6 +243,7 @@ impl Fixture {
             outcome,
             crate::XPresentCompleteRouteOutcome {
                 routed: true,
+                mode: XPresentCompletionMode::Copy,
                 layout_comparison: Some(expected)
             }
         );
@@ -244,6 +254,7 @@ impl Fixture {
             self.complete(self.comparison, XPresentCompletionMode::Copy),
             crate::XPresentCompleteRouteOutcome {
                 routed: false,
+                mode: XPresentCompletionMode::Copy,
                 layout_comparison: None
             }
         );
@@ -558,6 +569,7 @@ fn present_layout_comparison_disconnect_cancels_the_exact_pending_subject() {
         outcome,
         crate::XPresentCompleteRouteOutcome {
             routed: false,
+            mode: XPresentCompletionMode::Copy,
             layout_comparison: None
         }
     );
@@ -707,6 +719,7 @@ fn a_real_socket_dma_present_records_its_subject_after_dispatch() {
         outcome,
         crate::XPresentCompleteRouteOutcome {
             routed: true,
+            mode: XPresentCompletionMode::Copy,
             layout_comparison: Some(XPresentLayoutComparisonResult::Matched)
         }
     );
@@ -729,7 +742,7 @@ fn present_layout_comparison_rejects_unbound_subjects_and_policy_pending_windows
     fixture
         .broker
         .registry
-        .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None)
+        .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None, false)
         .unwrap();
     fixture.assert_completion(XPresentLayoutComparisonResult::Rejected);
 
@@ -807,7 +820,7 @@ fn present_layout_comparison_never_borrows_the_parents_preference_for_a_child() 
     fixture
         .broker
         .registry
-        .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None)
+        .queue_present(TRANSACTION, PRESENTER, WINDOW, PIXMAP, 99, None, false)
         .unwrap();
     fixture
         .broker
@@ -862,6 +875,7 @@ fn a_busy_runtime_rejects_optional_comparison_without_delaying_complete() {
         outcome,
         crate::XPresentCompleteRouteOutcome {
             routed: true,
+            mode: XPresentCompletionMode::Copy,
             layout_comparison: Some(XPresentLayoutComparisonResult::Rejected),
         }
     );

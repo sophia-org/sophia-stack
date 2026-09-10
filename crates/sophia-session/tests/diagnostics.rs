@@ -350,6 +350,27 @@ fn protocol_tally_retains_refusal_classification_without_resource_payloads() {
 }
 
 #[test]
+fn present_feedback_retains_only_known_completion_modes() {
+    for mode in ["Copy", "Flip", "Skip", "SuboptimalCopy"] {
+        let record = format!(
+            "sophia_live_session_present_feedback schema=1 kind=complete transaction=71 routed=true mode={mode} ust=10000 msc=23"
+        );
+        assert_eq!(
+            reduced_record(&format!("{record} window=42 payload=private")),
+            Some(record)
+        );
+        assert_eq!(
+            reduced_record(&format!("sophia_other_event mode={mode}")),
+            Some("sophia_other_event".to_owned())
+        );
+    }
+    assert_eq!(
+        reduced_record("sophia_live_session_present_feedback mode=private"),
+        Some("sophia_live_session_present_feedback".to_owned())
+    );
+}
+
+#[test]
 fn paired_layout_observations_survive_without_resource_payloads() {
     let record = "sophia_live_layout_probe schema=1 output=2 scene_generation=91 source_image=817 status=Tested original_status=Rejected alternative_status=Submitted original_errno=22 alternative_errno=none format=875713112 original_modifier=144115188077027331 alternative_modifier=0";
     assert_eq!(

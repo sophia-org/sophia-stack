@@ -84,7 +84,9 @@ def layout(record):
     return values
 
 
-def verify(session_lines, probe_lines, transaction=None):
+def verify(session_lines, probe_lines, transaction=None, expected_mode="copy"):
+    if expected_mode not in ("copy", "suboptimal"):
+        raise EvidenceError("unsupported expected completion mode")
     session = records(session_lines)
     probe = records(probe_lines)
     comparisons = [r for r in session if r["record"] == "sophia_live_layout_probe"]
@@ -137,9 +139,8 @@ def verify(session_lines, probe_lines, transaction=None):
         and r.get("kind") == "complete"
         and number(r, "transaction", 1) == transaction
     ], "routed Complete")
-    if (number(feedback, "schema") != 1 or feedback.get("routed") != "true"
-            or feedback.get("mode", "Copy") != "Copy"):
-        raise EvidenceError("comparison did not route ordinary Copy")
+    if number(feedback, "schema") != 1 or feedback.get("routed") != "true":
+        raise EvidenceError("comparison did not route Complete")
     ust, msc = number(feedback, "ust", 1), number(feedback, "msc", 1)
     one([
         r for r in session
@@ -152,8 +153,12 @@ def verify(session_lines, probe_lines, transaction=None):
         if r["record"] == "dri3_layout" and r.get("event") == "complete"
         and number(r, "ust", 1) == ust and number(r, "msc", 1) == msc
     ], "probe Copy completion at the routed clock")
-    if copied.get("mode") != "copy":
-        raise EvidenceError("probe did not receive ordinary Copy")
+    if copied.get("mode") != expected_mode:
+        raise EvidenceError("probe did not receive the required completion mode")
+    server_mode = "SuboptimalCopy" if expected_mode == "suboptimal" else "Copy"
+    if (feedback.get("mode", server_mode if expected_mode == "copy" else None)
+            != server_mode):
+        raise EvidenceError("server and client completion modes disagree")
     serial = number(copied, "serial", 0, (1 << 32) - 1)
     submitted = one([
         r for r in probe
@@ -165,6 +170,8 @@ def verify(session_lines, probe_lines, transaction=None):
             or number(submitted, "modifier") != pair[2]):
         raise EvidenceError("probe submission differs from the tested original")
     buffer = number(submitted, "buffer", 0, 1)
+    if expected_mode == "suboptimal" and number(submitted, "suboptimal", 0, 1) != 1:
+        raise EvidenceError("probe did not opt into reallocation advice")
     allocated = one([
         r for r in probe
         if r["record"] == "dri3_layout" and r.get("event") == "allocation"
@@ -181,6 +188,7 @@ def verify(session_lines, probe_lines, transaction=None):
     return {
         "evidence": "retired_preference_comparison",
         "original_stage": original_stage,
+        "completion_mode": expected_mode,
         "transaction": transaction, "source_image": source, "output": pair[0],
         "format": pair[1], "original_modifier": pair[2],
         "alternative_modifier": pair[3], "native_generation": context,
@@ -194,9 +202,13 @@ def main():
     parser.add_argument("--session-log", required=True, type=Path)
     parser.add_argument("--probe-log", required=True, type=Path)
     parser.add_argument("--transaction", type=int)
+    parser.add_argument("--expect-mode", choices=("copy", "suboptimal"), default="copy")
     args = parser.parse_args()
     try:
-        result = verify(read_lines(args.session_log), read_lines(args.probe_log), args.transaction)
+        result = verify(
+            read_lines(args.session_log), read_lines(args.probe_log),
+            args.transaction, args.expect_mode,
+        )
     except (EvidenceError, OSError, UnicodeError) as error:
         print(f"layout comparison not verified: {error}", file=sys.stderr)
         return 1

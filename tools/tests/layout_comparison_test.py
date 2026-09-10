@@ -37,12 +37,35 @@ PROBE = [ALLOCATED, SUBMITTED, COPY, FINISHED]
 
 
 class LayoutComparisonTests(unittest.TestCase):
-    def verify(self, session=None, probe=None, transaction=None):
+    def verify(self, session=None, probe=None, transaction=None, expected_mode="copy"):
         return VERIFIER.verify(
             SESSION if session is None else session,
             PROBE if probe is None else probe,
             transaction,
+            expected_mode,
         )
+
+    def test_suboptimal_requires_explicit_opt_in_and_matching_delivered_mode(self):
+        feedback = FEEDBACK.replace("routed=true", "routed=true mode=SuboptimalCopy")
+        submit = SUBMITTED.rstrip() + " suboptimal=1\n"
+        complete = COPY.replace("mode=copy", "mode=suboptimal")
+        session = [TESTED, RETIRED, MATCHED, feedback]
+        probe = [ALLOCATED, submit, complete, FINISHED]
+        result = self.verify(session, probe, expected_mode="suboptimal")
+        self.assertEqual(result["completion_mode"], "suboptimal")
+        with self.assertRaises(VERIFIER.EvidenceError):
+            self.verify(session, probe)
+        for bad in (FEEDBACK, feedback.replace("SuboptimalCopy", "Copy"),
+                    feedback.replace("SuboptimalCopy", "Flip")):
+            with self.subTest(feedback=bad), self.assertRaises(VERIFIER.EvidenceError):
+                self.verify([TESTED, RETIRED, MATCHED, bad], probe, expected_mode="suboptimal")
+        for bad in (SUBMITTED, submit.replace("suboptimal=1", "suboptimal=0"),
+                    submit.replace("suboptimal=1", "suboptimal=2")):
+            with self.subTest(submit=bad), self.assertRaises(VERIFIER.EvidenceError):
+                self.verify(session, [ALLOCATED, bad, complete, FINISHED], expected_mode="suboptimal")
+        for mode in ("copy", "flip", "skip"):
+            with self.subTest(mode=mode), self.assertRaises(VERIFIER.EvidenceError):
+                self.verify(session, [ALLOCATED, submit, complete.replace("mode=suboptimal", f"mode={mode}"), FINISHED], expected_mode="suboptimal")
 
     def test_complete_chain_requires_real_copy_and_reports_owned_identity(self):
         result = self.verify()

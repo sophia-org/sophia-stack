@@ -160,10 +160,10 @@ tracked obligations are:
 
 | Condition | Implementation seam | Evidence and exit |
 | --- | --- | --- |
-| Client opt-in | `dispatch/extensions/present.rs`, `present_standard_pixmap`, transaction record | Bit `0x8` is decoded and validated but discarded. Preserve it per exact transaction only after the proof gate is met; test opted-in and ordinary clients. |
+| Client opt-in | Socket Present dispatch and pending frontend transaction | Preserve bit `0x8` per exact accepted transaction. ForceCopy (`0x2`) suppresses advice even with opt-in. Test ordinary clients, invalid options, cancellation and simultaneous transactions. |
 | Actual copied disposition | `live_session/presentation.rs`, `LivePresentBufferDisposition` | Existing ownership is exact. Regression must restrict advice to `Copied`; `Retained` and `Flipped` remain `Flip`, with existing idle ordering preserved. |
 | Different layout would permit a flip | Backend allocation and atomic validation | Prerequisite for signaling. A failed TEST_ONLY has no attributed cause. Establish a sufficient proof on the exact candidate and output generation, with an available alternative allocation. |
-| Every other eligibility check passes | `DirectScanoutVerdict`, exporter atomic validation | Composition proof exists. KMS eligibility still needs the counterfactual proof above. Unrelated geometry, assignment, bandwidth, synchronization or policy refusal must suppress advice. |
+| Every other eligibility check passes | `DirectScanoutVerdict`, exporter atomic validation | Require the counterfactual proof above through exact retirement and current frontend revalidation. Unrelated geometry, assignment, bandwidth, synchronization or policy refusal must suppress advice. |
 | No repeat per preference generation | Frontend per-window allocation state | Record the last signaled exact surface/preference generation. A later ordinary Copy is allowed; a second SuboptimalCopy in the same generation is not. |
 
 A differential TEST_ONLY with an otherwise equivalent candidate allocation can
@@ -237,8 +237,8 @@ fallback preserving normal rendering. A successful XR24 result still does not
 prove AR24 layout support. Native identity and submission context are invalidated
 on owner/topology changes, including rollback to a previous numeric generation.
 
-These are observations, not a reusable flip permit or an emitted reallocation
-hint. Window preferences publish independently measured XR24 and AR24 rows,
+These observations are not a reusable flip permit. Window preferences publish
+independently measured XR24 and AR24 rows,
 intersected with the connection's pinned import capabilities. An unavailable
 bundle offers no preferences. The completion join now compares a retired pair
 against the owner's current native/placement context and acknowledged snapshot,
@@ -251,17 +251,39 @@ for child presentations. Installed `99103568` supplies one complete XR24
 framebuffer-rejection/alternative-test/retirement/current-preference chain on
 output 2. AR24 completed ordinary rendering but remains unproven. This accepts
 the t070 prerequisite without generalizing the proof to other layouts or outputs;
-only then may the deferred signaling obligations proceed.
+only then may the signaling obligations proceed.
+
+The frontend completes those observations with a fresh, nonblocking decision at
+the exact copied Complete. Client opt-in without ForceCopy and current proof are
+both required. One claim belongs to the exact surface in its accepted preference
+generation; ordinary Copy does not reset it. Unknown or duplicate Complete does
+not claim it, and failed or partial subscriber delivery cannot restore it. The
+session records the resulting mode while preserving actual ownership counters,
+Idle ordering and displayed-frame pacing. No protocol bit or application identity
+crosses into Engine.
+
+Deterministic acceptance covers the wire option, full proof rejection matrix,
+actual emitted mode, accepted-generation replacement, window reuse, contention,
+duplicate feedback and partial queue delivery. Installed signaling acceptance
+remains separate: an opted-in generic probe must receive SuboptimalCopy for one
+exact proven transaction, no repeat in that surface/preference generation, and
+ordinary completions when permission or proof is absent. Reuse the controlled
+output and identity checks from t070; do not count a fixture as physical evidence.
 
 A generic explicit-layout DRI3 probe supplies real XR24/AR24 allocations without
 changing their metadata. Its bounded evidence reader joins the exact tested
 source, retired transaction, current native/preference generations and the
-client's received ordinary Copy. These tools prepare physical acceptance; small
+client's received completion, including recorded opt-in for SuboptimalCopy.
+These tools prepare physical acceptance; small
 composed-window feedback and private allocation checks do not satisfy it. See
 the [probe contract](../../../tools/probes/README.md#explicit-dri3-layout-probe)
 for run boundaries and the retained evidence requirements.
 
 ## Implementation checkpoints
+
+The [reallocation-advice checkpoint](../milestones/urqkkdzp-exact-copied-present-evidence-gates-reallocation-advice.md)
+records the completion decision, deterministic evidence and remaining installed
+signaling gate after the accepted XR24 proof.
 
 First replace invented DRI3 modifier responses with measured renderer import
 capabilities and refuse legacy exports that cannot represent the backing's

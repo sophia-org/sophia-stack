@@ -237,3 +237,19 @@ records evidence and limits. Candidate identity and logs are retained in
 `.artifacts/t070-physical-probe/`. The full repository/GPU gate passed on
 13 unchanged source/tool files. A qualifying physical pair on the new owner
 remains the acceptance gate; no install or session restart was performed.
+
+## Normal-session allocation acceptance on 9611131e
+
+The installed candidate completed 720 correlated Copy/Idle pairs across both
+outputs using real LINEAR and two-plane compressed XR24/AR24 allocations. Screen
+catalogs remained immutable; both exact-format window preferences matched the
+freshly measured import/primary-plane intersection. The recorder remained healthy.
+The [investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#live-allocation-preferences-on-9611131e)
+records the binary identity, frame/feedback results and plane evidence under
+`.artifacts/t070-live-9611131e/`.
+
+This is normal composition and preference-publication evidence. The existing
+direct-scanout opt-in was absent from the owner, so the session could not reach
+the paired TEST_ONLY path. Acceptance instructions now state that precondition
+explicitly. No alternate flip or no-override browser acceptance is claimed;
+t069/t070 remain open.

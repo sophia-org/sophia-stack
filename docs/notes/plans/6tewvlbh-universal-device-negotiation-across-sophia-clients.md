@@ -176,6 +176,15 @@ Treat the review's negative searches as bounded observations until those paths
 are traced. Tests must cover stale candidates and topology changes as well as
 one successful alternate-layout proof.
 
+The physical comparison session must admit direct scanout at owner startup
+(`SOPHIA_ENABLE_DIRECT_SCANOUT=1`) and record routed completion clocks
+(`SOPHIA_LIVE_VISUAL_PROGRESS=1`). Ordinary installed sessions leave direct
+scanout disabled until its physical gate is promoted. Verify this precondition
+before interpreting an absent paired-test record; enabling diagnostics or
+changing the probe's environment cannot enable the owner's direct path.
+Normal-session allocation/preferences and Copy/Idle checks remain useful,
+separate evidence.
+
 The [atomic evidence investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md)
 records the bounded TEST_ONLY report implementation and the live plane-format
 query. The cache covers an eligibility episode, not an exact candidate; actual

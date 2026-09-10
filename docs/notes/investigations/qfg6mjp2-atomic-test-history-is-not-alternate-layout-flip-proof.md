@@ -482,6 +482,53 @@ owner. They neither run the new comparison code nor prove scanout eligibility,
 physical pixels or a qualifying alternate layout. No installation or session
 restart was performed.
 
+## Live allocation preferences on 9611131e
+
+The next installed session, `00000001789000283295-eca6d35b-d625-47a8-ae46-f8fa1a3f5667`,
+runs signed candidate `9611131e7bb268156e8fe1da89c0fd0f518ff7fb`. Its running
+executable and session manifest match the release SHA-256
+`cf3253f169aae5e15cd85e8f88a04cff0ebc33e6757171f18ef2db0bf804ec1f`.
+
+Six authorized 96x64 probe windows completed 120 frames each. Output 1 covered
+both XR24 and AR24 with LINEAR and explicit `0x0200000028a6bf04`; output 2 covered
+both formats with that compressed modifier. GBM reported one plane for LINEAR
+and two planes for the compressed allocation. All 720 submissions received
+ordinary Copy and Idle with matching serial/pixmap identities, then the clients
+exited successfully. Median submit-to-feedback time was 8 ms on the 120 Hz
+output and 17 ms on the 60 Hz output. This measures client feedback, not input
+latency or physical pixel correctness.
+
+Each connection's XR24 and AR24 screen catalogs stayed at eleven entries before
+mapping, after mapping and after the final completion. Once the owner published
+the window snapshot, both window catalogs contained seven entries. A fresh
+read-only query of both active primary-plane format blobs proves those seven
+are exactly the measured import/plane intersection. The compressed modifier is
+absent from both plane sets and both window preferences, but is advertised for
+import and successfully composed. Thus this run establishes the intended
+distinction between usable imported storage and preferred scanout allocations.
+
+One acceptance precondition was missed in the previous handoff: normal startup
+does not enable direct scanout. The owner has no `SOPHIA_ENABLE_DIRECT_SCANOUT`
+setting, and `LiveProductionNativeScanout::direct_scanout_enabled` admits that
+path only for value `1`. Without it exporters derive no direct candidate, so
+there can be no original TEST_ONLY, paired comparison or retired witness.
+`SOPHIA_LIVE_VISUAL_PROGRESS` controls success-feedback logging only. Neither
+variable can be enabled by putting it in the probe's environment. The existing
+opt-in remains unchanged; the controlled physical gate must set both before
+starting its owner. This corrects the earlier implication that an updated
+normal session alone would exercise the pair.
+
+The bounded capture spans sequences 3688 through 15545, with no gaps or duplicate
+sequences, no discarded records or storage errors, and the recorder still
+running. There are no atomic-test or layout-probe records in that interval,
+consistent with the independently established disabled path. Exact source,
+binary, output, plane, allocation and feedback evidence is retained in
+`.artifacts/t070-live-9611131e/`. No pixel capture, forced output change, input,
+installation or session restart was performed during these probes. The alternate
+flip remains unproven. A separate [same-browser comparison](uqnx2t2b-brave-gpu-restarts-after-va-buffers-fail-gbm-import.md#installed-9611131e-comparison)
+still fails without a device override and passes its existing device-selection
+control; normal composition evidence does not close that client-side gate.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

@@ -157,8 +157,15 @@ cancellation of an uninterruptible kernel operation. `result=pass` establishes
 the probe's completed protocol flow, not captured pixel correctness or task
 acceptance.
 
-For an exact retired comparison, enable `SOPHIA_LIVE_VISUAL_PROGRESS=1` before
-starting the candidate session so routed completion clocks are recorded. Retain
+For an exact retired comparison, the candidate **owner** must start with
+`SOPHIA_ENABLE_DIRECT_SCANOUT=1`; ordinary sessions leave this physical gate off.
+Also enable `SOPHIA_LIVE_VISUAL_PROGRESS=1` before starting that owner so routed
+completion clocks are recorded. Setting either variable on the probe cannot
+change the running owner. Confirm the owner's identity and admission mode before
+opening a full-output test window. Direct eligibility still requires exact output
+geometry, opaque pixels and no composed chrome/cursor or other disqualifying
+layers. These are controlled acceptance conditions, not ordinary app launch flags.
+Retain
 candidate/session identity, capture health and one bounded run interval, then use:
 
 ```sh

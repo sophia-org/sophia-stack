@@ -512,6 +512,34 @@ comparison nor source similarity establishes its runtime outcome. XLibre and
 yserver remain the X11 references; Xwayland is not a Sophia dependency or a
 proposed implementation strategy.
 
+## Installed 9611131e comparison
+
+The new installed owner was rechecked with the same Brave 1.94.121 binary and
+local H.264 loop, two fresh profiles, and no interposer. Session
+`00000001789000283295-eca6d35b-d625-47a8-ae46-f8fa1a3f5667` runs
+`9611131e7bb268156e8fe1da89c0fd0f518ff7fb`, with the validated release's exact
+binary hash.
+
+The no-override run remained at one video-frame callback and media time zero
+through all six five-second samples. Its original GPU process held descriptors
+on both render nodes, logged one `gbm_bo_import` failure, then exited with 8704.
+The paired `renderD128` control reached 904 callbacks, with 908 total frames,
+zero dropped/corrupted frames, no GBM import error and no GPU exit. Both reported
+`VaapiVideoDecoder` and a platform decoder. Both probe browsers closed normally;
+the test used only its own local page and profiles.
+
+The new server's normal buffer/preference path separately passed 720 exact
+Copy/Idle pairs across both outputs, including two-plane compressed XR24/AR24
+buffers. That server result does not change this pre-submission browser failure.
+No descriptor interception was used in the new browser run, so it confirms the
+failure signature and control outcome, not a new producer-device attribution.
+
+Exact browser/probe/video identities, six-sample observations, isolated-page
+screenshots, logs and exit records are retained under
+`.artifacts/t070-live-9611131e/browser/`. These are browser playback observations,
+not physical pixel acceptance. The normal no-override exit remains unmet on
+`9611131e`.
+
 ## Connections
 
 The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)

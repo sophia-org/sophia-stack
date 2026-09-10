@@ -529,6 +529,81 @@ flip remains unproven. A separate [same-browser comparison](uqnx2t2b-brave-gpu-r
 still fails without a device override and passes its existing device-selection
 control; normal composition evidence does not close that client-side gate.
 
+## Direct-scanout controls and missing trace transport on 5110bb7d
+
+Session `00000001789002269795-7f4905bd-faf7-4f20-87ec-8f7c7b38d36a` runs
+installed `5110bb7d80942c6d718c9b598c4ce78525aa72d4`, with the same executable
+SHA-256 `cf3253f169aae5e15cd85e8f88a04cff0ebc33e6757171f18ef2db0bf804ec1f`
+as the preceding `9611131e` allocation tests. Both owner startup variables,
+`SOPHIA_ENABLE_DIRECT_SCANOUT=1` and `SOPHIA_LIVE_VISUAL_PROGRESS=1`, were verified
+in the live process. The separate Layout Test login entry enabled them; the
+normal entry was not changed.
+
+A 2560×1440 XR24 LINEAR window covering the primary output completed 120 Copies.
+The composition plan retains underlying mapped surfaces even when fully covered,
+so this was not an isolated direct-scanout control. A geometry-only X query found
+the secondary output contained only its 1920×32 panel. Each subsequent probe
+temporarily unmapped that panel, monitored its resource lifetime, and restored
+the same live window in cleanup. Restoration to mapped state was verified after
+every run. Kitty remained open, and no input or output-topology change was used.
+
+The isolated 1920×1080 controls produced:
+
+| Format | Actual modifier | Planes | Complete events | Idle events before teardown |
+| --- | --- | --- | --- | --- |
+| XR24 | LINEAR | 1 | 120 Flip | 119 |
+| AR24 | LINEAR | 1 | 120 Flip | 119 |
+| XR24 | `0x0200000028a6bf04` | 2 | 120 Copy | 120 |
+| AR24 | `0x0200000028a6bf04` | 2 | 120 Copy | 120 |
+
+All five probes exited successfully. The final linear buffer remained owned
+until connection teardown, which explains its missing pre-teardown Idle event.
+These are received protocol completions, not captured-pixel evidence. Separate
+linear and compressed runs do not establish the required equivalent-request
+atomic comparison, and they do not close t070 or the broader t069 exit.
+
+The missing atomic/layout records exposed a concrete instrumentation defect.
+Backend `tracing::info!` events used the ordinary console subscriber. The daily
+recorder accepted only Session's installed output callbacks, while the native
+launcher deliberately redirected console stdout/stderr to `/dev/null`. Thus
+backend records never reached `capture_line`, even though its sanitizer already
+understood their schemas. Zero capture drops could not detect this missing
+producer connection. The linear Flip control confirms that interpreting the
+missing atomic record as an unexecuted direct path would have been wrong.
+
+The repair adds a CLI-owned tracing layer and an explicit
+`sophia_scanout_evidence` target on the two backend emitters. Only the exact
+atomic-test and layout-probe message names are forwarded, without spans or
+other event fields. Filtering is per layer, so console filtering cannot disable
+evidence or cause unrelated debug callsites to run. Formatting has the same
+4096-byte limit as Capture, with one extra byte reserved to report whole-record
+overflow through its existing discarded counter. UTF-8 boundaries are preserved.
+No backend-to-Session dependency or child-output collection is introduced.
+
+The subprocess regression exercises the real subscriber and Capture with
+`RUST_LOG=off` and stdout sent to `/dev/null`. It checks exact-once records,
+redaction, target/name exclusions, unformatted private fields, disabled unrelated
+debug callsites, the exact size boundary, and counted ASCII/UTF-8 overflows. A
+second subprocess checks ordinary console logging still works. This tests the
+transport; it does not invoke native atomic commits.
+
+`SOPHIA_FIRST_FRAME_REQUIRE_AUX=1 cargo xtask check` passed with host permissions
+for its socket and offscreen GPU fixtures. It includes the new transport
+regression, all-feature workspace tests and clippy, formatting and reader checks,
+archive fixtures, buffer-age pixels and GLX/EGL first-frame/pixmap-export pixels.
+The initial sandbox run was refused at local socket creation. The complete
+passing log is `full-check-host.log`; source identities remained unchanged
+through the gate. The repaired owner has not yet been installed or exercised
+against a physical atomic comparison.
+
+Evidence is retained in `.artifacts/t070-live-layout-5110bb7d/`: candidate and
+owner identity, real allocations, feedback, geometry/restore records, and
+sequences 9052–135481 inclusive. All 126430 sequence numbers are present exactly
+once. Capture reported zero discarded records, zero storage errors and no lost
+rotation bytes. The recorder remained running. A candidate containing the
+transport repair must repeat the isolated comparison before the compressed
+Copy can be attributed to a particular preparation or atomic-test refusal.
+
 ## Connections
 
 The [device negotiation checkpoint](../milestones/szr8j0rg-connection-pinned-device-negotiation-and-bounded-renderer-refresh.md)

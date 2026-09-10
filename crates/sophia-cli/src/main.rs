@@ -1,6 +1,7 @@
 mod commands;
+mod scanout_diagnostics;
 
-use sophia_runtime::{TraceLevel, init_tracing};
+use sophia_runtime::{TraceLevel, init_tracing_with_layer};
 
 fn session_stdout(line: &str) {
     if !sophia_session::diagnostics::capture_line(line) {
@@ -23,7 +24,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         TraceLevel::Info
     };
 
-    init_tracing(level)?;
+    init_tracing_with_layer(level, scanout_diagnostics::layer())?;
     sophia_session::install_session_output(sophia_session::SessionOutput::new(
         session_stdout,
         session_stderr,

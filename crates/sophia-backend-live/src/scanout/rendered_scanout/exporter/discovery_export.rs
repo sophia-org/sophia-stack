@@ -52,6 +52,7 @@ where
             self.capture_layout_probe_source();
         }
         tracing::info!(
+            target: "sophia_scanout_evidence",
             "sophia_live_atomic_test schema=1 output={} scene_generation={} status={:?} errno={} request_scope={:?} nonblocking={} allow_modeset={}",
             self.output.raw(),
             self.outstanding_direct_generation(),
@@ -93,6 +94,7 @@ where
                 .map_or_else(|| "none".to_owned(), |errno| errno.to_string())
         };
         tracing::info!(
+            target: "sophia_scanout_evidence",
             "sophia_live_layout_probe schema=1 output={} scene_generation={} source_image={} status={:?} original_status={} alternative_status={} original_errno={} alternative_errno={} format={} original_modifier={} alternative_modifier={}",
             self.output.raw(),
             report

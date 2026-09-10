@@ -949,6 +949,7 @@ dependencies = [
  "sophia-x-authority",
  "sophia-xshmfence",
  "tracing",
+ "tracing-subscriber",
  "x11rb",
 ]
 

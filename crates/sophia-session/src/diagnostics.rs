@@ -7,7 +7,10 @@ mod storage;
 mod supervise;
 pub use supervise::supervise;
 
-pub use capture::{Capture, capture_line, capture_process_identity, recording, reduced_record};
+pub use capture::{
+    Capture, DIAGNOSTIC_RECORD_MAX_BYTES, capture_line, capture_process_identity, recording,
+    reduced_record,
+};
 pub use commands::{Inspection, Marker, Retention, SessionRecord, Store};
 pub use failure::failure_code;
 pub use session_failure::{SessionFailurePhase, session_failure_record};

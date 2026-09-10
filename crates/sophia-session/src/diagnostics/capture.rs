@@ -13,7 +13,7 @@ use super::storage::Directory;
 use super::{METADATA_LIMIT, SEGMENT_LIMIT, SEGMENTS, Stamp};
 
 const QUEUE_CAPACITY: usize = 256;
-const LINE_LIMIT: usize = 4096;
+pub const DIAGNOSTIC_RECORD_MAX_BYTES: usize = 4096;
 static SINK: OnceLock<Sink> = OnceLock::new();
 static INSTALL_LOCK: Mutex<()> = Mutex::new(());
 
@@ -45,7 +45,7 @@ pub fn capture_line(line: &str) -> bool {
     let Some(sink) = SINK.get() else {
         return false;
     };
-    if line.len() > LINE_LIMIT {
+    if line.len() > DIAGNOSTIC_RECORD_MAX_BYTES {
         sink.discarded.fetch_add(1, Ordering::Relaxed);
         return true;
     }

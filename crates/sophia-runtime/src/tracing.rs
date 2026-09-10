@@ -47,3 +47,20 @@ pub fn init_tracing(level: TraceLevel) -> Result<(), TracingInitError> {
         .try_init()
         .map_err(|_| TracingInitError::AlreadyInitialized)
 }
+
+/// Install a binary-owned observation layer independently of the console filter.
+pub fn init_tracing_with_layer<L>(level: TraceLevel, layer: L) -> Result<(), TracingInitError>
+where
+    L: tracing_subscriber::Layer<tracing_subscriber::Registry> + Send + Sync + 'static,
+{
+    use tracing_subscriber::prelude::*;
+
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(level.filter()));
+
+    tracing_subscriber::registry()
+        .with(layer)
+        .with(tracing_subscriber::fmt::layer().with_filter(filter))
+        .try_init()
+        .map_err(|_| TracingInitError::AlreadyInitialized)
+}

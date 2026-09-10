@@ -185,6 +185,15 @@ changing the probe's environment cannot enable the owner's direct path.
 Normal-session allocation/preferences and Copy/Idle checks remain useful,
 separate evidence.
 
+The direct-enabled `5110bb7d` session demonstrated 120 linear Flip completions
+for each of XR24 and AR24 on an isolated secondary output. The corresponding
+compressed allocations each completed 120 Copies. These separate runs do not
+prove equivalent atomic requests. The same run exposed missing transport from
+backend tracing into daily capture; the CLI must preserve the two approved
+atomic/layout record types before an absent witness can be interpreted. The
+[live control investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md#direct-scanout-controls-and-missing-trace-transport-on-5110bb7d)
+records the precise evidence and repair.
+
 The [atomic evidence investigation](../investigations/qfg6mjp2-atomic-test-history-is-not-alternate-layout-flip-proof.md)
 records the bounded TEST_ONLY report implementation and the live plane-format
 query. The cache covers an eligibility episode, not an exact candidate; actual

@@ -165,6 +165,10 @@ change the running owner. Confirm the owner's identity and admission mode before
 opening a full-output test window. Direct eligibility still requires exact output
 geometry, opaque pixels and no composed chrome/cursor or other disqualifying
 layers. These are controlled acceptance conditions, not ordinary app launch flags.
+Covering another surface does not remove it from the current composition plan.
+Confirm an isolated output before interpreting Copy as a layout refusal. The
+installed CLI must also forward the backend's `sophia_scanout_evidence` tracing
+target into daily capture; console output alone is discarded by normal sessions.
 Retain
 candidate/session identity, capture health and one bounded run interval, then use:
 

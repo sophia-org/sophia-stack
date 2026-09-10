@@ -226,6 +226,14 @@ clear status.
 Sophia libraries use `tracing` for structured diagnostics. Binaries and runtime
 entrypoints install subscribers; libraries do not.
 
+The CLI forwards the backend's `sophia_scanout_evidence` target to the daily
+recorder only for `sophia_live_atomic_test` and `sophia_live_layout_probe` messages.
+This observation layer has its own filter, independent of console `RUST_LOG`.
+It forwards no spans or auxiliary fields, bounds formatting before allocation,
+and sends oversized records through existing discard accounting. Library module
+moves must preserve this explicit target. Mixed child stdout/stderr remains
+outside daily capture.
+
 Default logs must not expose sandbox-sensitive identity or payload data:
 
 - no raw XIDs, namespace IDs, window titles, app classes, PIDs, or icon pixels;

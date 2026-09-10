@@ -23,6 +23,7 @@ sophia-wm-demo = { path = "../sophia-wm-demo" }
 sophia-x-authority = { path = "../sophia-x-authority" }
 sophia-xshmfence = { path = "../sophia-xshmfence" }
 tracing.workspace = true
+tracing-subscriber.workspace = true
 rustix = { version = "1.1", default-features = false, features = ["process", "rand", "system", "fs"] }
 x11rb = { version = "0.13.1", features = ["shm", "render", "dri3"] }
 sophia-sysv-shm = { path = "../sophia-sysv-shm" }

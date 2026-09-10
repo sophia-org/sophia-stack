@@ -540,6 +540,34 @@ screenshots, logs and exit records are retained under
 not physical pixel acceptance. The normal no-override exit remains unmet on
 `9611131e`.
 
+## Normal launcher on installed 17134504
+
+On 2026-09-10 the installed paired release was verified as Sophia
+`171345049bf620a40b24c48d738329b1f63decaf` and Hagia
+`3459a85d5dd7a1943efcf526fa5d4ec297d246cd`. With no existing Brave process,
+the test invoked the ordinary `brave-origin` launcher with no arguments, then
+opened a local H.264 page through a second ordinary URL invocation. It used
+the normal browser profile and added no GPU/device flags, interposer, debug
+endpoint, autoplay override or profile override.
+
+The page reported AMD RX 7900 GRE/Navi31 through ANGLE/OpenGL, then stopped at
+three video callbacks and media time 0.139265 seconds with
+`PIPELINE_ERROR_DECODE`. All six five-second samples retained that state.
+Mason subsequently opened YouTube and reported working playback. The captured
+browser log recorded three GBM import failures and three GPU exits with 8704;
+the resulting GPU process carried `--use-gl=disabled`, held no DRM descriptors,
+and mapped no Radeon driver. Working playback therefore does not pass the
+hardware-acceleration gate: this run reached software fallback.
+
+Evidence and the exact launch script remain in
+`.artifacts/t069-normal-17134504/run-20260910-183449/`. The initial process
+sampler incorrectly assumed NUL-separated arguments after Brave rewrote its
+process title; its empty GPU arrays are unusable. The final process snapshot
+matches delimited flags in that title and records the fallback directly.
+No new descriptor interception was performed, so the run confirms the failure
+signature without adding a producer-device attribution. The browser remains
+open for Mason's use. Task t069's normal-launch exit remains unmet.
+
 ## Connections
 
 The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)

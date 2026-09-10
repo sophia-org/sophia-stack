@@ -13,6 +13,12 @@ Why does Brave lose its GPU process during GBM buffer import after installing
 the AMD VA-API backend? Identify the failing descriptor and device before
 changing Sophia's renderer or selecting a browser workaround.
 
+The [2026-09-10 producer trace](#producer-attribution-and-stock-chromium-on-2026-09-10)
+now correlates the failed buffer with its VA allocation on the integrated GPU.
+The exact descriptor imports on that GPU and fails on the discrete GPU,
+regardless of the scanout flag. Stock Chromium reproduces the same device split.
+The normal-launch repair remains outstanding.
+
 ## Observed on 2026-09-07
 
 Installed Sophia is `a44d1e163ceb7188edfebefc9871e1517576f07b`. Brave Origin
@@ -567,6 +573,129 @@ matches delimited flags in that title and records the fallback directly.
 No new descriptor interception was performed, so the run confirms the failure
 signature without adding a producer-device attribution. The browser remains
 open for Mason's use. Task t069's normal-launch exit remains unmet.
+
+## Producer attribution and stock Chromium on 2026-09-10
+
+The installed Sophia/Hagia pair remained `171345049bf6` / `3459a85d5dd7`.
+Mason authorized independent browser tests and installed Void's stock Chromium
+`151.0.7922.108_1`. Brave remained `1.94.121`, Chromium `152.0.7977.83`.
+Both used the same X11 session, system Mesa and local 1280×720/30 H.264 video.
+Each test owned a temporary profile, a debugging endpoint and its own browser
+process. No sandbox-disabling option or production configuration change was
+used. Tests closed only their own browser instances.
+
+### Allocation identity closes the missing link
+
+Chromium resolves VA entry points with `dlsym` against explicit library handles.
+That bypassed the earlier direct `vaGetDisplayDRM` preload. The new diagnostic
+interposes those lookups, forwards their actual resolved functions and records
+VA display, surface creation, export and GBM import. FD correlation uses
+`fstat` device/inode identity, not FD numbers or an inferred modifier origin.
+It does not map pixels. A standalone allocation/import comparison produced
+identical results with and without the tracer.
+
+In the passive Brave trace, the failed allocation was a 1280×720 RGB32 VA
+surface on the Raphael render device. Its exported DMA-BUF and the later GBM
+import had the same device/inode identity and 3,932,160-byte allocation size.
+The destination GBM device was Navi31. The import descriptor carried AR24,
+stride 5120, offset 0 and modifier `0x0200000000401b03`; it failed with
+`ENOSYS`, followed by GPU-process exit 8704. Stock Chromium's trace independently
+correlated its failure to the same allocation/import device split.
+
+This establishes producer attribution for these failures. It supersedes the
+earlier limit that only the modifier and importer were known. The raw VA export
+also records its layer format; Chromium's subsequent VPP/import representation
+must not be inferred solely from that initial layer name.
+
+A separate diagnostic retained a duplicate of the actual VA render descriptor
+before sandbox entry. After the original Brave import failed, it tried the
+**same incoming DMA-BUF descriptor and FD** on both devices, destroyed any
+temporary imported objects and returned the original failure unchanged:
+
+| Import device | Flags 0 | SCANOUT flag |
+| --- | --- | --- |
+| Navi31, original destination | ENOSYS | ENOSYS |
+| Raphael, measured VA allocation device | Success | Success |
+
+The test changed neither the modifier nor the image format between attempts.
+This is stronger than the older standalone NV12 comparison: the tested object
+is the browser's actual failed buffer. Removing SCANOUT cannot repair this
+failure. The observation probe performs extra driver calls and retains one
+extra render FD until process exit; it is separate from the passive trace and
+the uninstrumented playback controls.
+
+### Stock browser and alignment controls
+
+All runs selected `VaapiVideoDecoder` and reported a platform decoder. The
+stock `/usr/bin/chromium` launcher prepends its packaged GPU-rasterization
+option; that wrapper and its environment were identical across its final
+no-override and aligned controls. An earlier direct-binary Chromium run also
+failed, excluding dependence on that wrapper option.
+
+| Browser run, about 20 seconds | Frame callbacks | GBM failures / GPU exits |
+| --- | ---: | ---: |
+| Stock Chromium, direct binary, no override | 3, then stalled | 1 / 1 |
+| Stock Chromium launcher, no tracer or override | 1, then stalled | 1 / 1 |
+| Stock Chromium launcher, traced, no override | 1, then stalled | 1 / 1 |
+| Brave, passive trace, no override | 1, then stalled | 1 / 1 |
+| Brave, exact-buffer comparison, no override | 2, then stalled | 1 / 1 |
+| Stock Chromium launcher, aligned device | 599 | 0 / 0 |
+| Brave, aligned device | 602 | 0 / 0 |
+
+The aligned controls used `--render-node-override=/dev/dri/renderD128` and no
+tracer. Chromium reported 605 total video frames, two dropped and none corrupt;
+Brave reported 606 total, none dropped or corrupt. These are browser-side
+playback observations, not measurements of physical scanout. Different browser
+versions prevent a strict Brave-versus-Chromium patch comparison, but both
+independently demonstrate the same client-internal failure mechanism.
+
+Evidence, source, hashes, screenshots, Media/SystemInfo observations, exact
+per-run launch records and machine-checked FD correlations remain under
+`.artifacts/t069-producer-trace/`. `trace-original.c` / `trace.so` own the
+passive and destination-retry runs; `trace-source-check.c` /
+`trace-source-check.so` own the exact-buffer comparison. The source-check
+probe never substitutes a successful import into the browser. Stock Chromium
+was initially downloaded and checksum-verified for isolated extraction; the
+browser runs above used Mason's subsequently installed package.
+
+### Repair boundary and contrary evidence
+
+The failing call is inside the client, before this video buffer is submitted
+to Sophia. The measured split is between the client's VA allocation device and
+its DRI3-backed GBM importer. A server copy path cannot intercept that call.
+This identifies the failure in Chromium's X11 device integration, reproduced
+in Brave, rather than an inherent inability of X11 to accelerate video. It does
+not certify unrelated Sophia paths or constitute a native XLibre runtime test.
+
+The robust client repair is to acquire the X11 native-pixmap device capability
+before VA initialization and share its owned identity with the VA and media
+allocation paths for the GPU-process generation. Explicit offload requires a
+validated compatible transfer before import; it cannot assume that an arbitrary
+tiled buffer crosses devices. Keep modifier/import validation, respect explicit
+device policy, handle unavailable acceleration without repeated GPU-process
+crashes, and rebuild the capability after GPU restart. Vendor strings or PCI
+enumeration order are insufficient identities. No application-name handling or
+Chromium-specific code belongs in Sophia Engine. No browser patch is included.
+
+Claude's online review found a related [Brave report](https://github.com/brave/brave-browser/issues/53738)
+with the same errors on AMD/X11; that reporter says Chrome works. It remains a
+symptom comparison, not evidence against the controlled local Chromium result.
+The [2023 Chromium allocation workaround](https://chromium.googlesource.com/chromium/src/+/20f14755d4b4a5eddd05fb17fc61de53272cd45e)
+replaced an import retry with allocation-time modifier checks. Its SCANOUT
+concern is real, but the exact-buffer test above excludes flag removal as the
+repair for this incident. No matching XLibre runtime report was established.
+
+Chromium's [GPU identification code](https://chromium.googlesource.com/chromium/src/+/79460ebecaa5625e57a5fb679a735659e73dc687/gpu/config/gpu_info_collector.cc)
+explicitly acknowledges that its vendor-based match can select the wrong GPU
+when two devices share a vendor. That limitation is not AMD-specific. The
+measured import incompatibility here is specific to the tested AMD pair and
+buffer; no Intel or NVIDIA reproduction was performed. The source limitation
+does not establish an exact public issue for this X11 VA-to-GBM split, nor does
+the trace establish which identification heuristic selected the VA device.
+
+Root cause is now measured; the normal, unmodified accelerated-video acceptance
+gate is still unmet. The temporary device override is a diagnostic control,
+not completion of `t068` or `t069`.
 
 ## Connections
 

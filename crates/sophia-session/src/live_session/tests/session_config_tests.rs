@@ -997,8 +997,8 @@ fn session_authority_preparation_is_deterministic_and_rejection_preserves_active
 
     assert_eq!(first.applications, second.applications);
     assert_eq!(
-        first._session_application_overrides,
-        second._session_application_overrides
+        first.session_application_overrides,
+        second.session_application_overrides
     );
     assert_eq!(first.session_profile, second.session_profile);
     assert_eq!(
@@ -1035,7 +1035,7 @@ fn session_authority_preparation_is_deterministic_and_rejection_preserves_active
         assert_eq!(digest, first.desktop_profile.digest);
     }
     let active_applications = first.applications.clone();
-    let active_overrides = first._session_application_overrides.clone();
+    let active_overrides = first.session_application_overrides.clone();
 
     let rejected = PersistentXtermSessionConfig::from_args(&[
         "--session-mode=normal".to_owned(),
@@ -1044,7 +1044,7 @@ fn session_authority_preparation_is_deterministic_and_rejection_preserves_active
     ]);
     assert!(rejected.is_err());
     assert_eq!(first.applications, active_applications);
-    assert_eq!(first._session_application_overrides, active_overrides);
+    assert_eq!(first.session_application_overrides, active_overrides);
 }
 
 #[test]

@@ -140,14 +140,12 @@ macro_rules! service_core_config_reload {
                 .as_deref()
                 .expect("only file-backed config creates a watcher");
             match sophia_config::read_config_file(path) {
-                Ok(bytes) => match config.core_config_state.reload(&bytes) {
+                Ok(bytes) => match config.reload_core_config(&bytes) {
                     Ok(report)
                         if report.disposition
                             == sophia_config::ReloadDisposition::Applied =>
                     {
                         let snapshot = config.core_config_state.active().clone();
-                        config.applications =
-                            PersistentXtermSessionConfig::applications_from_core(&snapshot)?;
                         config.key_repeat_config = snapshot.input.repeat;
                         config.verbose_diagnostics = snapshot.verbose_diagnostics;
                         let repeat = KeyRepeatConfig::new(
@@ -246,7 +244,7 @@ macro_rules! service_core_config_reload {
                     }
                     Err(error) => {
                         crate::session_eprintln!(
-                            "sophia_config_reload schema=1 status=rejected reason=parse error={error}"
+                            "sophia_config_reload schema=1 status=rejected reason=prepare error={error}"
                         );
                     }
                 },

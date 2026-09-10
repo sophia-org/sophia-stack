@@ -8,6 +8,8 @@ mod input_profile;
 mod output;
 #[path = "config/output_proof.rs"]
 mod output_proof;
+#[path = "config/reload.rs"]
+mod reload;
 #[path = "config/session.rs"]
 mod session;
 #[path = "config/session_profile.rs"]
@@ -57,7 +59,7 @@ struct PersistentXtermSessionConfig {
     exit_when_startup_exits: bool,
     startup_ready_timeout: Option<Duration>,
     applications: SessionApplicationConfig,
-    _session_application_overrides: SessionApplicationOverrides,
+    session_application_overrides: SessionApplicationOverrides,
     session_profile: PreparedSessionProfile,
     control_access: sophia_config::DesktopControlAccess,
     control_socket: Option<std::path::PathBuf>,
@@ -1040,7 +1042,7 @@ impl PersistentXtermSessionConfig {
             exit_when_startup_exits,
             startup_ready_timeout,
             applications,
-            _session_application_overrides: session_application_overrides,
+            session_application_overrides,
             control_access: session_profile.candidate().control,
             control_socket: None,
             application_catalog,

@@ -389,6 +389,14 @@ Core reload is whole-file atomic:
 - a pending-restart candidate does not partially apply its otherwise-live
   fields.
 
+Application reload preparation uses the retained CLI overlay and the active
+desktop session selections. A prepared profile is eligible only before a
+session profile has activated; a staged replacement never supersedes active
+selections. The candidate core snapshot and its resolved launch table publish
+together. An invalid merged reference rejects the reload while preserving the
+active snapshot, launch table, and any earlier pending-restart candidate.
+Reload never replays startup applications.
+
 The active native WM chrome preference wins while that WM is healthy. Engine
 still validates its geometry and renders/damages the chrome. An external WM
 does not advertise chrome-policy ownership, so it uses `config.kdl`. A failed

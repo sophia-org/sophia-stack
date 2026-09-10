@@ -63,12 +63,54 @@ Artifacts are retained under `.artifacts/t071-present-advice/`. Its checkpoint
 record identifies the signed implementation, validation logs and release binary.
 Physical acceptance remains separate from these deterministic checks.
 
-## Remaining gate
+## Installed acceptance on 2026-09-10
 
-The [active tasks](../../../todo.md) retain their installed signaling gate. Run
-the bounded opted-in probe after installing the candidate owner, retain exact
-session identity and capture health, and join a received SuboptimalCopy to the
-tested and retired source. Check all hints for no repeat per exact surface and
-preference generation. Repeat the no-opt-in and no-proof controls. Neither this
-checkpoint nor that narrow signaling test resolves the broader normal,
-no-override client exit in t069 or the client-internal video selection in t068.
+Installed `fb8fe8be7960bbe0939f828dfa20d7a98eba00b9` ran in session
+`00000001789034825810-f9a9bacf-fa94-4c0c-872b-de815cacae6c`, owner 1750,
+start tick 51671773. Its binary SHA-256 was
+`d67506e3520cda22fa69e155d293cd9972bfd5a8a90edf026a56eb494961c735`, matching
+the validated release. Both direct-scanout and visual-progress gates were enabled.
+
+Five bounded XR24 runs completed 120 Presents each:
+
+| Control | Received mode | Idle before teardown |
+| --- | --- | --- |
+| Opted-in compressed allocation, isolated output | 1 SuboptimalCopy, 119 Copy | 120 |
+| Same compressed layout without opt-in | 120 Copy | 120 |
+| Opted-in LINEAR, isolated output | 120 Flip | 119 |
+| Opted-in compressed layout with ForceCopy | 120 Copy | 120 |
+| Opted-in compressed layout, small ineligible window | 120 Copy | 120 |
+
+The hint at client serial 58, transaction 67158, UST 516920236091 and MSC
+30943943 joins an actual framebuffer-stage refusal, successful alternative
+TEST_ONLY, exact copied retirement and current preference match. It belongs to
+surface 65011713, output 2, native generation 13 and preference generation 13.
+Later transaction 67708, serial 104, independently has all the same qualifying
+stages and generations but receives ordinary Copy. This proves suppression
+despite another qualifying candidate, rather than merely no further proof.
+
+No-opt-in transactions 137623 and 138210 and ForceCopy transactions 140420 and
+140952 also retain full qualifying proof chains while receiving Copy. The
+ForceCopy executable was built from the retained probe with only the Copy option
+bit added and an explicit log marker; its source and binary identities are saved.
+The LINEAR control's first transaction 138584 includes the direct-client atomic
+test record, beyond the wire Flip mode. Its final retained buffer is released at
+connection teardown. The small control has no layout-comparison records.
+
+The independent reviewer verified both positive joins, same-generation suppression
+and the three isolated negative controls. The small control was checked separately.
+All five saved capture intervals are contiguous. Health sequence 233553 covers
+every run with zero discarded records, rotation or storage errors. Later rotation
+occurred after the bounded logs had been copied. All owned probe windows were
+gone at the final check, the original owner remained alive, and temporarily hidden
+panel/browser windows were restored without input injection or process restart.
+
+Evidence is retained under `.artifacts/t071-live-fb8fe8be/`, including identities,
+invocations, bounded logs, exact-transaction reader outputs and
+`acceptance-summary.json`. This accepts the narrow installed t071–t074 signaling
+gate. It does not establish AR24 advice or physical screenshot correctness.
+
+The [active queue](../../../todo.md) retains the broader normal, no-override
+client exit in t069 and client-internal video selection in t068. The user's
+Super+B browser in this session still carried a render-node override; a live GPU
+process under that override cannot satisfy the no-override exit.

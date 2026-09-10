@@ -279,6 +279,12 @@ composed-window feedback and private allocation checks do not satisfy it. See
 the [probe contract](../../../tools/probes/README.md#explicit-dri3-layout-probe)
 for run boundaries and the retained evidence requirements.
 
+The [installed fb8fe8be acceptance](../milestones/urqkkdzp-exact-copied-present-evidence-gates-reallocation-advice.md#installed-acceptance-on-2026-09-10)
+now establishes the XR24 signaling gate: one received hint and a later proven
+Copy in the same generation, plus no-opt-in, ForceCopy, direct LINEAR and
+ineligible-geometry controls. This closes the narrow t071–t074 obligations;
+the broader normal no-override exit remains unchanged.
+
 ## Implementation checkpoints
 
 The [reallocation-advice checkpoint](../milestones/urqkkdzp-exact-copied-present-evidence-gates-reallocation-advice.md)

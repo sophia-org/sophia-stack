@@ -1,0 +1,103 @@
+---
+id: 3asecq4a
+date: 2026-09-11
+kind: investigation
+status: awaiting-physical-acceptance
+tags: [policy, validation]
+---
+# Maximized windows obscure keyboard navigation targets
+
+## Report and candidate
+
+During installed acceptance on 2026-09-11, the user reported that Super+navigation
+stops working in Super+F mode. The personal profile binds Super+F to
+`toggle-maximized`; Super+Shift+F is the separate fullscreen toggle. Super+Left
+and Right select columns, while Up and Down select windows within a column.
+
+The running session is
+`00000001789143018118-8259844a-396f-469e-928d-0bec2bd54d00`, with installed
+Sophia `0c069d2f3a232224dfdde3c20ba82e1cd78ee0fe` and Hagia
+`36bbb9453f625f692369c7fa3c231c5471f0f252`. The process executable hashes are
+`7ebd31ed8beacb73fe9e1de126d72665069f717071e0d36e4efb04f4386469b3`
+and `92c24358b00158b46bb1df5cc32d1751ae5763c709a0a89b097b8be895ace52e`,
+respectively. The profile hash remains
+`6ab0a40dece42d69f00349eee0242fa90a0ff095d68d221dbc2f28c428355c4c`,
+with pointer focus enabled. Hagia `9349e57` is staged on disk but has not been
+reloaded; the old process still holds the replaced executable.
+
+The checkpoint inspected after the report has four tiled windows on the large
+left output, none maximized or fullscreen, and an empty right output. It is
+not a capture of the reported failure. A held reproduction from the first
+column was requested to distinguish a hidden focus target from an output-edge
+handoff. No physical cause is inferred from the post-report checkpoint alone.
+
+## Source finding
+
+Hagia's column navigation includes maximized tiled windows and can select the
+next ordinary column. Projection separately expands every maximized window to
+the work area and places it above every ordinary window, regardless of which
+window now has focus. A normal navigation target can therefore receive focus
+underneath the maximized window. This is a policy projection defect; it does
+not require changing Sophia's input routing or window metadata boundary.
+
+The original stacking repair remains necessary: enlarging an earlier tile
+without raising it lets a later neighbor cover it. The new repair must make
+the selected window visible while retaining maximized geometry and state,
+preserving parent/dialog families, and retaining fullscreen ordering. Ordinary
+tile order must still return when maximization is toggled off.
+
+## Validation scope
+
+The initial offline regression on Hagia `9349e57` reproduced six ordinary
+target ordering failures across first/middle/last maximized columns, plus a
+focused dialog family below an unrelated maximized window. The artifact
+`.artifacts/t004-maximized-navigation/regression-before-fix.txt` retains the
+failure output. Its fullscreen exception was a test fixture missing the
+fullscreen capability, not a production defect; that fixture was corrected
+before the final gate.
+
+The repair retains the expansion layers, then finds the root of the focused
+window's visible parent chain with the existing family-depth bound. When a
+maximized placement is present, that family moves above background maximized
+families and below unrelated fullscreen roots. The family traversal still
+places dialogs above their parents. The operation changes only the projected
+order; canonical state, geometry, and ordinary ordering without maximization
+remain unchanged.
+
+The signed, pushed Hagia candidate is
+`43cfcae0ac7481e7032962ff45be0cb45fe0d7ef`. Full `nimble verify` passed
+with inherited `SOPHIA_*` and `HAGIA_*` variables removed and only the paired
+Sophia checkout path set. The retained `hagia-verify.log` in the artifact
+directory contains 249 passing Hagia cases, the paired Sophia tests, protocol
+corpora, formatting/layout checks, eight Alloy assertions, Z3, and four TLA+
+checks. The existing expanded-window session test still passes.
+
+Six new cases cover first/middle/last maximized columns, explicit directional
+focus and reversal, an ordinary parent's focused dialog, both creation orders
+of two maximized parents, fullscreen families alongside a maximized window,
+and normal order with maximization cleared or absent. The fixture capability
+correction and stricter named-neighbor assertions were reviewed before the
+final gate. No new Sophia code or wire behavior is involved.
+
+The release build and current desktop/extracted-policy validation passed. The
+binary SHA256 is
+`58df6b1d160efb44435a10b731ce6c7efba191a7c0c526f5812a74d5cd3d220d`.
+It was atomically staged at `~/.local/state/sophia/bin/hagia`; `deployment.json`,
+`hagia-release.log`, the new binary, and its predecessor are retained in
+`.artifacts/t004-maximized-navigation/`. This replaces the previously staged
+`9349e57` binary and includes that commit's empty-output navigation fix. The
+session was not reloaded, and the personal profile remains unchanged.
+
+Deterministic reproduction, regression checks, and physical acceptance are
+separate evidence. The installed Super+F navigation report is not yet resolved
+by a physical retest. The owning acceptance task is
+[t004](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t004).
+After user-triggered Ctrl+Alt+R, verify the live executable identity and test
+Super+Home, Super+F, Super+Right, then Super+Left with the pointer still. The
+neighbor must become visible and the maximized window must return when focus
+does. Dialog and separate fullscreen acceptance remain part of t004's gate.
+
+The preceding [pointer focus investigation](nsu4a0n2-optional-pointer-focus-follows-presented-targets-through-committed-policy.md)
+records the independent empty-output arrow trap and installed drag repair.
+The [original stacking incident](../sources/2026-09/legacy-active-0637-2026-09-06--maximized-stacking-and-gtk-startup-in-the-replacement-session.md)
+retains the evidence behind the initial expansion layering rule.

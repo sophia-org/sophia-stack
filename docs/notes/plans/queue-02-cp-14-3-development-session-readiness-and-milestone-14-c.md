@@ -134,8 +134,13 @@ Previously completed evidence: [Accept Kitty startup and Super+Enter on a replac
 
 Accept Hagia's maximized/fullscreen stacking repair in normal use.
 Super+F enlarged the window under its later neighbor; Super+M's column sizing
-worked. Hagia now orders expanded windows above ordinary placements. The
-replacement WM has not been loaded into the physical session.
+worked. Hagia orders expanded windows above ordinary placements. Installed
+acceptance subsequently exposed navigation targets hidden underneath the
+maximized window; the [maximized navigation investigation](../investigations/3asecq4a-maximized-windows-obscure-keyboard-navigation-targets.md)
+owns that report and candidate evidence. Acceptance must cover expansion above
+neighbors, visible keyboard navigation away and back, dialog stacking, and
+ordinary tile order after restoration. Check fullscreen separately from the
+Super+F maximization binding.
 
 
 Previously completed evidence: [Separate normal desktop lifetime from application startup proofs.](../sources/2026-09/todo-cutover-completed.md#legacy-done-003).

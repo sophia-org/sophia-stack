@@ -265,6 +265,12 @@ reloaded. User-triggered Ctrl+Alt+R and a keyboard round trip into the empty
 right monitor and back remain required. This repairs a demonstrated defect,
 without claiming the user's unremembered navigation sequence had this cause.
 
+Before that reload occurred, the [maximized navigation repair](3asecq4a-maximized-windows-obscure-keyboard-navigation-targets.md)
+produced signed Hagia `43cfcae0ac7481e7032962ff45be0cb45fe0d7ef`, which
+includes the empty-output fix. Its verified release replaces `9349e57` at the
+configured binary path. One user-triggered reload can activate both repairs;
+neither physical navigation result is inferred from staging the binary.
+
 ## Related repair
 
 The preceding [launch and pointer repair](v4geoq2j-policy-reload-compares-independent-configuration-generations.md)

@@ -92,7 +92,8 @@ Deterministic reproduction, regression checks, and physical acceptance are
 separate evidence. The installed Super+F navigation report is not yet resolved
 by a physical retest. The owning acceptance task is
 [t004](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t004).
-After user-triggered Ctrl+Alt+F5, verify the live executable identity and test
+After loading the corrected restart binding with Ctrl+Alt+R and invoking
+Ctrl+Alt+Shift+R, verify the live executable identity and test
 Super+Home, Super+F, Super+Right, then Super+Left with the pointer still. The
 neighbor must become visible and the maximized window must return when focus
 does. Dialog and separate fullscreen acceptance remain part of t004's gate.
@@ -109,11 +110,42 @@ This retest therefore does not establish a failure of `43cfcae`.
 
 The agent's activation instruction was wrong. Ctrl+Alt+R invokes
 `session:reload-profile`, and an unchanged profile did not replace the running
-process. The existing Ctrl+Alt+F5 binding invokes `session:restart-wm`, which
-explicitly replaces Hagia using the staged executable. The user was given the
-correct binding and asked to navigate right once and hold the resulting state.
+process. The existing Ctrl+Alt+F5 binding named `session:restart-wm`, which
+explicitly replaces Hagia using the staged executable. The user was told to
+use that binding and navigate right once. This second instruction also proved
+incorrect: the reserved virtual-terminal chord preempts the binding, as below.
 No second production change is justified by the old-binary retest. Verify the
 replacement process hash before attributing further results to the repair.
+
+## Reserved restart chord switched away from the desktop
+
+The user reported a session crash after Ctrl+Alt+F5. The owner and Hagia were
+both still alive as PIDs 30405 and 30410, and the journal continued recording
+resource samples. Records 306218–306227 instead show a queued virtual-terminal
+switch, a drained renderer handoff, then seat suspension. No owner fatal or
+session exit is recorded. The desktop remains on `/dev/tty7`, login session 14;
+the user was on tty2 at inspection. Ctrl+Alt+F7 was given as the return path.
+
+Sophia handles Ctrl+Alt+F1–F12 before configurable shortcuts in physical input
+routing. The personal `Ctrl+Alt+f5` restart binding was therefore unreachable.
+The agent should have checked reserved input handling before recommending it.
+Evidence is retained under `.artifacts/t004-maximized-navigation/vt-switch/`.
+This is not evidence of a restart crash or a failure in Hagia `43cfcae`; neither
+restart attempt had loaded that binary.
+
+The active profile and its chezmoi source now bind `session:restart-wm` to
+`Ctrl+Alt+Shift+r` and explain the VT reservation. Only that binding and its
+comment changed in each file. Both desktop-profile validation and Hagia's
+extracted-policy validation pass. The active profile SHA256 is
+`359f19803a75745cf40d589102514f25de0cd6ba9a5240d2b0394742927f6d2f`.
+The chezmoi change is signed and pushed as `1c93c79`.
+
+The corrected shortcut must first be loaded with Ctrl+Alt+R, then invoked with
+Ctrl+Alt+Shift+R. The binding change belongs to session shortcut configuration;
+its policy fragment is byte-identical, so profile reload alone need not replace
+Hagia. Recovery to the existing desktop and a verified new Hagia process remain
+required before retrying maximized navigation. No process was restarted by the
+agent during this investigation.
 
 The preceding [pointer focus investigation](nsu4a0n2-optional-pointer-focus-follows-presented-targets-through-committed-policy.md)
 records the independent empty-output arrow trap and installed drag repair.

@@ -701,12 +701,12 @@ impl LiveProductionVisualRuntime {
             })
             .collect::<Vec<_>>();
         self.observe_content_ordered_resource_releases(authority_envelope);
+        let head_plan_orders = self.presentation_orders_by_output();
         let (production, outputs) = (&mut self.production, &mut self.outputs);
         let output_count = outputs.output_count();
         let primary_output = outputs.primary_output();
         let event_count = authority_transaction_count_for_groups(&rebased_groups);
         let surface_metadata = self.surface_metadata.clone();
-        let head_plan_order = self.presentation_order.clone();
         let head_plan_chrome = self.chrome_surfaces.clone();
         let head_plan_focus = self.focused_surface;
         let head_plan_style = self.surface_chrome_style;
@@ -767,7 +767,7 @@ impl LiveProductionVisualRuntime {
                                     let mut display_list =
                                         sophia_engine::surface_chrome_display_list_for_surfaces(
                                             output_id,
-                                            &head_plan_order,
+                                            &head_plan_orders[&output_id],
                                             &head_plan_chrome,
                                             snapshot,
                                             head_plan_focus,

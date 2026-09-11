@@ -39,8 +39,12 @@ Previously completed evidence: [Implement the native application launcher throug
 
 2026-09-10 acceptance preserved the running desktop but rejected the changed
 policy and rolled back. The [generation mismatch investigation](../investigations/v4geoq2j-policy-reload-compares-independent-configuration-generations.md)
-records the installed identity, reproducer and repair; successful replacement
-acceptance still requires the repaired owner.
+records the installed identity, reproducer and repair. On repaired release
+`d5acca885be5`, replacement accepted generation 2 without rollback and the
+existing desktop processes survived. Ghostty's size, position and overlap were
+visibly wrong until the operator navigated windows, so t001 still lacks clean
+visual acceptance. The same investigation retains this observation and the
+pending restoration check.
 
 ## t002
 
@@ -68,6 +72,18 @@ The [launcher input investigation](../investigations/yifbnqjz-launcher-capture-l
 records reproduced cursor-accounting and VT modifier-state defects, their
 repairs, and the remaining uncertainty about the live keyboard trigger.
 
+On the newly installed `d5acca885be5` session, the operator confirmed working
+picker keyboard input and launched Ghostty. The investigation above records
+the running candidate and process evidence. Clicking an app name was then
+confirmed to launch it. Hover highlighting is not implemented in the current
+input/protocol path; the investigation records that limitation. The operator
+then confirmed Escape dismissal and searching for and launching btop in a
+terminal while existing windows stayed usable. Process inspection retained
+the original Kitty, Ghostty and two additional Kitty instances, with btop
+running and all desktop component PIDs unchanged. This supplies the remaining
+terminal-entry and third-window evidence for t002 on this release; exact
+configuration hashes and the final snapshot are in the investigation.
+
 ## t003
 
 Accept the client-failure repairs in normal use: Ghostty opens from the
@@ -80,6 +96,16 @@ is unresolved; new diagnostics must guide any follow-up. See the
 [Ghostty startup was physically accepted](../milestones/2mb23diq-ghostty-launcher-startup-accepted-in-ordinary-use.md)
 through Super+Space on installed `8921174c`. The Brave typing check remains
 required; this observation does not complete all of t002 or t003.
+
+Ghostty startup through the picker was confirmed again on installed
+`d5acca885be5`, with its process still present after the operator's report.
+The operator then confirmed that text appears in Brave's address bar and in
+Ghostty after switching focus, and that the desktop remains responsive. This
+accepts both named t003 workflows on `d5acca885be5` in session
+`00000001789093895563-1c5b322b-e1c9-4c19-aab1-33644a07f1c5`. The
+[launcher investigation](../investigations/yifbnqjz-launcher-capture-loses-visible-cursor-updates-during-modal-input.md#repaired-installed-session)
+records the exact executable/configuration identities. This typing check does
+not establish resolution of the separate GPU negotiation or t077 crash issues.
 
 Later live use on `ef1ba0e7` exposed a
 [repeating Brave GPU watchdog hang](../investigations/h0vxis10-brave-gpu-watchdog-repeats-during-live-use.md).

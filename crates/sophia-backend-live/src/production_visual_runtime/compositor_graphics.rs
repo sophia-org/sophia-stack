@@ -583,16 +583,26 @@ impl LiveProductionVisualRuntime {
         self.display_list_for_output(output, bounds, committed_surfaces, presentation_order)
     }
 
-    pub(super) fn display_list_for_output(
+    pub(super) fn presentation_orders_by_output(&self) -> BTreeMap<OutputId, Vec<SurfaceId>> {
+        self.outputs
+            .logical_viewports()
+            .map(|(output, _)| {
+                (
+                    output,
+                    self.surface_order_for_output(output, &self.presentation_order),
+                )
+            })
+            .collect()
+    }
+
+    fn surface_order_for_output(
         &self,
         output: OutputId,
-        _bounds: Rect,
-        committed_surfaces: &[CommittedSurfaceState],
         presentation_order: &[SurfaceId],
-    ) -> Result<CompositorDisplayList, CompositorDisplayListError> {
+    ) -> Vec<SurfaceId> {
         // Frontend-positioned layers are clipped by the head plan. Managed
         // scrolling columns remain confined to their policy-assigned output.
-        let owned = presentation_order
+        presentation_order
             .iter()
             .copied()
             .filter(|surface| {
@@ -603,7 +613,17 @@ impl LiveProductionVisualRuntime {
                     output,
                 )
             })
-            .collect::<Vec<_>>();
+            .collect()
+    }
+
+    pub(super) fn display_list_for_output(
+        &self,
+        output: OutputId,
+        _bounds: Rect,
+        committed_surfaces: &[CommittedSurfaceState],
+        presentation_order: &[SurfaceId],
+    ) -> Result<CompositorDisplayList, CompositorDisplayListError> {
+        let owned = self.surface_order_for_output(output, presentation_order);
         let mut display_list = surface_chrome_display_list_for_surfaces(
             output,
             &owned,

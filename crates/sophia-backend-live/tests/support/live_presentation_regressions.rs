@@ -107,6 +107,27 @@ fn panel_route_reaches_display_list_and_is_withdrawn_with_session_visibility() {
 }
 
 #[test]
+fn cpu_frame_orders_keep_offscreen_columns_on_their_assigned_output() {
+    let column = SurfaceId::new(6291460, 1);
+    let panel = SurfaceId::new(2, 1);
+    let mut runtime = runtime();
+    let mut scrolled = layer(column);
+    scrolled.output = Some(OutputId::from_raw(1));
+    scrolled.geometry = Rect {
+        x: 3821,
+        y: 41,
+        width: 1258,
+        height: 1390,
+    };
+    // This column is outside output 1 but geometrically intersects output 2.
+    // A frontend-positioned panel, in contrast, may span both outputs.
+    runtime.apply_presentation_layout(&[scrolled, layer(panel)], &[panel]);
+    let orders = runtime.presentation_orders_by_output();
+    assert_eq!(orders[&OutputId::from_raw(1)], vec![column, panel]);
+    assert_eq!(orders[&OutputId::from_raw(2)], vec![panel]);
+}
+
+#[test]
 fn retained_repaints_wait_for_the_exact_first_present_to_retire() {
     let mut runtime = runtime();
     let surface = SurfaceId::new(3, 1);

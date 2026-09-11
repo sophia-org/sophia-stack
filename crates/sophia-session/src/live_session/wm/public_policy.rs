@@ -2429,7 +2429,7 @@ impl LiveWmSession {
                             projection.transaction,
                             source,
                             identity,
-                            &reconciliation.content,
+                            &reconciliation,
                         )?;
                         for layer in &mut live.layers {
                             if !projection.outputs.iter().any(|output| {

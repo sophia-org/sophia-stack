@@ -186,6 +186,12 @@ that was visible on an affected output and is absent from its replacement is
 hidden. An unlisted output retains its committed projection. Moving one
 surface between outputs therefore requires both outputs in the same proposal.
 
+Session materialization reconciles fresh content only for the replaced outputs.
+Although the staged reducer exposes a complete scene, unlisted outputs retain
+their already committed content layers. Those layers must not cross chrome
+clearance again or replay an earlier configure request. A partial interaction
+proposal therefore does not require the WM to restate the other monitors.
+
 Engine validates the complete candidate before mutation:
 
 - connection epoch, transaction, snapshot, output, and surface generations

@@ -508,6 +508,23 @@ fn vt_failure_records_retain_the_boundary_and_safe_cause() {
     let missing: Box<dyn std::error::Error> =
         "retained scene refers to an unavailable promoted renderer image".into();
     assert_eq!(failure_code(missing.as_ref()), "handoff_missing_image");
+    for (message, code) in [
+        (
+            "public WM projection has no reconciled content placement",
+            "wm_missing_reconciled_content",
+        ),
+        (
+            "public WM retained output has no committed content placement",
+            "wm_missing_retained_content",
+        ),
+    ] {
+        let error: Box<dyn std::error::Error> = message.into();
+        assert_eq!(failure_code(error.as_ref()), code);
+        assert_eq!(
+            reduced_record(&format!("sophia_session_failure schema=1 status=failed phase=window_management failure_code={code} error=private_document")).unwrap(),
+            format!("sophia_session_failure schema=1 status=failed phase=window_management failure_code={code}")
+        );
+    }
     let private = std::io::Error::other("/private/application/document");
     assert_eq!(failure_code(&private), "unclassified");
     assert_eq!(

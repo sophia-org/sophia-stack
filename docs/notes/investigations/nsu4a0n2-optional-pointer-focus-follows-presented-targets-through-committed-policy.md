@@ -133,6 +133,70 @@ window geometry without glitches or duplicate startup windows. This supplies
 the separate t001 reload acceptance; browser placement/input, floating-window
 drag/resize, and disabling through reload remain for t078.
 
+## Super-drag crash during installed acceptance
+
+The next physical check failed. The user pressed Super+T on Kitty, then
+Super+left-drag, and the session exited. The exact post-toggle floating state
+was not captured; the interaction began on surface 56623118 on DP-1. This
+rejects the drag portion of t078 and prevents closing it. The prior clean t001
+reload observation remains valid for its separate workflow.
+
+The complete available failed-session journal is retained in
+`.artifacts/t078-drag-crash/`. Health reports zero discarded records and storage
+errors, with final sequence 128881. Records 128850–128855 show the pointer
+gesture and policy response; transaction 54 reconciles six DP-1 placements,
+then record 128862 reports an owner-loop fatal error. Record 128871 identifies
+`phase=window_management failure_code=unclassified`. Cleanup drained native
+work, stopped presentation, restored terminal state, and returned to the
+display manager with exit status 1. The transient checkpoint was removed by
+cleanup; the earlier retained snapshots are not a claim about post-toggle state.
+
+The code regression reproduces a concrete failure at this boundary:
+`public WM projection has no reconciled content placement`. A pointer request
+names one affected output, and real Hagia answers only for that output, as the
+protocol requires. Sophia reconciles fresh content only for those placements,
+but `StagedPolicyProjection.projections()` includes the untouched outputs too.
+Materialization incorrectly demanded fresh content for their surfaces and
+failed when the other monitor was populated. Claude independently confirmed
+the request/response scope. The journal's omitted raw error prevents recovering
+the exact string from the physical session; its placement sequence matches the
+reproduced path. This is separate from t077's older control-phase incident.
+
+The repair passes the complete reconciliation record to materialization so it
+can distinguish updated outputs from retained outputs. Updated outputs still
+require freshly reconciled content. Untouched visible surfaces retain their
+committed content geometry, raster, crop, transform, and translation; they do
+not cross chrome clearance again or replay prior size requests. Missing
+committed content still fails closed. New approved diagnostic codes distinguish
+`wm_missing_reconciled_content` and `wm_missing_retained_content` without exposing
+arbitrary error text.
+
+The failing-then-passing reducer/materialization regression covers both outputs,
+move and resize, and begin/update/end/cancel phases. It checks retained layers,
+focus, commit, and explicit failure for genuinely missing content. A real-Hagia
+socket regression and the full contributor gate are required before packaging.
+Installed Super+drag acceptance and the enabled-to-disabled reload check remain
+open; no physical fix is claimed from offline tests.
+
+The final `cargo xtask check` passed with inherited `SOPHIA_*` and `HAGIA_*`
+variables removed; `.artifacts/t078-drag-crash/check.log` retains the full gate,
+including strict Clippy, archive verifiers, buffer-age equivalence, and GLX/EGL
+pixel checks. `paired-hagia.log` records the separately enabled real-Hagia
+regression: one test executed against the exact installed binary above, with
+eleven settled socket cycles covering both populated outputs, move/resize
+begin/end, cross-output activation, and full SceneChanged replacement. Every
+cycle materializes and installs the reconciled result. Untouched content is
+identical and receives no extra size request. All 19 diagnostic tests pass,
+including approved failure-code retention and payload redaction.
+
+The Sophia candidate is the signed commit containing this repair and record;
+Hagia remains `36bbb9453f625f692369c7fa3c231c5471f0f252`. No Hagia source
+change or new wire behavior was needed. Final review confirmed minimized
+placements remain omitted, untouched translations survive, and relative stack
+order is preserved. An admission-race concern was withdrawn after checking that
+new unplaced surfaces have no committed output and cannot reach the retained
+branch; genuinely missing committed layers continue to fail closed.
+
 ## Related repair
 
 The preceding [launch and pointer repair](v4geoq2j-policy-reload-compares-independent-configuration-generations.md)

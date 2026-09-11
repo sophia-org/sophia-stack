@@ -904,7 +904,7 @@ fn public_policy_materializes_reconciled_content_without_committing_content_to_t
         proposal.transaction,
         LiveWmProposalSource::Manage(surface),
         settlement,
-        &reconciled.content,
+        &reconciled,
     )
     .unwrap();
 

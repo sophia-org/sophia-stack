@@ -131,7 +131,7 @@ fn public_live_proposal(
     transaction: TransactionId,
     source: LiveWmProposalSource,
     settlement: LivePolicySettlementIdentity,
-    content: &BTreeMap<SurfaceId, sophia_protocol::PolicySurfacePlacement>,
+    reconciliation: &ReconciledPublicPolicyProposal,
 ) -> Result<LiveWmProposal, Box<dyn std::error::Error>> {
     let mut layers = layout
         .layers
@@ -150,15 +150,36 @@ fn public_live_proposal(
         // The output this projection placed for. Every layer built below is
         // composited by this head and no other.
         let owning_output = projection.output;
+        let updated = reconciliation
+            .policy
+            .outputs
+            .iter()
+            .any(|output| output.output == owning_output);
         for placement in projection.placements {
-            let materialized = content
-                .get(&placement.surface)
-                .ok_or("public WM projection has no reconciled content placement")?;
             applied_surfaces.push(placement.surface);
             presentation_states.insert(placement.surface, placement.presentation);
             if placement.presentation.minimized {
                 continue;
             }
+            // A staged reducer contains every output, but interaction replies
+            // replace only the requested outputs. The others already have
+            // committed content coordinates and must not cross chrome clearance
+            // again or replay an earlier configure request.
+            if !updated {
+                let mut layer = layout
+                    .layers
+                    .get(&placement.surface)
+                    .filter(|layer| layer.output == Some(owning_output))
+                    .cloned()
+                    .ok_or("public WM retained output has no committed content placement")?;
+                layer.stack_rank = u32::try_from(layers.len()).unwrap_or(u32::MAX - 1);
+                layers.push(layer);
+                continue;
+            }
+            let materialized = reconciliation
+                .content
+                .get(&placement.surface)
+                .ok_or("public WM projection has no reconciled content placement")?;
             let mut layer = if let Some(layer) = layout.layers.get(&placement.surface) {
                 layer.clone()
             } else {

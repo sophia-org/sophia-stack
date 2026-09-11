@@ -3,6 +3,9 @@
 #[path = "../../tests/support/launch_origin_socket.rs"]
 mod launch_origin_socket;
 
+#[path = "../../tests/support/policy_partial_projection_socket.rs"]
+mod policy_partial_projection_socket;
+
 #[cfg(feature = "native-session")]
 #[path = "../../tests/support/glx_pixmap_export.rs"]
 mod glx_pixmap_export;

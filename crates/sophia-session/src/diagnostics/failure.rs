@@ -109,6 +109,14 @@ const RENDERER_CODES: &[(Detail, &str)] = &[
 ];
 const INVARIANT_CODES: &[(&str, &str)] = &[
     (
+        "public WM projection has no reconciled content placement",
+        "wm_missing_reconciled_content",
+    ),
+    (
+        "public WM retained output has no committed content placement",
+        "wm_missing_retained_content",
+    ),
+    (
         "persistent live session received no composable X pixels",
         "session_no_composable_pixels",
     ),

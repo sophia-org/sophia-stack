@@ -64,6 +64,9 @@ pub struct HeadLayerBinding {
     pub source_pixel_size: Size,
     pub density_millis: u32,
     pub opacity_millis: u16,
+    /// Original root-space placement for input after this frame retires.
+    /// Preserve it through native scaling instead of inverting rounded pixels.
+    pub logical_geometry: Rect,
     pub native_geometry: Rect,
     pub native_clip: Rect,
     pub requested_sampling: HeadSamplingClass,
@@ -666,6 +669,7 @@ pub fn build_head_composition_plan(
         layers.push(HeadLayerBinding {
             surface: surface.surface,
             committed_generation: surface.committed_generation,
+            logical_geometry: surface.geometry,
             variant: variant.variant,
             source: variant.source,
             source_pixel_size: variant.pixel_size,
@@ -789,6 +793,7 @@ pub fn head_output_damage_snapshot(plan: &HeadCompositionPlan) -> OutputFrameDam
                     surfaces.push(OutputFrameSurfaceState {
                         surface: *surface,
                         committed_generation: layer.committed_generation,
+                        logical_geometry: layer.logical_geometry,
                         geometry: layer.native_geometry,
                         buffer: layer.source,
                         source_size: layer.source_pixel_size,

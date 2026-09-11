@@ -10,6 +10,9 @@ pub const MAX_OUTPUT_FRAME_SURFACES: usize = 1_024;
 pub struct OutputFrameSurfaceState {
     pub surface: SurfaceId,
     pub committed_generation: u64,
+    /// Root-space placement for hit-testing this exact presented frame.
+    pub logical_geometry: Rect,
+    /// Placement in this snapshot's render coordinates; native for head frames.
     pub geometry: Rect,
     pub buffer: BufferSource,
     /// The raster's own pixel size, carried rather than re-derived from
@@ -94,6 +97,7 @@ pub fn output_frame_damage_snapshot(
         surfaces.push(OutputFrameSurfaceState {
             surface,
             committed_generation: committed.committed_generation,
+            logical_geometry: committed.geometry,
             geometry: committed.geometry,
             buffer: committed.buffer(),
             source_size: committed.content.canonical_variant().pixel_size,

@@ -4,6 +4,9 @@ use super::*;
 use crate::live_session::*;
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
+#[path = "policy_active_focus.rs"]
+mod policy_active_focus;
+
 struct ReloadFixture {
     // Fragments and their directory must be released before the fixture root.
     wm: LiveWmSession,

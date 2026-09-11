@@ -39,7 +39,11 @@ server—delivers input to applications. No non-X application frontend exists.
 
 The current native application path publishes a separate input projection and
 semantic epoch for every output from immutable output-frame snapshots after
-accepted presentation retirement. Pointer routing selects the projection for
+accepted presentation retirement. Each surface retains its original desktop
+logical geometry alongside the head-native geometry used for damage. Input
+uses the logical geometry from that exact frame, never an inverse transform
+of rounded native coordinates or a lookup in a newer layout. Pointer routing
+selects the projection for
 the pointer's output. A deferred focus handoff revalidates every exact buffered
 target against presented state and the current frontend route table before
 release. Keyboard remains nonspatial: when Engine and frontend focus differ,

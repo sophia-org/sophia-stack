@@ -218,6 +218,14 @@ fn mirror_damage_projection_preserves_identity_and_targets_each_head() {
         surfaces: vec![OutputFrameSurfaceState {
             surface,
             committed_generation: 11,
+            // These heads share one origin-anchored viewport, so the root
+            // placement and the head's are the same rectangle.
+            logical_geometry: Rect {
+                x: 128,
+                y: 72,
+                width: 640,
+                height: 360,
+            },
             geometry: Rect {
                 x: 128,
                 y: 72,
@@ -279,6 +287,11 @@ fn mirror_damage_projection_preserves_identity_and_targets_each_head() {
     assert_eq!(projected.output, destination);
     assert_eq!(projected.surfaces[0].surface, surface);
     assert_eq!(projected.surfaces[0].committed_generation, 11);
+    assert_eq!(
+        projected.surfaces[0].logical_geometry,
+        snapshot.surfaces[0].logical_geometry,
+        "mirror projection changes native damage geometry, preserving root input geometry"
+    );
     assert_eq!(projected.surfaces[0].buffer, snapshot.surfaces[0].buffer);
     assert_eq!(
         projected.surfaces[0].geometry,
@@ -354,6 +367,7 @@ fn mirror_projection_snapshot(
         surfaces: vec![OutputFrameSurfaceState {
             surface,
             committed_generation: 5,
+            logical_geometry: geometry,
             geometry,
             buffer: BufferSource::CpuBuffer { handle: 0x99 },
             source_size: Size {

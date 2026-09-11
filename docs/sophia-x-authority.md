@@ -116,6 +116,14 @@ cannot release buffered pointer input: each exact generational target must also
 remain in the last-presented Engine projection and current frontend route
 table. Stale membership discards the whole buffered sequence.
 
+Per-output remembered focus is distinct from seat focus. When a committed
+policy projection selects an output without a focused surface, Engine clears
+the previous client's keyboard focus through the frontend control path. The
+other output keeps its remembered window for a later return. A rejected
+projection and a session operation alone cannot clear focus. This keeps the
+workspace receiving keyboard input consistent with the active output used by
+application launches and the picker.
+
 Explicit pointer-grab preparation carries the requesting connection's last
 actually enqueued authority-observation receipt. Engine must apply and account
 for that prefix before validating mapping, admission, and owner eligibility.

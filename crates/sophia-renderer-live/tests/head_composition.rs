@@ -56,6 +56,15 @@ fn plan() -> HeadCompositionPlan {
             },
             density_millis: 750,
             opacity_millis: 1_000,
+            // A head whose viewport starts at root (2560, 32): the same
+            // surface, one rectangle in the root and another in this head's
+            // framebuffer. Lowering must not confuse them.
+            logical_geometry: Rect {
+                x: 2_635,
+                y: 122,
+                width: 600,
+                height: 450,
+            },
             native_geometry: Rect {
                 x: 75,
                 y: 90,
@@ -122,6 +131,27 @@ fn lowers_the_selected_variant_at_head_native_geometry() {
     assert_eq!(frame.trace.unwrap().head, RenderHeadId::from_raw(7));
     let damage = frame.output_damage_snapshot.unwrap();
     assert_eq!(damage.output.size.width, 1_920);
+    // Lowering measures damage in the head's own framebuffer and leaves the
+    // root placement alone. Input reads the second one, so a mirror that
+    // overwrote it would put this window back out of the pointer's reach.
+    assert_eq!(
+        damage.surfaces[0].geometry,
+        Rect {
+            x: 75,
+            y: 90,
+            width: 600,
+            height: 450,
+        }
+    );
+    assert_eq!(
+        damage.surfaces[0].logical_geometry,
+        Rect {
+            x: 2_635,
+            y: 122,
+            width: 600,
+            height: 450,
+        }
+    );
     assert_eq!(
         damage.surfaces[0].buffer,
         BufferSource::CpuBuffer { handle: 42 }

@@ -283,3 +283,61 @@ to CPU frame deferral is intentional: a changed translation target requires
 a frame even when the caller would otherwise defer it. Preserved GPU frames
 and the existing Present retirement barrier still prevent premature repaint
 publication. Physical interaction and reload acceptance remain separate.
+
+## Wrong-monitor launches and pointer routing
+
+The operator installed Sophia `d0c0c66acfe5` with Hagia `24f3203da28b` and
+returned to a normal session. The configured large left monitor is DP-1
+(2560×1440, origin 0,0); the smaller right monitor is DP-2 (1920×1080,
+origin 2560,0). With the pointer and typing on the left, Super+Space opened
+the picker on the right. Clicking Kitty on the left before reopening did not
+correct it. Super+B also placed Brave on the right. Brave accepted keyboard
+input and directional focus navigation there, but mouse input failed.
+
+The initial checkpoint remembered Kitty on output 1 while active output was 2.
+After subsequent navigation, the checkpoint selected output 1 and retained
+separate remembered windows on both outputs. Normal-mode logs record repeated
+pointer buttons suppressed with `reason=no_target`; their redacted presentation
+events do not establish that either head stopped presenting.
+
+Sophia's owner settlement ignored its previous-focus argument and always
+returned no clear-focus effect. A policy move to an empty output therefore
+could leave keyboard input on the old output while launches used the new
+active output. Clicking the already-focused old client skipped pointer focus
+handoff, preserving the mismatch. The owner now clears seat focus only after a
+committed projection leaves its active output without focus. Per-output
+remembered focus survives. The deterministic owner regression fails before the
+repair and passes afterward, covering committed empty output, rejected change,
+and retained focus on a populated active output.
+
+A separate coordinate defect appears in the native input path:
+`head_output_damage_snapshot` stores head-native geometry, while
+`presented_input_layer_snapshots` treated that geometry as desktop coordinates.
+A right-monitor window's local rectangle therefore misses a pointer whose
+desktop x coordinate includes the left monitor's width. The repair retains
+the original logical geometry with the exact retired frame, preserving the
+rule that unpresented pixels cannot receive pointer input.
+
+The coordinate regression fails before the repair with no hit for a click
+inside the right-monitor window. Offset and scaled/Fit head cases now select
+the correct surface and report identical surface-local coordinates; withdrawal
+still removes input eligibility. Renderer lowering and mirror damage projection
+preserve root geometry while changing native geometry. All 96 backend library
+tests and 20 head-composition renderer tests pass. These checks use real head
+planning, damage snapshot construction and hit-testing, without a live KMS
+retirement or physical pointer event.
+
+The full isolated `cargo xtask check` passed: 3,042 Rust tests across 260 result
+groups, 29 intentional ignores, formatting, metadata, Clippy, architecture and
+archived verifier checks, plus host buffer-age and GLX/EGL pixel proofs. The
+first attempt was denied local socket creation by the execution sandbox before
+socket-test assertions; rerunning with the required local access passed.
+The successful full log is retained as `check.log` beside the paired regression
+evidence. The three pre-existing broken notebook links are unchanged, and all
+77 tracked task IDs remain unique.
+
+Private reproduction evidence is retained under
+`reload-repaint-session-baseline/picker-focus-pointer-repair` in the existing
+desktop acceptance artifact directory. The original gap remains 8; no reload
+test was staged during this diagnosis. Physical acceptance of these repairs
+and the earlier reload repaint change remains outstanding.

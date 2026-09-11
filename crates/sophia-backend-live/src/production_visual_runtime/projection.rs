@@ -477,7 +477,9 @@ fn presented_input_layer_snapshots(
                 .get(&state.surface)
                 .and_then(|metadata| metadata.namespace),
             stack_rank: u32::try_from(index).unwrap_or(u32::MAX),
-            geometry: state.geometry,
+            // Pointer coordinates are desktop-wide. Native damage geometry
+            // loses the output origin and scale and cannot serve as input geometry.
+            geometry: state.logical_geometry,
             source: state.buffer,
             source_size: state.source_size,
             damage: Region::default(),
@@ -529,6 +531,11 @@ mod tests {
     include!(concat!(
         env!("CARGO_MANIFEST_DIR"),
         "/tests/support/presented_input_eligibility.rs"
+    ));
+
+    include!(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/support/presented_input_geometry.rs"
     ));
 
     fn surface(index: u32, generation: u32) -> SurfaceId {
@@ -609,6 +616,12 @@ mod tests {
             surfaces: vec![OutputFrameSurfaceState {
                 surface: retired,
                 committed_generation: 7,
+                logical_geometry: Rect {
+                    x: 10,
+                    y: 20,
+                    width: 300,
+                    height: 200,
+                },
                 geometry: Rect {
                     x: 10,
                     y: 20,
@@ -664,6 +677,12 @@ mod tests {
                 .map(|(index, surface)| OutputFrameSurfaceState {
                     surface,
                     committed_generation: 1,
+                    logical_geometry: Rect {
+                        x: i32::try_from(index).unwrap_or_default() * 10,
+                        y: 0,
+                        width: 100,
+                        height: 100,
+                    },
                     geometry: Rect {
                         x: i32::try_from(index).unwrap_or_default() * 10,
                         y: 0,

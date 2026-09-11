@@ -19,6 +19,9 @@ fn a_retired_frame_stops_routing_input_to_a_surface_that_left_the_layout() {
     let state = |surface| sophia_engine::OutputFrameSurfaceState {
         surface,
         committed_generation: 1,
+        // This output starts at the root origin, so the head's placement and
+        // the root placement are the same rectangle.
+        logical_geometry: geometry,
         geometry,
         buffer: BufferSource::CpuBuffer { handle: 9 },
         source_size: Size {
@@ -152,6 +155,7 @@ fn layout_removal_drops_input_eligibility_before_any_flip_retires() {
     let state = |surface| sophia_engine::OutputFrameSurfaceState {
         surface,
         committed_generation: 1,
+        logical_geometry: Rect { x: 4, y: 8, width: 64, height: 64, },
         geometry: Rect {
             x: 4,
             y: 8,

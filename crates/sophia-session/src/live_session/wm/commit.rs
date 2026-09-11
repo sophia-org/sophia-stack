@@ -54,14 +54,14 @@ impl LiveWmSession {
     fn apply_commit_result(
         &mut self,
         mut result: LiveWmCommitResult,
-        _previous_focus: Option<SurfaceId>,
+        previous_focus: Option<SurfaceId>,
         _output: sophia_protocol::OutputId,
     ) -> Result<LiveWmOwnerCommit, Box<dyn std::error::Error>> {
         let settlement = result
             .policy_settlement
             .take()
             .ok_or("public WM result is missing settlement identity")?;
-        self.apply_public_commit_result(result, settlement)
+        self.apply_public_commit_result(result, settlement, previous_focus)
     }
 }
 
@@ -76,6 +76,7 @@ impl LiveWmSession {
         &mut self,
         result: LiveWmCommitResult,
         settlement: LivePolicySettlementIdentity,
+        previous_focus: Option<SurfaceId>,
     ) -> Result<LiveWmOwnerCommit, Box<dyn std::error::Error>> {
         let public = self.public.as_mut().ok_or("public WM settlement lost its session")?;
         let scripted_action = public.in_flight_request.as_ref().is_some_and(|request| {
@@ -192,6 +193,19 @@ impl LiveWmSession {
         if outcome == sophia_protocol::PolicyProjectionOutcome::Committed {
             public.active_output = public.reducer.scene().active_output;
         }
+        // Per-output focus is remembered workspace state. An empty active
+        // output has no seat focus, even when another output remembers a window.
+        // Leaving the old client focused would send typing and launches to
+        // different outputs and make a click on that client skip the handoff.
+        let clear_focus = if outcome == sophia_protocol::PolicyProjectionOutcome::Committed
+            && public.reducer.committed().iter().any(|projection| {
+                projection.output == public.active_output && projection.focus.is_none()
+            })
+        {
+            previous_focus.map(|surface| (settlement.transaction, surface))
+        } else {
+            None
+        };
         if let (Some(action), Some(before)) =
             (proof_restart_action, proof_restart_checkpoint_before)
         {
@@ -221,7 +235,7 @@ impl LiveWmSession {
             pointer_gesture: None,
             session_action: None,
             workspace_projection: None,
-            clear_focus: None,
+            clear_focus,
         })
     }
 }

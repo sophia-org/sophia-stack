@@ -196,3 +196,90 @@ diff is retained as `routing-source.patch` with identity recorded in
 `routing-candidate.json` in the same artifact directory.
 Physical acceptance of the rendering repair remains pending. Captured
 broken-state logs precede these test runs.
+
+## Stationary reload repaint regression
+
+The approved paired regression work demonstrated the adjacent invalidation
+defect on source `8b2351228cad7e926baf23ae388b4987db0b34dd`.
+`apply_presentation_layout` discarded the changed result from
+`TranslationTimeline::replace_targets`, returning only order or routing changes.
+After a policy connection restart, fresh translation groups are stationary.
+With unchanged order, routing, focus and chrome, neither the retained repaint
+gate nor an animation deadline supplied the frame needed for the new targets.
+
+`reload_repaints_scrolling_columns_without_a_new_client_frame` first failed at
+the retained repaint admission assertion. The repair includes translation
+target changes in layout invalidation and uses the existing repaint admission
+and retirement barriers. Identical targets remain a no-op. The diagnostic
+`sophia_live_retained_projection` advances to schema 2 and names `layout_changed`
+because this field now includes translation targets as well as order/routing.
+The [translation contract](../../window-transitions.md) records the requirement.
+
+The synthetic two-output regression keeps the same committed DMA-BUF source
+through a size change and restoration, with motion both enabled and disabled.
+It preserves committed geometry while the requested size differs, then verifies
+that a matching-size offscreen placement leaves its assigned output, damages
+the vacated region, and stays off the neighboring output. It exercises the
+runtime invalidation result, retained admission, translation, head planning and
+damage reduction; it does not import a real buffer or submit KMS frames.
+All 93 backend library tests pass, including existing Present retirement
+barriers. Private evidence is retained as `reload-repaint-before.log` and
+`reload-repaint-after.log` in the repaired-session baseline directory.
+
+The isolated `cargo xtask check` gate passed with 3,038 Rust tests across 260
+result groups and 29 intentional ignores. Formatting, metadata, Clippy,
+architecture checks, archived physical verifiers, host buffer-age equivalence,
+and GLX/EGL first-frame and pixmap-export checks passed. The full result is
+retained privately as `reload-repaint-check.log`.
+
+This establishes a repaint scheduling defect and a deterministic repair. The
+precise origin of the operator's left-monitor slice remains unconfirmed without
+physical acceptance of the new candidate. No live installation or reload was
+performed during these checks.
+
+## Hagia active-output reconciliation
+
+Strengthening the paired Hagia fixture exposed a separate two-output defect.
+The fixture must carry each output's focused surface in its synthetic snapshot;
+zero focus is an explicit clearing request, so omitting it made initial width
+and camera checks vacuous. With realistic focus facts, reconciliation sets
+the snapshot's active output and then calls `setFocus` for each output. That
+entity operation also activates its output. The last focused output in the
+snapshot therefore overwrote the active-output fact before an action was
+reduced, allowing a column action to land on the wrong monitor.
+
+Hagia now restores the validated snapshot active output after reconciling
+per-output focus and new-window admission. Explicit action and focus causes
+still run afterward and retain their normal authority. This is independent
+of Sophia's stationary repaint defect; neither finding alone establishes the
+complete physical trigger for the reported slice.
+
+The paired Hagia cases use committed projection cycles and real checkpoint
+save/load, then apply gaps 8→9→8 across mixed-width columns on two outputs.
+They check stable identities, order, width preferences, focus, camera anchors
+and round-trip geometry. A separate restore starts with a positive camera
+offset anchored on the last column. The active-output action case covers both
+snapshot orders and both selected outputs; it fails without the reconciliation
+repair and passes with it.
+
+The first full Hagia gate exposed test configuration contamination: its optional
+Sophia admission tests discovered the operator's personal desktop profile and
+failed shortcut capability validation before launching Hagia. Omitting
+`SOPHIA_HAGIA_BIN` only skips those test bodies. The Hagia runner now gives that
+step an empty temporary `XDG_CONFIG_HOME` while retaining the real freshly built
+Hagia binary, matching Sophia's canonical test isolation. Product configuration
+validation and the operator's files are unchanged.
+
+Hagia's full `nimble verify` passed with the repaired runner, including both
+real-binary admission tests, the independent protocol/restart corpus,
+formatting and layout checks, Alloy/Z3 assertions and all four TLA+ checks.
+The paired Hagia source is signed commit
+`24f3203da28b209d7446d1f2b28335f9a1a0d55c`. Its fresh release SHA-256 is
+`0a88dd33ecb48fdd9c0889357e1ad79a39db8754f82a3e46f415f8fe30969ee6`.
+Private `hagia-scroller-verify.log` retains the successful full gate.
+
+Claude's review agreed with the Sophia invalidation repair. Its noted change
+to CPU frame deferral is intentional: a changed translation target requires
+a frame even when the caller would otherwise defer it. Preserved GPU frames
+and the existing Present retirement barrier still prevent premature repaint
+publication. Physical interaction and reload acceptance remain separate.

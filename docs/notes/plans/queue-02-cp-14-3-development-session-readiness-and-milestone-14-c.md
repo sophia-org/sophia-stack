@@ -46,6 +46,12 @@ visibly wrong until the operator navigated windows, so t001 still lacks clean
 visual acceptance. The same investigation retains this observation and the
 pending restoration check.
 
+The restoration reload also distorted Ghostty on the left monitor, and
+navigation repaired it. The linked investigation now records a deterministic
+stationary-translation repaint failure and its repair. The offline gate passes;
+acceptance still requires a newly installed candidate to reload cleanly without
+needing navigation to repair the display.
+
 ## t002
 
 Accept the installed Sophia/Hagia/Narthex launcher changes with

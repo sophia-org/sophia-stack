@@ -48,6 +48,13 @@ including its surface chrome. Fixed shell and indicator chrome stays fixed.
 Removed members lose their motion state; VT suspension and topology rebinding
 settle motion and discard deadlines. Fresh WM epochs cannot inherit old motion.
 
+Changed translation targets also invalidate retained composition when no spring
+is active. In particular, a fresh WM epoch must repaint stationary placements
+without waiting for client damage or another focus action. The ordinary retained
+publication barrier still protects frames awaiting Present retirement. A target
+whose size differs from the committed client size keeps the committed geometry
+until matching pixels are available; invalidation does not authorize a resize.
+
 Motion is enabled by default on the native GPU composition path. Set
 `SOPHIA_ENABLE_WINDOW_TRANSITIONS=0` in the session launch environment to use
 immediate placements. This is an Engine setting. It does not alter WM policy.
@@ -60,6 +67,10 @@ Offline regressions cover camera retargeting, identical requests, member motion,
 output/epoch/size isolation, motion off, pixel identity and presented geometry,
 bounded wire decoding and negotiated extension assembly. Hagia independently
 checks the shared records and runs camera/navigation/reconciliation regressions.
+The backend reload regression retains one client frame across a size change and
+restoration, checks repaint admission with motion on and off, and verifies that
+the vacated output region is damaged without leaking an offscreen column onto
+its neighboring output. It exercises frame planning, not a physical scanout.
 
 Physical acceptance remains pending: open three Kitty windows; move in both
 directions, reverse during a transition, insert after the middle window, close

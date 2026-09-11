@@ -128,6 +128,137 @@ fn cpu_frame_orders_keep_offscreen_columns_on_their_assigned_output() {
 }
 
 #[test]
+fn reload_repaints_scrolling_columns_without_a_new_client_frame() {
+    for motion in [true, false] {
+        let mut runtime = runtime();
+        runtime.set_transitions_enabled(motion);
+        let output = OutputId::from_raw(1);
+        let mut column = layer(SurfaceId::new(31, 1));
+        column.output = Some(output);
+        column.source = BufferSource::DmaBuf { handle: 31 };
+        column.geometry = Rect {
+            x: 1900,
+            y: 40,
+            width: 1260,
+            height: 1392,
+        };
+        column.source_size = Size {
+            width: column.geometry.width,
+            height: column.geometry.height,
+        };
+        column.translation = Some(LayerTranslation {
+            connection_epoch: 1,
+            group: 1,
+            x: 0,
+            y: 0,
+        });
+        // Keep exactly the same committed client pixels through both reloads.
+        let committed = [CommittedSurfaceState::from_layer_snapshot(&column)];
+        runtime.apply_presentation_layout(std::slice::from_ref(&column), &[]);
+        let before = retained_test_head_plan(&runtime, output, &committed);
+        assert_eq!(before.layers.len(), 1);
+        assert_eq!(before.layers[0].native_clip.width, 660);
+
+        // A one-pixel gap increase changes the requested size. Until matching
+        // pixels arrive, presentation must preserve the old committed extent.
+        column.geometry = Rect {
+            x: 3818,
+            y: 41,
+            width: 1259,
+            height: 1390,
+        };
+        column.translation.as_mut().unwrap().connection_epoch = 2;
+        let changed = runtime.apply_presentation_layout(std::slice::from_ref(&column), &[]);
+        assert!(!runtime.translations.active(runtime.translation_time()));
+        assert!(
+            live_production_retained_projection_admitted(changed, false, true),
+            "a stationary reload must request a retained repaint without client damage"
+        );
+        let awaiting_pixels = retained_test_head_plan(&runtime, output, &committed);
+        assert_eq!(
+            awaiting_pixels.layers[0].native_geometry,
+            before.layers[0].native_geometry
+        );
+
+        // Restoring the original gaps makes the retained size usable again,
+        // but the column's new position is outside its assigned output.
+        column.geometry = Rect {
+            x: 3820,
+            ..committed[0].geometry
+        };
+        column.translation.as_mut().unwrap().connection_epoch = 3;
+        let changed = runtime.apply_presentation_layout(std::slice::from_ref(&column), &[]);
+        assert!(live_production_retained_projection_admitted(
+            changed, false, true
+        ));
+        assert!(!reduce_live_production_frame_defer(true, changed, false));
+        let after = retained_test_head_plan(&runtime, output, &committed);
+        assert!(
+            after.layers.is_empty(),
+            "the offscreen column must leave output 1"
+        );
+        let damage = output_frame_damage(
+            Some(&head_output_damage_snapshot(&before)),
+            &head_output_damage_snapshot(&after),
+        )
+        .unwrap();
+        let vacated = before.layers[0].native_clip;
+        assert!(
+            damage.rects.iter().any(|rect| {
+                rect.x <= vacated.x
+                    && rect.y <= vacated.y
+                    && rect.x + rect.width >= vacated.x + vacated.width
+                    && rect.y + rect.height >= vacated.y + vacated.height
+            }),
+            "repaint must cover the vacated region: {damage:?}"
+        );
+        let neighbor = retained_test_head_plan(&runtime, OutputId::from_raw(2), &committed);
+        assert!(
+            neighbor.layers.is_empty(),
+            "the column must not leak onto output 2"
+        );
+        assert!(!runtime.apply_presentation_layout(std::slice::from_ref(&column), &[]));
+        assert!(!runtime.translation_frames_pending());
+    }
+}
+
+fn retained_test_head_plan(
+    runtime: &LiveProductionVisualRuntime,
+    output: OutputId,
+    committed: &[CommittedSurfaceState],
+) -> HeadCompositionPlan {
+    let viewport = runtime.outputs.logical_viewport(output).unwrap();
+    let list = runtime
+        .display_list_for_output(output, viewport, committed, &runtime.presentation_order)
+        .unwrap();
+    let (presented, list) =
+        runtime
+            .translations
+            .project(output, committed, list, runtime.translation_time());
+    let snapshot =
+        output_scene_snapshot_from_committed_in_view(output, 1, viewport, &presented, list, None)
+            .unwrap();
+    build_output_head_plans(
+        &snapshot,
+        &[HeadRenderTarget {
+            head: RenderHeadId::from_raw(output.raw()),
+            output,
+            target_generation: 1,
+            native_size: Size {
+                width: viewport.width,
+                height: viewport.height,
+            },
+            scale: 1,
+            refresh_millihz: 60_000,
+            transform: OutputTransform::Normal,
+            mapping: OutputHeadMapping::Fit,
+        }],
+    )
+    .unwrap()
+    .remove(0)
+}
+
+#[test]
 fn retained_repaints_wait_for_the_exact_first_present_to_retire() {
     let mut runtime = runtime();
     let surface = SurfaceId::new(3, 1);

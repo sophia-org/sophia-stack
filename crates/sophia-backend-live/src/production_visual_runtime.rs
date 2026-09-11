@@ -617,14 +617,14 @@ impl LiveProductionVisualRuntime {
         let focused_surface = self.chrome_focus(focused_surface, chrome_surfaces);
         let focus_changed = self.focused_surface != focused_surface;
         self.focused_surface = focused_surface;
-        let presentation_order_changed =
+        let presentation_layout_changed =
             self.apply_presentation_layout(presentation_layout, geometry_routed_surfaces);
         if let Some(native) = native_scanout.as_deref_mut() {
             native.set_translation_motion_active(self.translations.active(self.translation_time()));
         }
         let chrome_surfaces_changed = self.set_chrome_surfaces(chrome_surfaces);
         let indicator_publication_changed = self.set_indicator_publication(indicator_publication);
-        let visual_projection_changed = presentation_order_changed
+        let visual_projection_changed = presentation_layout_changed
             || chrome_surfaces_changed
             || focus_changed
             || indicator_publication_changed;
@@ -651,14 +651,14 @@ impl LiveProductionVisualRuntime {
         };
         if visual_projection_changed {
             tracing::debug!(
-                "sophia_live_retained_projection schema=1 status={} focus_changed={} order_changed={} chrome_changed={}",
+                "sophia_live_retained_projection schema=2 status={} focus_changed={} layout_changed={} chrome_changed={}",
                 if retained_projection_queued {
                     "queued"
                 } else {
                     "unavailable"
                 },
                 focus_changed,
-                presentation_order_changed,
+                presentation_layout_changed,
                 chrome_surfaces_changed,
             );
         }
@@ -676,7 +676,7 @@ impl LiveProductionVisualRuntime {
             native_scanout.is_some(),
             self.present_scheduler.has_in_flight(),
             retained_projection_queued,
-            presentation_order_changed,
+            presentation_layout_changed,
             committed_projection_requires_gpu,
         );
         let defer_frame = if software_present_frame_required {
@@ -1080,7 +1080,8 @@ impl LiveProductionVisualRuntime {
     ) -> bool {
         let now = Instant::now();
         let time = self.translation_time();
-        if self.translations.replace_targets(layout, time) {
+        let translation_changed = self.translations.replace_targets(layout, time);
+        if translation_changed {
             tracing::debug!(
                 event = "translation_targets",
                 active = self.translations.active(time),
@@ -1142,7 +1143,11 @@ impl LiveProductionVisualRuntime {
                 displayed.layer.reproject(layer.geometry);
             }
         }
-        order_changed || routing_changed
+        // Restarted policy connections seed stationary translation targets, so
+        // no animation deadline will repaint the pixels their old positions
+        // occupied. Request the ordinary retained repaint even without a new
+        // client frame; its existing admission barrier still owns retirement.
+        order_changed || routing_changed || translation_changed
     }
 
     fn set_chrome_surfaces(&mut self, surfaces: &[SurfaceId]) -> bool {

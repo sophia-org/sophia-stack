@@ -92,10 +92,28 @@ Deterministic reproduction, regression checks, and physical acceptance are
 separate evidence. The installed Super+F navigation report is not yet resolved
 by a physical retest. The owning acceptance task is
 [t004](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t004).
-After user-triggered Ctrl+Alt+R, verify the live executable identity and test
+After user-triggered Ctrl+Alt+F5, verify the live executable identity and test
 Super+Home, Super+F, Super+Right, then Super+Left with the pointer still. The
 neighbor must become visible and the maximized window must return when focus
 does. Dialog and separate fullscreen acceptance remain part of t004's gate.
+
+## Activation correction after the reported failed retest
+
+The user reported that the neighbor remained invisible and clarified that the
+camera did not follow keyboard focus after Super+F. Inspection still found
+Hagia PID 30410 holding the old executable hash `92c24358...ace52e`, while the
+configured binary path held the new `58df6b1d...3d220d` build. The retained
+`failed-live-retest.checkpoint` shows window 1 maximized and focused after the
+navigation/reversal sequence; it does not capture the intermediate target.
+This retest therefore does not establish a failure of `43cfcae`.
+
+The agent's activation instruction was wrong. Ctrl+Alt+R invokes
+`session:reload-profile`, and an unchanged profile did not replace the running
+process. The existing Ctrl+Alt+F5 binding invokes `session:restart-wm`, which
+explicitly replaces Hagia using the staged executable. The user was given the
+correct binding and asked to navigate right once and hold the resulting state.
+No second production change is justified by the old-binary retest. Verify the
+replacement process hash before attributing further results to the repair.
 
 The preceding [pointer focus investigation](nsu4a0n2-optional-pointer-focus-follows-presented-targets-through-committed-policy.md)
 records the independent empty-output arrow trap and installed drag repair.

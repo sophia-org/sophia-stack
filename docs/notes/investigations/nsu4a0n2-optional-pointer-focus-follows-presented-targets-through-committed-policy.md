@@ -261,15 +261,18 @@ extracted-policy validation also passed. Its executable SHA256 is
 The replacement was atomically staged at the user's configured
 `~/.local/state/sophia/bin/hagia` path, with the previous binary retained in
 the artifact directory. Sophia remains installed `0c069d2f`; no process was
-reloaded. User-triggered Ctrl+Alt+R and a keyboard round trip into the empty
+reloaded. User-triggered Ctrl+Alt+F5 and a keyboard round trip into the empty
 right monitor and back remain required. This repairs a demonstrated defect,
 without claiming the user's unremembered navigation sequence had this cause.
 
 Before that reload occurred, the [maximized navigation repair](3asecq4a-maximized-windows-obscure-keyboard-navigation-targets.md)
 produced signed Hagia `43cfcae0ac7481e7032962ff45be0cb45fe0d7ef`, which
 includes the empty-output fix. Its verified release replaces `9349e57` at the
-configured binary path. One user-triggered reload can activate both repairs;
-neither physical navigation result is inferred from staging the binary.
+configured binary path. One user-triggered Ctrl+Alt+F5 restart can activate both
+repairs; neither physical navigation result is inferred from staging the binary.
+The initial Ctrl+Alt+R instruction was incorrect for an unchanged profile: the
+subsequent process inspection still found the old executable. The linked
+investigation records that activation correction.
 
 ## Related repair
 

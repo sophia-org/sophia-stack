@@ -286,3 +286,59 @@ Ctrl+Alt+Shift+R binding, then verify F-to-M has no neighbor painted over the
 focused pane during settling. Check navigation away and back as well. Physical
 acceptance remains required under t004; the deterministic checks alone do not
 close it.
+
+## Confirmed edge-gap flash
+
+The user reproduced the flash with `c6dad96` verified running, then clarified
+that the neighbor appears only in the right-edge gap, not over the focused
+pane's content. This supersedes the earlier interpretation as content occlusion;
+the column-elevation candidate did not address the gap. No additional stacking
+change is justified by this clarified report.
+
+A standalone offline probe exports actual Hagia F/M projections, passes them
+through Sophia's `TranslationTimeline`, builds the production chrome display
+list, and constructs output scene snapshots at seven fixed times. The old
+projection exposes a neighbor at x=1590 from 16ms through 250ms in a 1600-wide
+fixture; the focused content remains on top. At rest x=1590 is clear. This is a
+synthetic scene replay, not a native GPU capture of the user's desktop. Detailed
+local captures, probe source, projection data, and before/after logs remain in
+the gap-transition evidence directory.
+
+Triad's `src/systems/layout_projection.nim` replaces tiled instructions with
+only the focused expanded pane before adding floating instructions. Hagia had
+instead retained background tiled placements beneath F. Those placements kept
+animation membership alive, allowing their old positions to appear through M's
+new gap. Hagia now omits ordinary background tiled placements while effective
+edge presentation is active in either scroller. Canonical windows, columns,
+widths, and camera intent remain. Parented dialogs follow visibility; independent
+floating overlays, other outputs, and the existing fullscreen rule are retained.
+Leaving F restores strip placements at current targets without hidden motion.
+
+The updated replay keeps x=1590 clear at all seven samples, while preserving the
+focused pane's coverage and the ordinary final layout. A permanent Engine test
+checks hidden-member removal and reappearance through translation, chrome, and
+scene construction. Hagia regressions require edge-only placements with no
+translation group, unchanged canonical window count, F/M and navigation
+restoration, dialog families, both axes, and output isolation. The existing
+session expansion test now distinguishes edge-only visibility from fullscreen
+layering while requiring both neighbors to return when expansion is disabled.
+
+The signed and pushed Hagia candidate is `b77722b5de03e025491e53d307a04cbf60dc0aca`. Full
+`nimble verify` passes with 262 Nim cases, paired Sophia socket/protocol checks,
+eight Alloy assertions, Z3, and four TLA+ checks. Sophia's `cargo fmt --check`,
+`git diff --check`, offline metadata check, and complete offline `cargo test -q`
+also pass. The Engine translation suite now contains five passing cases.
+The independent scene replay passes all seven sampled gap/content assertions.
+
+The separate source-layout audit exits 1 on existing findings in 35 Sophia
+files. Every flagged file is byte-identical to HEAD; this patch changes no
+Sophia production source. The audit output and baseline comparison are retained
+locally. These existing layout findings are not presented as a passing gate.
+
+Release compilation, current profile/extracted-policy checks, and offline
+checkpoint restoration pass. Release SHA256 is
+`f413024b57fc787cd51c8494c154dff989e4776d6389d36196bd513b7df65baa`. It is staged atomically at the configured executable
+path, with a backup and deployment record retained locally. No live restart was
+performed by the agent. Load with Ctrl+Alt+Shift+R, release the keys, and check
+Super+F followed by Super+M for a clean gap from the first frame. Navigation
+away and back remains part of t004's physical acceptance; it is still open.

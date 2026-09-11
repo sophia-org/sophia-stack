@@ -140,3 +140,101 @@ fn frame_snapshot_carries_presented_geometry_and_chrome_without_changing_pixels(
     assert_eq!(snapshot.surfaces[0].buffer, committed.buffer());
     assert_eq!(snapshot.surfaces[0].source_size, target.source_size);
 }
+
+#[test]
+fn hidden_strip_returns_without_motion_leaking_into_a_new_edge_gap() {
+    use sophia_engine::*;
+    use sophia_protocol::*;
+
+    let output = OutputId::from_raw(1);
+    let mut edge = layer(1, 0, 0);
+    edge.translation = None;
+    edge.geometry = Rect {
+        x: 0,
+        y: 32,
+        width: 1600,
+        height: 968,
+    };
+    let mut targets = vec![layer(2, 1584, 8), layer(3, 2372, 8), layer(1, 8, 8)];
+    for target in &mut targets {
+        target.geometry.y = 40;
+        target.geometry.height = 952;
+        target.geometry.width = if target.surface == edge.surface {
+            1568
+        } else {
+            780
+        };
+        target.source_size = Size {
+            width: target.geometry.width,
+            height: target.geometry.height,
+        };
+    }
+    let mut timeline = TranslationTimeline::default();
+    timeline.replace_targets(&[layer(2, 796, 8), layer(3, 1584, 8)], 0.0);
+    // A presented edge pane replaces the strip. Returning panes must not
+    // inherit positions from when they were concealed behind its pixels.
+    timeline.replace_targets(std::slice::from_ref(&edge), 0.5);
+    timeline.replace_targets(&targets, 1.0);
+    let committed = targets
+        .iter()
+        .map(CommittedSurfaceState::from_layer_snapshot)
+        .collect::<Vec<_>>();
+    let order = targets
+        .iter()
+        .map(|target| target.surface)
+        .collect::<Vec<_>>();
+    for time in [1.0, 1.016, 1.05, 1.1, 1.25, 1.5, 3.1] {
+        let list = surface_chrome_display_list(
+            output,
+            &order,
+            &committed,
+            Some(edge.surface),
+            SurfaceChromeStyle::default(),
+        )
+        .unwrap();
+        let (presented, list) = timeline.project(output, &committed, list, time);
+        let scene = output_scene_snapshot_from_committed_in_view(
+            output,
+            1,
+            Rect {
+                x: 0,
+                y: 0,
+                width: 1600,
+                height: 1000,
+            },
+            &presented,
+            list,
+            None,
+        )
+        .unwrap();
+        assert!(!timeline.active(time));
+        // The gap is x=1584..1592. A deliberate resting peek beyond it is
+        // allowed, but no returning neighbor may sweep across this gap.
+        assert!(
+            scene
+                .surfaces
+                .iter()
+                .all(|surface| !(surface.geometry.x <= 1590
+                    && 1590 < surface.geometry.x + surface.geometry.width)),
+            "gap exposed at {time}"
+        );
+        let top = scene
+            .display_list
+            .commands
+            .iter()
+            .rev()
+            .find_map(|command| match command {
+                CompositorDisplayCommand::Surface { surface } => scene
+                    .surfaces
+                    .iter()
+                    .find(|state| {
+                        state.surface == *surface
+                            && state.geometry.x <= 800
+                            && 800 < state.geometry.x + state.geometry.width
+                    })
+                    .map(|state| state.surface),
+                _ => None,
+            });
+        assert_eq!(top, Some(edge.surface));
+    }
+}

@@ -394,3 +394,13 @@ detailed evidence and rollback copies remain local under
 `.artifacts/t004-niri-gaps/`. Physical acceptance still belongs to
 [t004](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t004)
 and [t011](../plans/queue-04-2-establish-the-live-session.md#t011).
+
+## Operator retest after the spacing update
+
+The user reported that the issue "appears to be fixed" after the reload and
+edge/F-to-M retest instructions for `acb94e0`. The session checkpoint now uses
+schema 16, uniform gaps of eight pixels, and zero struts, confirming activation
+of the new spacing settings. This records acceptance of the reported visual
+artifact in observed use. It does not individually establish the remaining
+t004 dialog/fullscreen and navigation cases or t011's insertion/close,
+vertical-scrolling, and both-output coverage; those broader tasks remain open.

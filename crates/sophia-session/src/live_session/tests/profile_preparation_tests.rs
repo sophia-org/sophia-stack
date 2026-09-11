@@ -314,7 +314,7 @@ fn hagia_pregraphics_profile_admission_activates_every_owner() {
     let profile_path = config.wm_socket_path.with_extension("kdl");
     let source = sophia_config::COMPILED_DESKTOP_PROFILE
         .replace("layout \"scroller\"", "layout \"dwindle\"")
-        + "\npolicy { scratchpad-size 70 60; floating-size 0 60; column-width-presets 33 50 67; view-name 1 \"code\"; view-name 2 \"web\"; view-layout 1 \"notion\"; view-layout 2 \"split-tree\"; }\n";
+        + "\npolicy { scratchpad-size 70 60; floating-size 0 60; preset-column-widths { proportion 0.33; proportion 0.5; proportion 0.67; }; view-name 1 \"code\"; view-name 2 \"web\"; view-layout 1 \"notion\"; view-layout 2 \"split-tree\"; }\n";
     std::fs::write(&profile_path, source).unwrap();
     std::fs::set_permissions(
         &profile_path,

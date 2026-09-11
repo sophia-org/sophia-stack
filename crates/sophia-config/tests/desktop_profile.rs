@@ -1016,7 +1016,7 @@ policy {
     layout "dwindle"
     scratchpad-size 70 60
     floating-size 0 60
-    column-width-presets 33 50 67
+    preset-column-widths { proportion 0.33; proportion 0.5; proportion 0.67; }
     view-layout 1 "notion"
     view-layout 2 "split-tree"
     future-wm-setting "opaque" value=42

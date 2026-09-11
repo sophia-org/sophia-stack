@@ -43,11 +43,33 @@ records the inventory, repairs, archive decisions, and validation.
 
 ## t025
 
-Decide whether `run_frame_fed_output_gate_tty4.sh` and
-`run_current_critical_path_tty4.sh` keep requiring HEAD to equal the locally
-known origin/master. The direct-scanout and Hagia native runners no longer do;
-`package_live_session.sh` keeps it deliberately, because packaging is the
-publishing question the rule was wrong about being.
+**Decision and result, 2026-09-10.** Clean, cryptographically signed local
+commits qualify for physical proofs independently of upstream publication.
+Implemented in signed candidate `2cb47a1b90c31f24b3c46da55cd24699dc7009d4`.
+The frame-fed and critical-path runners now follow this rule, as does the
+Hagia policy runner called by the critical-path runner. The preflight reporter
+retains an informational upstream column but refuses only missing checkouts,
+dirty trees and invalid signatures. Pinned source identities, binary hashes,
+archive verification and DRM/input safeguards retain their existing checks.
+
+The prior packaging description was stale: `package_live_session.sh` already
+accepted local commits without upstream equality. This change aligns the
+remaining gates with that policy and the direct-scanout/Hagia native runners.
+[Validation](../../validation.md) and [Hagia](../../project-hagia.md) describe
+the resulting proof contract.
+
+**Verification.** Four isolated Python tests exercise 66 preflight scenarios
+across the production script sections: matching/missing/divergent upstreams,
+dirty and untracked files, invalid signatures, missing checkouts and source
+identity changes between checks. The original scripts fail the eight new
+missing/divergent-upstream acceptance cases; the repaired scripts pass all
+cases. Bash syntax checks passed. `cargo xtask check` passed 3,034 Rust tests
+across 260 result groups, with zero failures and 29 intentional ignores, plus
+the registered Python checks, formatting, Clippy, archive verification and
+host render-node proofs. Local logs are retained under
+`.artifacts/t025-proof-identity/` (`check.log`, `baseline-regression.txt`, and
+`validation.txt`). No TTY takeover, physical gate or installed-session
+acceptance was performed for this tooling change.
 
 
 ## t026
@@ -67,11 +89,25 @@ handling, and gate orchestration stay in Rust.
 
 ## t028
 
-Repair the load-sensitive `sophia-x-authority` `x11_wire` flake. Rewrite
-the affected tests together with `read_x_reply`: it currently treats Present
-event type 35 as a reply and interprets bytes 4..8 as a body length. Raising
-the ten-second timeout is not a fix. Preserve the 178-test baseline while
-making record-kind parsing explicit.
+**Result, reconciled 2026-09-10.** Implemented by `a382563ff7860a66eadb2d8eb5aa7f739692b7c0`.
+The wire reader preserves partial reads across socket timeout boundaries,
+classifies records before reading an extended body, and reports decoded X
+errors. Cross-connection tests use a round-trip barrier before referring to
+another connection's resources; startup connects retry listener races.
+
+The original diagnosis incorrectly singled out Present GenericEvent type 35:
+both replies and GenericEvents legitimately carry a length at bytes 4..8.
+Errors and core events carry payload there. Treating that payload as a length
+could desynchronize the stream or wait for a body that would never arrive.
+The repair addresses framing and ordering rather than only increasing timeouts.
+
+**Evidence.** The implementation commit records an initial four failures in
+ten loaded runs and twenty consecutive passes after repair under greater load.
+That is historical commit evidence, not a new stress run. The current
+`cargo test --offline -q -p sophia-x-authority --test x11_wire` passed all 340
+tests at `1f193b35` during this review, with no ignored tests. The suite has
+grown from the original 178-test baseline. No new wire implementation or
+physical acceptance claim is part of this reconciliation.
 
 
 

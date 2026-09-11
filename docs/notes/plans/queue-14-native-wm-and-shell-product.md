@@ -40,10 +40,28 @@ and supervised-owner evidence is separate; do not restart the 36-row gate.
 
 ## t037
 
-Repair transactional profile reload before advertising `reload-profile`.
+Verify owner recovery and complete control-endpoint settlement before
+advertising or dispatching `reload-profile` through scripting.
 Keep shell commands, delegated grants, parameters, queries, and subscriptions
 behind separately specified contracts. Linux admission does not attest
 arbitrary third-party sandboxes sharing the host namespaces.
+
+**Scope clarified 2026-09-10.** The bounded shortcut-driven launch/profile
+transaction landed in `17134504`; [t076](1agxbuuf-application-commands-in-the-desktop-profile.md)
+owns its installed acceptance. Its 21 reload/registry regressions passed again
+at `1f193b35`. This does not complete the scripting endpoint: its catalog
+advertises only the Session `restart-wm` operation, and its dispatcher rejects
+other Session names. Session and CLI tests explicitly require `reload-profile`
+to remain absent. The [control contract](../../sophia-control-v1.md) now states
+that distinction consistently.
+
+The remaining gate is owner-semantic validation, checkpoint restoration and
+rollback to a usable policy, followed by bounded endpoint dispatch and truthful
+completion across the operation's own catalog/WM replacement. Reuse the
+existing reload machinery; do not widen it into a general seven-authority
+transaction. Shell, input, broker and non-launch Session settings retain their
+documented deferrals. This remains candidate work requiring promotion before
+implementation; t075/t076 physical acceptance is separate.
 
 
 ## t038
@@ -74,21 +92,31 @@ exist. Native tab implementation is complete; acceptance belongs to CP-14.3.
 
 ## t042
 
-Expose per-head scanout framebuffer handles from `sophia-backend-live` so a
-requested output topology can be applied inside a live session.
-`compose_from_current_framebuffer` in `desktop_output_heads.rs` reads the
-CRTC's current framebuffer, which is correct for a standalone command that
-composes nothing and empty inside a session, whose atomic commits leave the
-legacy field unset. A head's own submissions are `pub(crate)`, so this is new
-public surface. It is followed by an unanswered question: whether an atomic
-modeset is safe while the session owns and is flipping those planes.
-`apply_requested_native_output_topology` already runs after startup presents
-and declines cleanly, so the gap reads in every session log as
-`sophia_live_native_topology_apply status=declined reason=heads`.
-What it costs on this seat: DP-1 is a DELL S3222DGM whose EDID offers
-2560x1440 at 120Hz, the profile requests exactly that, and the session runs
-it at 60. DP-2 is a DELL P2319H that tops out at 1920x1080 at 60, so it is
-already at its best and only DP-1 is waiting on this.
+**Result, reconciled 2026-09-10.** The proposed public per-head framebuffer
+handles were superseded by `5efa438e4d0d340483ac410c85fd195243bd0e8a`.
+The legacy CRTC framebuffer lookup remains appropriate for standalone use.
+The redundant live-session apply was removed: the output-authority transaction
+already quiesces presentation, prepares each head and rollback state, applies
+the topology, and confirms presentation before publication. Profile reload now
+submits candidates through that same authority. No new public framebuffer-handle
+API was introduced.
+
+The live diagnostic is now
+`sophia_live_native_topology_apply schema=2 status=owned_by_output_authority`.
+The old `status=declined reason=heads` line described the redundant path, not
+proof that the authoritative transaction had failed. A command/keybinding-only
+reload constructs no output candidate.
+
+**Evidence and limits.** At `1f193b35`, 24 output-topology owner tests and 11
+native-output topology tests passed with `--features native-session`. They
+cover unchanged-output reloads, unsupported modes, exact mode selection,
+publication identity and rollback ordering. The retained frame-fed archive
+`0001` in [validation](../../validation.md) separately proves its historical
+startup apply/rollback candidate. These checks do not establish this seat's
+current DP-1 refresh rate. The original 120-Hz-request/60-Hz-observation is
+unresolved historical evidence, not a continuing defect inferred from the old
+diagnostic. Installed startup/output acceptance remains under t012 and t076;
+this reconciliation retires the obsolete implementation proposal only.
 
 
 ## t043

@@ -142,7 +142,8 @@ neighbors, visible keyboard navigation away and back, dialog stacking, and
 ordinary tile order after restoration. Follow Triad: Super+F expands the focused
 pane to work-area edges, while Super+M sizes its column with gaps retained.
 Navigating away must restore the F pane to strip geometry; returning restores
-its expansion. Verify F/M transitions preserve the saved column width. Check
+its expansion. Verify F/M transitions preserve the saved column width and keep
+the focused pane above moving neighbors throughout the transition. Check
 Super+Shift+F fullscreen separately from Super+F edge maximization.
 
 

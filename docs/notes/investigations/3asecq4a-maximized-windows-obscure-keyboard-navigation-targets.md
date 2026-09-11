@@ -238,3 +238,51 @@ through normal scrolling and the F pane must regain edge expansion on return.
 F/M geometry, dialogs, and the separate fullscreen binding remain acceptance
 requirements under t004. This implementation and its deterministic evidence do
 not close t004 or the separate t078 pointer-focus task.
+
+## F-to-M transition exposes the moving neighbor
+
+The user subsequently reported that changing F to M briefly reveals the right
+neighbor over the focused pane before settling. Executable identity confirmed
+the report is against `b4842f3`, and the held checkpoint confirms full-column
+mode with suspended edge intent. Detailed session captures remain local.
+
+Hagia immediately restores ordinary strip stacking when edge presentation is
+suspended by M. Sophia's `TranslationTimeline` commits the resized focused pane
+at its new extent while unchanged-size neighbors retain animated positions.
+The right neighbor therefore temporarily intersects the enlarged column and,
+with ordinary strip order, paints above it. This finding combines the user's
+visual report, deterministic projection geometry/order, and the Engine's
+translation code; it is not a recorded frame-by-frame capture.
+
+The repair gives the focused full-width column's pane the same elevation as
+edge expansion. It reuses focused-family resolution, including parented dialogs
+and an independent floating overlay. Navigation to another tiled family
+releases that elevation. Full-column geometry, gaps, ordinary wire presentation,
+camera membership, fullscreen ordering, and checkpoint schema are unchanged.
+
+The new regression establishes that the neighbor's old rectangle intersects
+the M pane, its target lies outside, and its unchanged size permits translation.
+It then requires the focused pane to remain above that neighbor through M,
+redraw, and navigation reversal, and verifies restoration of ordinary order.
+Additional cases cover direct M on first/middle/last columns in both axes,
+dialog owners, independent floating focus, and navigation away. Initial exact
+gap assertions omitted the existing inner reveal margin; those fixture
+assertions were corrected to require inset geometry. The observed ordering
+failures remain captured separately in the local pre-fix log.
+
+Signed and pushed Hagia candidate `c6dad96c1547f44a34bc1325602078980d0bed6c` passes the complete
+`nimble verify` gate: 261 Nim cases, paired Sophia protocol/socket checks, eight
+Alloy assertions, Z3, and four TLA+ checks. The preexisting column-width test now
+identifies its pane by stable ID rather than assuming an index in paint order.
+The final log contains no failed test cases. Release compilation, active-profile
+and extracted-policy validation, and offline restoration of a checkpoint copy
+also pass.
+
+Release SHA256 is `d1aa17ca895f859b927af6e045cb409cafce1b0d65103eed37a446f33a8702d4`. The candidate is atomically staged
+at the configured executable path, with its predecessor and validation artifacts
+retained locally under the F-to-M transition evidence directory. The agent has
+not restarted the live session. Activate with the already loaded
+Ctrl+Alt+Shift+R binding, then verify F-to-M has no neighbor painted over the
+focused pane during settling. Check navigation away and back as well. Physical
+acceptance remains required under t004; the deterministic checks alone do not
+close it.

@@ -37,8 +37,7 @@ policy {
   layout "scroller"
   layout-cycle "scroller" "tile" "grid" "monocle" "vertical-scroller"
   view-count 9
-  outer-gap 0
-  inner-gap 0
+  gaps 0
 }
 shell { enabled #true; }
 shortcut {

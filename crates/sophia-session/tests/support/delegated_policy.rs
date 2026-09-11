@@ -6,7 +6,10 @@ fn hagia_pregraphics_profile_admission_rejects_invalid_policy_values() {
         return;
     };
     for source in [
-        sophia_config::COMPILED_DESKTOP_PROFILE.replace("outer-gap 0", "outer-gap 513"),
+        // Keyed to the literal the compiled profile actually contains. If that
+        // spelling drifts, `replace` silently returns the profile unchanged and
+        // this case starts asserting that Hagia accepts a valid profile.
+        sophia_config::COMPILED_DESKTOP_PROFILE.replace("gaps 0", "gaps 513"),
         sophia_config::COMPILED_DESKTOP_PROFILE.to_owned()
             + "\npolicy { view-name 1 \"a\"; view-name 1 \"b\"; }\n",
         sophia_config::COMPILED_DESKTOP_PROFILE.to_owned() + "\npolicy { future-wm-setting 1; }\n",

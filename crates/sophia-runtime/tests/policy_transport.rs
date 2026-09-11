@@ -406,3 +406,92 @@ fn a_silent_client_times_out_rather_than_failing_the_transport() {
 
     client.join().unwrap();
 }
+
+#[test]
+fn pointer_focus_is_sent_only_to_a_peer_that_negotiated_it() {
+    use sophia_protocol::{
+        SOPHIA_WM_CAPABILITY_POINTER_FOCUS, decode_wm_v1_projection_request_frame,
+    };
+    for enabled in [false, true] {
+        let directory = std::env::temp_dir().join(format!(
+            "sophia-pointer-focus-{}-{}",
+            std::process::id(),
+            NEXT_DIRECTORY.fetch_add(1, Ordering::Relaxed)
+        ));
+        let mut transport = PolicyWmSessionTransport::bind(
+            &directory,
+            PolicyPeerIdentity {
+                uid: rustix::process::geteuid().as_raw(),
+                pid: std::process::id(),
+            },
+        )
+        .unwrap();
+        let path = transport.socket_path().to_path_buf();
+        let client = std::thread::spawn(move || {
+            let mut stream = UnixStream::connect(path).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(2)))
+                .unwrap();
+            let hello = WmV1ClientHello {
+                minimum_revision: 3,
+                maximum_revision: 3,
+                capabilities: if enabled {
+                    SOPHIA_WM_CAPABILITY_POINTER_FOCUS
+                } else {
+                    0
+                },
+            };
+            stream
+                .write_all(&encode_wm_v1_client_hello_frame(&hello).unwrap())
+                .unwrap();
+            let welcome = read_frame(&mut stream);
+            assert_eq!(
+                decode_wm_v1_server_welcome_frame(&welcome)
+                    .unwrap()
+                    .capabilities
+                    & SOPHIA_WM_CAPABILITY_POINTER_FOCUS
+                    != 0,
+                enabled
+            );
+            // Even when hover is refused, the next ordinary request is intact:
+            // the guard must reject before writing any prefix to the socket.
+            let frame = read_frame(&mut stream);
+            let (_, request) = decode_wm_v1_projection_request_frame(&frame).unwrap();
+            assert_eq!(request.cause_kind, if enabled { 4 } else { 0 });
+        });
+        transport
+            .accept_and_negotiate(1, Duration::from_secs(2))
+            .unwrap();
+        let mut request = PolicyProjectionRequest {
+            connection_epoch: 1,
+            request_id: 1,
+            scene_generation: 1,
+            policy_generation: 1,
+            affected_outputs: vec![OutputId::from_raw(1)],
+            cause: PolicyRequestCause::PointerFocus {
+                output: OutputId::from_raw(1),
+                target: None,
+            },
+        };
+        let result = transport.send_projection_request(TransactionId::from_raw(1), &request);
+        if enabled {
+            result.unwrap();
+        } else {
+            assert!(matches!(
+                result,
+                Err(PolicyTransportError::Transfer(
+                    sophia_runtime::PolicyTransferError::UnsupportedCapability
+                ))
+            ));
+            request.cause = PolicyRequestCause::SceneChanged;
+            transport
+                .send_projection_request(TransactionId::from_raw(2), &request)
+                .unwrap();
+        }
+        client.join().unwrap();
+        transport.disconnect().unwrap();
+    }
+}
+
+#[path = "support/pointer_focus_hagia.rs"]
+mod pointer_focus_hagia;

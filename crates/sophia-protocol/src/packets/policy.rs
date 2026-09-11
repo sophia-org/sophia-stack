@@ -171,6 +171,11 @@ pub enum PolicyRequestCause {
     Focus {
         target: SurfaceId,
     },
+    /// Presented hover observation; the policy decides whether to follow it.
+    PointerFocus {
+        output: OutputId,
+        target: Option<SurfaceId>,
+    },
     Interaction {
         phase: PolicyInteractionPhase,
         kind: PolicyInteractionKind,

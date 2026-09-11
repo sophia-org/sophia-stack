@@ -473,3 +473,25 @@ prove the temporal TLA+ properties or select concrete schema limits.
 These are small, hand-maintained project models informed by scenario-driven
 Specula analysis. Generated scaffolding, trace validation, and runtime
 instrumentation remain deferred until a shell runtime exists.
+
+## Optional pointer-driven focus
+
+Hagia's `policy { focus-follows-mouse #true }` opts into reduced presented-target
+observations; the default is off. Physical motion is hit-tested against the
+retired projection on the pointer's output using root geometry. A known output
+without a presented projection has no input authority and cannot borrow the
+primary output's layers or presentation epoch.
+
+Modal launcher/reference capture, chrome occlusion, client-positioned popups,
+active pointer leases, focus handoffs, and captured move/resize gestures suppress
+hover observations. Frame updates, animation, configuration replacement and a
+stationary pointer do not synthesize motion. The owner retains a bounded queue:
+adjacent hover observations may coalesce, but shortcuts remain ordered. A shortcut
+following a hover waits for its terminal policy outcome before selecting the
+launch or picker output. Connection replacement discards queued observations and
+shortcuts so they cannot replay under a different profile.
+
+Hagia decides whether to select the observed window or activate the observed
+output. On empty space it preserves that output's remembered window focus; on an
+empty output it proposes no window focus. Engine applies that result only after
+commit. Refused observations do not prevent fresh physical motion from retrying.

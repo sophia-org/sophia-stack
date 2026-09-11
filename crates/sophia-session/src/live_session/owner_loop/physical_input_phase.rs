@@ -506,7 +506,45 @@ macro_rules! drain_physical_input {
                     if shell.reference_input()==Some((*output,*epoch)) {shell.queue_reference(*operation,*output);}
                 }
             }
-            for action in report.wm_actions.iter().copied() {
+            physical_policy_inputs.synchronize(wm_session.as_ref().and_then(|wm| wm.public.as_ref().map(|p| p.connection_epoch)));
+            let hover_enabled = wm_session.as_ref().is_some_and(LiveWmSession::pointer_focus_enabled);
+            for input in report.policy_inputs.iter().copied() {
+                if !physical_policy_inputs.push(input, hover_enabled) {
+                    crate::session_eprintln!("sophia_live_wm schema=4 status=input_rejected reason=capacity");
+                }
+            }
+            while let Some(input) = physical_policy_inputs.next(wm_session.as_ref().is_some_and(LiveWmSession::pointer_focus_pending)) {
+                let action = match input {
+                    PhysicalPolicyInput::Hover(observation) => {
+                        if let Some(wm) = wm_session.as_mut() {
+                            wm.enqueue_pointer_focus(observation);
+                        }
+                        continue;
+                    }
+                    PhysicalPolicyInput::ClickFocus(surface) => {
+                        let wm = wm_session
+                            .as_mut()
+                            .ok_or("pointer focus requested without a live WM session")?;
+                        match wm.enqueue_focus(surface, &layout, output)? {
+                            LiveWmRequestAdmission::Admitted => {
+                                crate::session_println!(
+                                    "sophia_live_wm schema=3 status=focus_requested source=pointer surface={}",
+                                    surface.index(),
+                                );
+                            }
+                            LiveWmRequestAdmission::Duplicate => {}
+                            LiveWmRequestAdmission::RejectedCapacity => {
+                                crate::session_eprintln!(
+                                    "sophia_live_wm schema=3 status=request_rejected source=pointer_focus reason=capacity surface={}",
+                                    surface.index(),
+                                );
+                            }
+                        }
+                        continue;
+                    }
+                    PhysicalPolicyInput::Action(action) => action,
+                };
+
                 if is_reserved_session_action(action)
                     && action != SHELL_HELP_SHORTCUT_ACTION
                     && !is_shell_switcher_shortcut(action)
@@ -659,26 +697,6 @@ macro_rules! drain_physical_input {
                         );
                     }
                     LivePhysicalWmActionDisposition::Coalesced => {}
-                }
-            }
-            for surface in report.pointer_focus_targets.iter().copied() {
-                let wm = wm_session
-                    .as_mut()
-                    .ok_or("pointer focus requested without a live WM session")?;
-                match wm.enqueue_focus(surface, &layout, output)? {
-                    LiveWmRequestAdmission::Admitted => {
-                        crate::session_println!(
-                            "sophia_live_wm schema=3 status=focus_requested source=pointer surface={}",
-                            surface.index(),
-                        );
-                    }
-                    LiveWmRequestAdmission::Duplicate => {}
-                    LiveWmRequestAdmission::RejectedCapacity => {
-                        crate::session_eprintln!(
-                            "sophia_live_wm schema=3 status=request_rejected source=pointer_focus reason=capacity surface={}",
-                            surface.index(),
-                        );
-                    }
                 }
             }
             if let Some(terminal) = report.virtual_terminal {

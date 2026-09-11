@@ -12,6 +12,7 @@ protocol "sophia_wm_v1" frame-version=1 interface-major=1 interface-revision=3 m
     capability "launch_placement" bit=10
     capability "tab_groups" bit=11
     capability "translation_groups" bit=12
+    capability "pointer_focus" bit=13
 
     outcome "committed" value=1
     outcome "rejected_stale" value=2
@@ -204,6 +205,9 @@ protocol "sophia_wm_v1" frame-version=1 interface-major=1 interface-revision=3 m
         field "request_id" type="u64" sample=17
         field "scene_generation" type="u64" sample=41
         field "policy_generation" type="u64" sample=3
+        // Cause 4 is emitted only with pointer_focus selected. Its action
+        // slot is the output, target is optional, and every serial/interaction
+        // slot is zero. Existing cause encodings are unchanged.
         field "cause_kind" type="u16" sample=1
         field "interaction_phase" type="u16" sample=0
         field "interaction_kind" type="u16" sample=0

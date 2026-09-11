@@ -8,6 +8,10 @@ use explicit_pointer_grab::*;
 mod lease_routing;
 use lease_routing::*;
 
+#[path = "input/pointer_focus.rs"]
+mod pointer_focus;
+use pointer_focus::*;
+
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 struct PhysicalInputRouteReport {
     /// What a full ingress queue cost this pass. Non-zero means the endpoint
@@ -15,6 +19,7 @@ struct PhysicalInputRouteReport {
     ingress_saturation: RoutedInputIngressSaturation,
     events: usize,
     wm_actions: Vec<WmActionId>,
+    policy_inputs: Vec<PhysicalPolicyInput>,
     launcher_events: Vec<sophia_engine::LauncherInputEvent>,
     reference_operations: Vec<(sophia_protocol::OutputId,u64,sophia_protocol::ShellReferenceOperation)>,
     chrome_activations: Vec<(sophia_protocol::OutputId, WmActionId)>,
@@ -198,6 +203,14 @@ fn input_projection_for_pointer<'a>(
     fallback_output: Option<sophia_protocol::OutputId>,
     fallback_epoch: u64,
 ) -> PointerInputProjection<'a> {
+    // A known output with no retired projection has no input authority yet.
+    // Falling back to the primary head would turn empty-monitor motion into
+    // an observation about an unrelated output.
+    if let (Some(projections), Some(output)) = (projections,
+        output_index.and_then(|i| pointer_outputs.and_then(|outputs| outputs.get(i))))
+        && !projections.iter().any(|p| p.output == output.id) {
+        return (&[], &[], None, &[], None, Some(output.id), 0);
+    }
     output_index
         .and_then(|index| pointer_outputs.and_then(|outputs| outputs.get(index)))
         .and_then(|output| {
@@ -674,6 +687,7 @@ fn route_input_events_with_launcher(
         ingress_saturation: RoutedInputIngressSaturation::default(),
         events: events.len(),
         wm_actions: Vec::new(),
+        policy_inputs: Vec::new(),
         reference_operations: Vec::new(),
         launcher_events: Vec::new(),
         chrome_activations: Vec::new(),
@@ -957,6 +971,7 @@ fn route_input_events_with_launcher(
                     if let Some(decision)=decision && decision.consumed {
                         if pressed && key_repeat_map.evdev_key_repeats(keycode) {key_repeat.cancel_seat(event.seat);}
                         report.wm_actions.extend(decision.action);
+                        report.policy_inputs.extend(decision.action.map(PhysicalPolicyInput::Action));
                         continue;
                     }
                 }
@@ -1500,6 +1515,21 @@ fn route_input_events_with_launcher(
                 } else {
                     sophia_engine::hit_test_scene_surface_for_input(&event, input_layers)
                 };
+                if matches!(kind, sophia_protocol::InputEventKind::PointerMotion)
+                    && held_lease.is_none() && pending_target.is_none()
+                    && input_presentation_epoch != 0
+                    && let (Some(output), Some(position)) = (input_output, event.global_position)
+                {
+                    let occluded = chrome_occlusion.into_iter().chain(descriptor_occlusion)
+                        .chain(tab_occlusions.iter().copied()).any(|r| point_is_inside_rect(position, r));
+                    let popup = route.target_surface.is_some_and(|surface|
+                        surface_roles.get(&surface) == Some(&sophia_protocol::SurfacePresentationRole::ClientPositioned));
+                    if !occluded && !popup {
+                        report.policy_inputs.push(PhysicalPolicyInput::Hover(PresentedPointerFocus {
+                            output, target: route.target_surface,
+                        }));
+                    }
+                }
                 if is_button && route.target_surface.is_none() {
                     report.pointer_buttons_suppressed_no_target = report
                         .pointer_buttons_suppressed_no_target
@@ -1542,6 +1572,7 @@ fn route_input_events_with_launcher(
                     if starts_focus_handoff {
                         handoff.begin(focus_surface, now_msec, request)?;
                         report.pointer_focus_targets.push(focus_surface);
+                        report.policy_inputs.push(PhysicalPolicyInput::ClickFocus(focus_surface));
                         continue;
                     }
                     if handoff.target().is_some() {

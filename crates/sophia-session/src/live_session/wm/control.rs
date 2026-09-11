@@ -149,6 +149,7 @@ impl LiveWmSession {
                 public.connection_epoch = result.epoch;
                 public.configured = false;
                 public.negotiated = false;
+                public.selected_capabilities = 0;
                 public.cycle_submitted = false;
                 public.transport_ready = false;
                 public.in_flight_request = None;

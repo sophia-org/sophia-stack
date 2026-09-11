@@ -177,7 +177,7 @@ fn validate_shell_schema(text: &str) -> Result<(), String> {
     if string_arg(protocol, 0)? != "sophia_shell_v1"
         || integer_property(protocol, "frame-version")? != 1
         || integer_property(protocol, "interface-major")? != 1
-        || integer_property(protocol, "interface-revision")? != 3
+        || integer_property(protocol, "interface-revision")? != 4
         || integer_property(protocol, "max-descriptors")? != 16
         || integer_property(protocol, "max-label-bytes")? != 128
         || integer_property(protocol, "max-pending-activations")? != 16
@@ -206,6 +206,18 @@ fn validate_shell_schema(text: &str) -> Result<(), String> {
         ("ReferenceRequest", (111, "session-to-shell", "required")),
         ("ReferenceCandidate", (112, "shell-to-session", "required")),
         ("ReferenceOutcome", (113, "session-to-shell", "required")),
+        ("ApplicationsBegin", (114, "session-to-shell", "required")),
+        ("ApplicationsEntry", (115, "session-to-shell", "required")),
+        ("ApplicationsEnd", (116, "session-to-shell", "required")),
+        ("LauncherRequest", (117, "session-to-shell", "required")),
+        ("LauncherCandidate", (118, "shell-to-session", "required")),
+        ("LauncherOutcome", (119, "session-to-shell", "required")),
+        ("LauncherActivation", (120, "session-to-shell", "required")),
+        (
+            "LauncherActivationAck",
+            (121, "shell-to-session", "required"),
+        ),
+        ("LaunchOutcome", (122, "session-to-shell", "required")),
     ]);
     let mut actual = BTreeMap::new();
     for message in children
@@ -230,9 +242,9 @@ fn validate_shell_schema(text: &str) -> Result<(), String> {
             return Err(format!("shell schema message `{name}` drifted"));
         }
     }
-    if actual.len() != 18 {
+    if actual.len() != 27 {
         return Err(
-            "shell schema must define seven revision-1, five revision-2, and six revision-3 messages".into(),
+            "shell schema must define seven revision-1, five revision-2, six revision-3, and nine revision-4 messages".into(),
         );
     }
     Ok(())

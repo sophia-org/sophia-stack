@@ -42,8 +42,8 @@ fn route_overlay_input(
         None,
         None,
         None,
-        None,
-        0,
+        Some(OutputId::from_raw(1)),
+        7,
         None,
         None,
         None,
@@ -116,6 +116,10 @@ fn launcher_capture_preserves_cursor_motion_accounting_and_click_activation() {
     // The owner uses observed motion to schedule the visible cursor update;
     // modal capture must still prevent delivery to the application underneath.
     assert_eq!(report.pointer_routed, 0);
+    assert!(
+        report.policy_inputs.is_empty(),
+        "launcher capture must suppress hover even with a presented output epoch"
+    );
 }
 
 #[test]

@@ -6,10 +6,16 @@ use super::*;
 fn shutdown_disconnects_a_full_event_queue_before_joining() {
     let (commands, _receiver) = sync_channel(1);
     let (events, receiver) = sync_channel(1);
-    events.send(PolicyTransportEvent::ReadyForCycle).unwrap();
+    events
+        .send(PolicyTransportEvent::ReadyForCycle { capabilities: 0 })
+        .unwrap();
     let producer = std::thread::spawn(move || {
         // This send blocks until Drop disconnects the event receiver.
-        assert!(events.send(PolicyTransportEvent::ReadyForCycle).is_err());
+        assert!(
+            events
+                .send(PolicyTransportEvent::ReadyForCycle { capabilities: 0 })
+                .is_err()
+        );
     });
     let worker = PolicyTransportWorker {
         commands: Some(commands),

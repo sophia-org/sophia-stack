@@ -9,6 +9,12 @@ frozen: it is a work in progress whose revisions advance, with
 `ClientHello`/`ServerWelcome` negotiation as the compatibility contract (see
 `docs/sophia-wm-api.md`).
 
+The optional `pointer_focus` cause now has an explicit outbound gate in
+`PolicyWmSessionTransport::send_projection_request`: cause kind 4 is refused
+before writing unless capability bit 13 was selected. This is the gated enum
+addition anticipated by the direction rule below; existing cause encodings and
+message layouts remain unchanged. See [the wire contract](sophia-policy-ipc.md#optional-presented-pointer-focus).
+
 The survey outlived the freeze, because the facts in it are about wire cost
 rather than permission. Knowing which rows are additive, which need a new
 message kind, and which need a new revision is what makes it possible to

@@ -1502,3 +1502,6 @@ mod launcher_input_routing;
 
 #[path = "../../tests/support/window_allocation.rs"]
 mod window_allocation;
+
+#[path = "../../tests/support/pointer_focus.rs"]
+mod pointer_focus_tests;

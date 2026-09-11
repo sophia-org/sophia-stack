@@ -47,7 +47,9 @@ pub(super) enum PolicyTransportCommand {
 
 pub(super) enum PolicyTransportEvent {
     Negotiated,
-    ReadyForCycle,
+    ReadyForCycle {
+        capabilities: u64,
+    },
     Configuration {
         transaction: TransactionId,
         configuration: PolicyConfiguration,
@@ -254,7 +256,9 @@ fn run_policy_transport(
                     .map_err(|error| error.to_string())?;
                 if outcome == PolicyProjectionOutcome::Committed {
                     events
-                        .send(PolicyTransportEvent::ReadyForCycle)
+                        .send(PolicyTransportEvent::ReadyForCycle {
+                            capabilities: transport.selected_capabilities(),
+                        })
                         .map_err(|_| "policy owner event channel disconnected".to_owned())?;
                 }
             }
@@ -356,7 +360,9 @@ fn run_policy_transport(
                         .map_err(|_| "policy owner event channel disconnected".to_owned())?;
                 } else {
                     events
-                        .send(PolicyTransportEvent::ReadyForCycle)
+                        .send(PolicyTransportEvent::ReadyForCycle {
+                            capabilities: transport.selected_capabilities(),
+                        })
                         .map_err(|_| "policy owner event channel disconnected".to_owned())?;
                 }
             }
@@ -369,7 +375,9 @@ fn run_policy_transport(
                     .send_session_operation_outcome(transaction, request_id, outcome)
                     .map_err(|error| error.to_string())?;
                 events
-                    .send(PolicyTransportEvent::ReadyForCycle)
+                    .send(PolicyTransportEvent::ReadyForCycle {
+                        capabilities: transport.selected_capabilities(),
+                    })
                     .map_err(|_| "policy owner event channel disconnected".to_owned())?;
             }
             PolicyTransportCommand::Stop => return Ok(()),

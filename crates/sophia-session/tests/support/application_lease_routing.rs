@@ -587,6 +587,10 @@ fn a_bound_grab_routes_physical_motion_and_release_after_a_scene_change() {
     let own = admission(1, 4);
     let layer = add_surface(&mut layout, target, own, 0);
     let unrelated = add_surface(&mut layout, SurfaceId::new(202, 1), admission(2, 4), 100);
+    layout.presentation_roles.insert(
+        target,
+        sophia_protocol::SurfacePresentationRole::PolicyManaged,
+    );
     let scene = projection(vec![layer, unrelated]);
     let mut state = ApplicationRouteLeaseState::default();
     let lease = bound_lease(&mut state, target, own);
@@ -650,6 +654,10 @@ fn a_bound_grab_routes_physical_motion_and_release_after_a_scene_change() {
         Some(&mut held),
     )
     .unwrap();
+    assert!(
+        report.policy_inputs.is_empty(),
+        "a presented managed window under a grab must not request hover focus"
+    );
     assert_eq!(report.pointer_lease_rejections, 0);
     assert_eq!(report.pointer_routed, 2);
     assert_eq!(report.pointer_buttons_routed, 1);

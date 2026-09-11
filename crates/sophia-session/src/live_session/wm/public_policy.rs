@@ -17,6 +17,10 @@ fn policy_cause_subject_is_live(
 ) -> bool {
     let live = |target| scene.surfaces.iter().any(|surface| surface.surface == target);
     match cause {
+        sophia_protocol::PolicyRequestCause::PointerFocus { output, target } => {
+            scene.outputs.iter().any(|o| o.output == output) && target.is_none_or(|t|
+                scene.surfaces.iter().any(|s| s.surface == t && s.current_output == Some(output) && s.capabilities.focusable))
+        }
         sophia_protocol::PolicyRequestCause::Focus { target }
         | sophia_protocol::PolicyRequestCause::Interaction { target, .. } => live(target),
         _ => true,
@@ -206,6 +210,7 @@ struct LivePublicPolicyState {
     next_transaction: u64,
     configured: bool,
     negotiated: bool,
+    selected_capabilities: u64,
     cycle_submitted: bool,
     transport_ready: bool,
     queue: VecDeque<LivePublicPolicyCause>,
@@ -2193,6 +2198,7 @@ impl LiveWmSession {
             next_transaction: if profile_key.is_some() { 3 } else { 1 },
             configured: false,
             negotiated: false,
+            selected_capabilities: 0,
             cycle_submitted: false,
             transport_ready: false,
             queue: VecDeque::with_capacity(WM_OWNER_REQUEST_CAPACITY),
@@ -2312,7 +2318,8 @@ impl LiveWmSession {
                 self.supervisor_state = state;
                 None
             }
-            Ok(Some(PolicyTransportEvent::ReadyForCycle)) => {
+            Ok(Some(PolicyTransportEvent::ReadyForCycle { capabilities })) => {
+                public.selected_capabilities = capabilities;
                 public.transport_ready = true;
                 None
             }

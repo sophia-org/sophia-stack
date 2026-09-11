@@ -94,6 +94,7 @@ impl ReloadFixture {
             next_transaction: 3,
             configured: true,
             negotiated: true,
+            selected_capabilities: 0,
             cycle_submitted: false,
             transport_ready: true,
             queue: VecDeque::new(),

@@ -916,3 +916,39 @@ fn tab_groups_commit_with_geometry_and_hidden_members_remain_scene_owned() {
     reducer.disconnect(1);
     assert!(reducer.indicator_publication().tab_groups.is_empty());
 }
+
+#[test]
+fn pointer_focus_requires_a_live_focusable_target_on_its_affected_output() {
+    let mut window = surface(1);
+    window.current_output = Some(output(1));
+    for (destination, target, affected, focusable, admitted) in [
+        (1, Some(surface_id(1)), vec![output(1)], true, true),
+        (2, None, vec![output(1), output(2)], true, true),
+        (
+            2,
+            Some(surface_id(1)),
+            vec![output(1), output(2)],
+            true,
+            false,
+        ),
+        (1, Some(surface_id(1)), vec![output(1)], false, false),
+        (1, Some(SurfaceId::new(1, 9)), vec![output(1)], true, false),
+        (2, None, vec![output(1)], true, false),
+        (3, None, vec![output(1)], true, false),
+    ] {
+        window.capabilities.focusable = focusable;
+        let mut reducer = PolicyProjectionReducer::new(scene(1, &[window])).unwrap();
+        reducer.connect(1).unwrap();
+        let before = reducer.scene().clone();
+        let result = reducer.issue_request_with_cause(
+            affected,
+            PolicyRequestCause::PointerFocus {
+                output: output(destination),
+                target,
+            },
+        );
+        assert_eq!(result.is_ok(), admitted);
+        assert_eq!(reducer.scene(), &before);
+        assert_eq!(reducer.commit_serial(), 0);
+    }
+}

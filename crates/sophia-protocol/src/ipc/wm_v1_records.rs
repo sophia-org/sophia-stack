@@ -217,6 +217,25 @@ pub fn encode_wm_v1_policy_projection_request(
                 Rect::default(),
             )
         }
+        PolicyRequestCause::PointerFocus { output, target } => {
+            if output.raw() == 0
+                || !request.affected_outputs.contains(&output)
+                || target.is_some_and(|target| !target.is_valid())
+            {
+                return Err(invalid("pointer_focus_cause", 0));
+            }
+            (
+                4,
+                0,
+                0,
+                0,
+                0,
+                output.raw(),
+                target.map_or(0, |t| t.index()),
+                target.map_or(0, |t| t.generation()),
+                Rect::default(),
+            )
+        }
         PolicyRequestCause::Interaction {
             phase,
             kind,
@@ -348,6 +367,31 @@ pub fn decode_wm_v1_policy_projection_request(
             && request.interaction_height == 0 =>
         {
             PolicyRequestCause::Focus { target: target()? }
+        }
+        4 if request.interaction_phase == 0
+            && request.interaction_kind == 0
+            && request.interaction_axis == 0
+            && request.activation_serial == 0
+            && request.action != 0
+            && request.interaction_x == 0
+            && request.interaction_y == 0
+            && request.interaction_width == 0
+            && request.interaction_height == 0 =>
+        {
+            let output = OutputId::from_raw(request.action);
+            if !affected_outputs.contains(&output) {
+                return Err(invalid("pointer_focus_output", 0));
+            }
+            let target = if request.target_index == 0 && request.target_generation == 0 {
+                None
+            } else {
+                let target = target()?;
+                if !target.is_valid() {
+                    return Err(invalid("pointer_focus_target", 0));
+                }
+                Some(target)
+            };
+            PolicyRequestCause::PointerFocus { output, target }
         }
         3 if request.activation_serial == 0 && request.action == 0 => {
             let phase = match request.interaction_phase {

@@ -589,6 +589,15 @@ impl PolicyWmSessionTransport {
             .stream
             .as_mut()
             .ok_or(PolicyTransportError::NotConnected)?;
+        if matches!(
+            request.cause,
+            sophia_protocol::PolicyRequestCause::PointerFocus { .. }
+        ) && self.connection.selected_capabilities()
+            & sophia_protocol::SOPHIA_WM_CAPABILITY_POINTER_FOCUS
+            == 0
+        {
+            return Err(PolicyTransferError::UnsupportedCapability.into());
+        }
         let request = encode_wm_v1_policy_projection_request(request)?;
         let frame = encode_wm_v1_projection_request_frame(transaction, &request)?;
         stream

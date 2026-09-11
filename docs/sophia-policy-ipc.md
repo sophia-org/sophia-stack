@@ -257,7 +257,9 @@ stated together because each one only holds if the others do.
 
 1. **The frozen revision is final for record layouts and enum vocabularies.**
    Field order, field width, record size, and the set of admitted discriminants in
-   any server-to-client enum or bitfield cannot change. Unknown discriminants are
+   any server-to-client enum or bitfield cannot change unconditionally. A new
+   discriminant requires an explicit outbound gate on the selected capability,
+   including a refusal before any frame bytes are written. Unknown discriminants are
    rejected, not skipped, and an enum value sits at a fixed offset inside a
    fixed-width record where no side channel reaches it. Client-to-server
    discriminants remain additive, because a server accepting more never breaks an
@@ -338,6 +340,30 @@ The former Rust WM API v7 was an experimental implementation contract and has
 been removed. Its message-kind numbers remain unassigned; they are not a
 compatibility surface.
 
+## Optional presented pointer focus
+
+Revision 3 retains its existing layouts and default vocabulary. The optional
+`pointer_focus` capability (bit 13) permits `ProjectionRequest.cause_kind = 4`.
+Unlike an ungated enum expansion, the actual socket send path refuses this cause
+unless the peer selected bit 13. Existing clients receive their existing byte
+stream; unnegotiated requests are rejected before any frame bytes are written.
+This explicit outbound gate is the compatibility requirement for this addition.
+
+The `action` u64 slot contains the nonzero destination output ID, which must be
+in the affected-output set. The optional target is absent only when both target
+fields are zero. A present target must have a nonzero generation and an index
+other than `u32::MAX` (index zero is valid). Activation serial and all interaction
+fields are zero. The target, when present, must be a current focusable surface
+on that output. No coordinates, devices, buttons, or application metadata cross
+this boundary.
+
+Hagia requests the capability only when its `policy.focus-follows-mouse` setting
+is enabled. Omission and explicit false preserve click/keyboard activation.
+An enabled profile fails admission if the server cannot negotiate the capability.
+A reduced observation is an input to policy, never an instruction that bypasses
+policy or Engine validation. Focus and active output change only on commit;
+rejection, timeout and connection replacement preserve the last committed state.
+
 ## Bounded Transfers
 
 One frame remains limited to 64 KiB. Complete role fact sets and candidates
@@ -355,8 +381,8 @@ bounds. Stable `sophia_wm_v1` currently permits at most 16 outputs, 1,024
 manageable surfaces, and 256 binding registrations; those values are not
 automatically shell or output limits.
 
-Coalescing applies only to replaceable scene refreshes and continuous reduced
-interaction geometry. Non-idempotent action activations use a bounded ordered
+Coalescing applies to replaceable scene refreshes, adjacent presented pointer-focus
+observations, and continuous reduced interaction geometry. Non-idempotent action activations use a bounded ordered
 queue and are never merged merely because they carry the same opaque action
 token.
 

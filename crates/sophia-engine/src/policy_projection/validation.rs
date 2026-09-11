@@ -235,6 +235,18 @@ pub(super) fn validate_request_cause(
             action,
         } if activation_serial != 0 && action.is_valid() => Ok(()),
         PolicyRequestCause::Focus { target } if live(target) => Ok(()),
+        PolicyRequestCause::PointerFocus { output, target }
+            if output.raw() != 0
+                && target.is_none_or(|target| {
+                    surfaces.iter().any(|surface| {
+                        surface.surface == target
+                            && surface.current_output == Some(output)
+                            && surface.capabilities.focusable
+                    })
+                }) =>
+        {
+            Ok(())
+        }
         PolicyRequestCause::Interaction {
             phase,
             kind,

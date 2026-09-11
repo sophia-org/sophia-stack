@@ -213,6 +213,11 @@ impl PolicyProjectionReducer {
             return Err(PolicyProjectionError::UnknownAffectedOutput);
         }
         validate_request_cause(cause, &self.scene.surfaces)?;
+        if let PolicyRequestCause::PointerFocus { output, .. } = cause
+            && !unique.contains(&output)
+        {
+            return Err(PolicyProjectionError::InvalidRequestCause);
+        }
         let request_id = self.next_request_id;
         self.next_request_id = self
             .next_request_id

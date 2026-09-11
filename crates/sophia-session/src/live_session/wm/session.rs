@@ -9,6 +9,7 @@ const fn report_wm_rejection_diagnostic(rejections: usize) -> bool {
 enum LiveWmProposalSource {
     Action(WmActionId),
     Focus(SurfaceId),
+    PointerFocus,
     PointerGesture {
         surface: SurfaceId,
         mode: sophia_protocol::WmPointerGestureMode,
@@ -600,5 +601,39 @@ impl LiveWmSession {
     fn mark_committed(&mut self) {
         self.committed = self.committed.saturating_add(1);
         self.last_committed_at = Some(Instant::now());
+    }
+}
+
+impl LiveWmSession {
+    fn pointer_focus_enabled(&self) -> bool {
+        self.public.as_ref().is_some_and(|p| p.configured && p.negotiated &&
+            p.selected_capabilities & sophia_protocol::SOPHIA_WM_CAPABILITY_POINTER_FOCUS != 0)
+    }
+
+    fn pointer_focus_pending(&self) -> bool {
+        self.public.as_ref().is_some_and(|p|
+            p.in_flight_source == Some(LiveWmProposalSource::PointerFocus) ||
+            p.queue.iter().any(|c| c.source == LiveWmProposalSource::PointerFocus))
+    }
+
+    fn enqueue_pointer_focus(&mut self, observation: PresentedPointerFocus) -> LiveWmRequestAdmission {
+        if !self.pointer_focus_enabled() { return LiveWmRequestAdmission::Duplicate; }
+        let public = self.public.as_mut().expect("negotiated policy");
+        if observation.output == public.active_output && observation.target.is_none_or(|target|
+            public.reducer.scene().outputs.iter().any(|output|
+                output.output == observation.output && output.focus == Some(target))) {
+            return LiveWmRequestAdmission::Duplicate;
+        }
+        let cause = sophia_protocol::PolicyRequestCause::PointerFocus {
+            output: observation.output, target: observation.target,
+        };
+        if !policy_cause_subject_is_live(cause, public.reducer.scene()) {
+            return LiveWmRequestAdmission::Duplicate;
+        }
+        public.queue_cause(LivePublicPolicyCause {
+            source: LiveWmProposalSource::PointerFocus,
+            cause,
+            affected_outputs: public.all_outputs(observation.output),
+        })
     }
 }

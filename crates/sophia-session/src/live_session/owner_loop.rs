@@ -473,6 +473,7 @@ fn run_session_loop_inner(
     let mut pointer = SessionPointerPlacement::default();
     let mut keyboard_focus_handoff = KeyboardFocusHandoffState::default();
     let mut pointer_focus_handoff = PointerFocusHandoffState::default();
+    let mut physical_policy_inputs = PhysicalPolicyInputQueue::default();
     let mut application_route_leases = ApplicationRouteLeaseState::default();
     let mut explicit_grab_queue = ExplicitPointerGrabQueue::default();
     let mut pending_lease_input = PendingLeaseInput::default();

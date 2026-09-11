@@ -197,6 +197,74 @@ order is preserved. An admission-race concern was withdrawn after checking that
 new unplaced surfaces have no committed output and cannot reach the retained
 branch; genuinely missing committed layers continue to fail closed.
 
+## Repaired installed drag retest
+
+The user installed signed Sophia `0c069d2f3a232224dfdde3c20ba82e1cd78ee0fe`
+and entered session
+`00000001789143018118-8259844a-396f-469e-928d-0bec2bd54d00`. Live owner
+PID 30405 has SHA256
+`7ebd31ed8beacb73fe9e1de126d72665069f717071e0d36e4efb04f4386469b3`;
+Hagia PID 30410 and Narthex PID 30451 match the unchanged packaged hashes
+above. The enabled personal profile still has SHA256
+`6ab0a40dece42d69f00349eee0242fa90a0ff095d68d221dbc2f28c428355c4c`.
+
+The user confirmed moving and resizing the floating Kitty, then pressing
+Super+T again to return it to the scrolling layout. The checkpoint retains
+window 2's manual rectangle `(898,293,1089,687)` and `floating=false`.
+At inspection both windows belonged to output 1 and output 2 was empty, so
+this accepts the basic gesture/retile cycle but does not yet revalidate the
+original two-populated-output trigger. That check and the browser placement/
+input check were requested next. Disabling pointer focus through reload also
+remains pending.
+
+Evidence is retained under `.artifacts/t078-drag-crash/installed-retest/`:
+identity, manifest, health, lifecycle, the post-gesture checkpoint, and pointer
+events. At capture the journal was running with zero discarded records or
+storage errors and no owner-loop fatal record.
+
+## Empty-monitor arrow navigation
+
+In the repaired session the user subsequently reported that Super+arrows lost
+camera/focus control and clicking a window recovered it. The pointer location
+and exact direction sequence were not remembered. The post-click snapshot
+shows output 1 active with four tiled windows and output 2 empty; it cannot
+establish which output was active during the failure. The checkpoint and
+input/focus journal slice are retained as `after-navigation-report.checkpoint`
+and `navigation-report-events.log` in the installed-retest directory.
+
+Source inspection found an independent trap in Hagia `36bbb94`:
+`focusColumnRelative` hands off to the adjacent monitor when navigation steps
+past the last column, but returns immediately when the active output has zero
+visible columns. Stepping into an empty monitor therefore cannot be reversed
+with the opposite arrow. This is a concrete candidate for the report, not a
+claim that the user remembered or reproduced that exact sequence. Explicit
+`focus-output-prev/next` bindings remain a way back. A focused reproduction and
+repair of empty-output directional handoff are being validated separately from
+the accepted basic move/resize/retile cycle.
+
+Hagia's signed repair is `9349e57ebd56068bb47822b4da11f6548ea2beda`.
+The reproduction failed before the change in both directions and across an
+empty middle monitor. One helper now handles both empty strips and populated
+strip edges, reads the destination through the state query, and changes the
+active output through the entity operation. Existing destination focus is
+preserved. Six new regressions cover populated/empty round trips, a middle
+empty monitor, two empty monitors, non-default workspace/focus preservation,
+and populated/empty single-monitor edges.
+
+The full `nimble verify` passed after review, including eleven navigation
+tests, the policy model and independent protocol suites, paired Sophia tests,
+formatting/layout checks, and Alloy/Z3/TLA+ checks. Evidence is retained in
+`.artifacts/t078-empty-output/hagia-verify.log`. The release build and current
+extracted-policy validation also passed. Its executable SHA256 is
+`7b9358d61f6ad9da6e5255c9e3ba978d7ba4410f80c3982d488c1d80fd429e88`.
+
+The replacement was atomically staged at the user's configured
+`~/.local/state/sophia/bin/hagia` path, with the previous binary retained in
+the artifact directory. Sophia remains installed `0c069d2f`; no process was
+reloaded. User-triggered Ctrl+Alt+R and a keyboard round trip into the empty
+right monitor and back remain required. This repairs a demonstrated defect,
+without claiming the user's unremembered navigation sequence had this cause.
+
 ## Related repair
 
 The preceding [launch and pointer repair](v4geoq2j-policy-reload-compares-independent-configuration-generations.md)

@@ -697,6 +697,34 @@ Root cause is now measured; the normal, unmodified accelerated-video acceptance
 gate is still unmet. The temporary device override is a diagnostic control,
 not completion of `t068` or `t069`.
 
+## Upstream submission preparation on 2026-09-10
+
+The recovered Chromium issue draft is retained at
+`.artifacts/t069-upstream-submission/report.md`, with diagnostic sources and
+normalized observations in
+`.artifacts/t069-upstream-submission/chromium-x11-va-gbm-evidence.zip`.
+Its title is "X11: VA-API and DRI3 select different GPUs, causing GBM import
+failure and GPU-process restart". The report includes stock Chromium controls,
+the exact-buffer comparison, source pointers and the limits above.
+
+The 13,317-byte archive has SHA-256
+`5f931de695c64e213f842114c2d7b22f451164b7528d36b098b85e6741d47035`.
+All six payload checksums were verified against its `SHA256SUMS`, and the
+archived report matches the submission draft. The bundle contains no browser
+profile or authentication material.
+
+The [Chromium filing page](https://issues.chromium.org/new) was reopened in the
+submission browser. Google refused sign-in in the separate Chromium and Brave
+submission profiles. Mason was already signed in through his normal Brave
+Origin profile and chose to file the issue manually.
+`open-brave.mjs` and `brave-connection.json` in
+`.artifacts/t069-upstream-submission/` retain its launcher and connection.
+The existing `cdp.mjs` accepts that connection through
+`SOPHIA_SUBMISSION_CONNECTION`. These are preparation artifacts, not a pending
+authentication step. No issue number or successful submission was verified.
+Filing the upstream issue does not satisfy the normal, unmodified
+accelerated-video gate for `t068` or `t069`.
+
 ## Connections
 
 The [default-visual investigation](g930kzbe-default-x-visual-excluded-rgba-pixmap-configurations.md)

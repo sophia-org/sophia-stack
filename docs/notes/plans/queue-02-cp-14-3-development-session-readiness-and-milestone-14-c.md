@@ -139,8 +139,11 @@ acceptance subsequently exposed navigation targets hidden underneath the
 maximized window; the [maximized navigation investigation](../investigations/3asecq4a-maximized-windows-obscure-keyboard-navigation-targets.md)
 owns that report and candidate evidence. Acceptance must cover expansion above
 neighbors, visible keyboard navigation away and back, dialog stacking, and
-ordinary tile order after restoration. Check fullscreen separately from the
-Super+F maximization binding.
+ordinary tile order after restoration. Follow Triad: Super+F expands the focused
+pane to work-area edges, while Super+M sizes its column with gaps retained.
+Navigating away must restore the F pane to strip geometry; returning restores
+its expansion. Verify F/M transitions preserve the saved column width. Check
+Super+Shift+F fullscreen separately from Super+F edge maximization.
 
 
 Previously completed evidence: [Separate normal desktop lifetime from application startup proofs.](../sources/2026-09/todo-cutover-completed.md#legacy-done-003).

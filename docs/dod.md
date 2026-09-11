@@ -641,6 +641,16 @@ page-flip retirement and then drain in original order with rebased generations.
 This keeps resource lifetime and client feedback exact without allowing an
 unselected blank snapshot to become visual truth.
 
+A DMA-BUF candidate for a surface with no committed content must not be skipped
+merely because its first frame is outside the current view. The presentation
+scheduler retains that exact candidate and its resources, without making it
+runnable, until the surface belongs to the presentation and its animated
+geometry intersects its assigned output. Other surfaces remain runnable.
+This preserves admission's retirement dependency through scrolling and hidden
+workspaces. Surface removal and session shutdown drain the retained candidate
+through the existing cancellation path. Already committed surfaces retain the
+ordinary offscreen Skip behavior.
+
 Recovery keeps layout history and visual readiness as separate facts. A safe
 or committed extent may constrain the blind WM's next proposal, but
 `retained_matches` is never pixel evidence for a surface still owned by

@@ -19,6 +19,9 @@ use sophia_protocol::{
 };
 use sophia_renderer_live::{LiveCompositionPlacement, LiveRendererImageId};
 
+#[path = "support/first_present_visibility.rs"]
+mod first_present_visibility;
+
 fn fd() -> OwnedFd {
     File::open("/dev/null").unwrap().into()
 }

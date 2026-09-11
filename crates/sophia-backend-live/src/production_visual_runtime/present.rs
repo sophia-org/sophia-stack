@@ -34,7 +34,17 @@ impl LiveProductionVisualRuntime {
             .ok_or("ready Present gate has no queued presentation")?;
         let queued_surface = queued.surface;
         let queued_candidate = queued.candidate.key();
+        let first_presentation = !self
+            .production
+            .committed_surfaces()
+            .iter()
+            .any(|state| state.surface == queued_surface);
         if !self.presentation_order.contains(&queued_surface) {
+            if first_presentation {
+                self.present_scheduler
+                    .defer_first_visibility(queued_candidate);
+                return self.run_observation_tick();
+            }
             self.present_scheduler.pop_front();
             self.reject_gpu_presentation(transaction);
             return self.run_observation_tick();
@@ -84,6 +94,11 @@ impl LiveProductionVisualRuntime {
             )
         });
         if applicable_outputs.is_empty() {
+            if first_presentation {
+                self.present_scheduler
+                    .defer_first_visibility(queued_candidate);
+                return self.run_observation_tick();
+            }
             self.present_scheduler.pop_front();
             self.reject_gpu_presentation(transaction);
             return self.run_observation_tick();
@@ -261,6 +276,14 @@ impl LiveProductionVisualRuntime {
         // for this Present, so it cannot own its copy-completion retirement.
         // Keep the clearing repaint, but settle the invisible client as Skipped.
         if !live_present_head_frames_capture_image(&output_head_frames, current_layer.image_id) {
+            if first_presentation {
+                // The settled column can be onscreen while its animated
+                // position is still outside the head. Keep its first buffer
+                // and admission debt; other surfaces may run while it waits.
+                self.present_scheduler
+                    .defer_first_visibility(queued_candidate);
+                return self.run_observation_tick();
+            }
             tracing::debug!(
                 transaction = transaction.raw(),
                 surface = queued_surface.index(),

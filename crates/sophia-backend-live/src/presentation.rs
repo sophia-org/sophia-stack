@@ -87,7 +87,7 @@ fn pixel_aligned_dma_buf_placement(
     }
 }
 
-fn intersect_rects(left: Rect, right: Rect) -> Rect {
+pub(crate) fn intersect_rects(left: Rect, right: Rect) -> Rect {
     let x = left.x.max(right.x);
     let y = left.y.max(right.y);
     let right_edge = left

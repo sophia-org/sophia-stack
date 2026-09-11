@@ -41,6 +41,13 @@ const PREVIOUS: Rect = Rect {
 };
 
 fn lowered_frames(x: i32) -> Vec<(OutputId, Vec<LiveProductionHeadCompositionFrame>)> {
+    lowered_translated_frames(x, None)
+}
+
+fn lowered_translated_frames(
+    x: i32,
+    translation: Option<(&sophia_engine::TranslationTimeline, f64)>,
+) -> Vec<(OutputId, Vec<LiveProductionHeadCompositionFrame>)> {
     let geometry = Rect { x, ..PREVIOUS };
     let size = Size {
         width: geometry.width,
@@ -86,6 +93,10 @@ fn lowered_frames(x: i32) -> Vec<(OutputId, Vec<LiveProductionHeadCompositionFra
         SurfaceChromeStyle::default(),
     )
     .unwrap();
+    let (committed, display_list) = match translation {
+        Some((timeline, time)) => timeline.project(OUTPUT, &committed, display_list, time),
+        None => (committed.to_vec(), display_list),
+    };
     let snapshot = output_scene_snapshot_from_committed_in_view(
         OUTPUT,
         1636,
@@ -145,6 +156,50 @@ fn lowered_frames(x: i32) -> Vec<(OutputId, Vec<LiveProductionHeadCompositionFra
         })
         .collect();
     vec![(OUTPUT, heads)]
+}
+
+#[test]
+fn an_entering_columns_first_frame_is_invisible_until_the_camera_reaches_it() {
+    use sophia_engine::TranslationTimeline;
+    use sophia_protocol::{LayerSnapshot, LayerTranslation};
+
+    let layer = |surface, x, camera| LayerSnapshot {
+        surface,
+        output: Some(OUTPUT),
+        geometry: Rect { x, ..PREVIOUS },
+        translation: Some(LayerTranslation {
+            connection_epoch: 1,
+            group: 1,
+            x: camera,
+            y: 0,
+        }),
+        authority_local_id: None,
+        namespace: None,
+        stack_rank: 0,
+        source: BufferSource::None,
+        source_size: Size {
+            width: PREVIOUS.width,
+            height: PREVIOUS.height,
+        },
+        damage: Region::empty(),
+        opacity: 1.0,
+        crop: None,
+        transform: sophia_protocol::Transform::IDENTITY,
+        generation: 1,
+        resize_sync: sophia_protocol::ResizeSyncCapability::ImplicitOnly,
+        input_region: None,
+    };
+    let mut timeline = TranslationTimeline::default();
+    timeline.replace_targets(&[layer(SurfaceId::new(1, 1), 0, 0)], 0.0);
+    timeline.replace_targets(&[layer(SURFACE, 1919, -1268)], 1.0);
+    assert!(!live_present_head_frames_capture_image(
+        &lowered_translated_frames(1919, Some((&timeline, 1.0))),
+        IMAGE,
+    ));
+    assert!(live_present_head_frames_capture_image(
+        &lowered_translated_frames(1919, Some((&timeline, 1.2))),
+        IMAGE,
+    ));
 }
 
 #[test]

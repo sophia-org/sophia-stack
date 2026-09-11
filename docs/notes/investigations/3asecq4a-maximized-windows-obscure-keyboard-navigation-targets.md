@@ -404,3 +404,79 @@ of the new spacing settings. This records acceptance of the reported visual
 artifact in observed use. It does not individually establish the remaining
 t004 dialog/fullscreen and navigation cases or t011's insertion/close,
 vertical-scrolling, and both-output coverage; those broader tasks remain open.
+
+## Grouped desktop acceptance preparation
+
+The user approved proceeding with desktop acceptance first, retaining Brave for
+daily use and the named Firefox checks, with logout/login and a disposable
+recovery cycle at the end. The live Hagia executable matches `acb94e0`'s release
+digest above; Sophia remains `0c069d2f`. Baseline recorder health reports no
+discarded records or storage errors. The working Hagia binary, profile,
+checkpoint, and component identities are retained privately with checksums in
+`.artifacts/todo-acceptance-20260911/baseline/`.
+
+A temporary profile adds Super+Ctrl+F7 for numbered Kitty windows, F8 with the
+same modifiers for vertical scrolling, and F9 for a synthetic GTK parent/dialog
+fixture. The dialog fixture supports sibling and nested windows without using
+the signing agent. Compilation and both owning profile validators pass. The
+profile is staged for user-triggered reload; chezmoi remains unchanged. Remove
+these exact temporary blocks and restore the original layout after acceptance.
+The first requested scenario is three labeled terminals followed by two column
+steps backward and forward. Preparation alone does not close t007 or t011.
+
+The operator performed the first scenario and reported that it "looks buggy".
+Profile generation 4 activated, and the recorder captured three application
+starts and three committed surface admissions. The subsequent checkpoint has
+seven windows, all on the left output, with the original uniform gap settings.
+The event rings and checkpoint are retained privately under
+`.artifacts/todo-acceptance-20260911/first-scrolling-report/`; recorder health
+still reports zero discarded records and storage errors. This confirms execution
+of the fixture launches, not correct rendering or the requested focus sequence.
+The checkpoint was captured after the operator returned to the conversation,
+so it cannot establish the intermediate navigation state. Clarification of the
+visible failure is pending; the broader acceptance cases remain unaccepted.
+
+The operator clarified that no acceptance labels were visible and that a large
+gap between Kitty windows looked like two invisible windows. Read-only process
+inspection found all three fixture Python children alive, waiting on their
+terminal input, and X11 inspection found all three expected acceptance titles.
+The test surfaces are 71303182, 73400334, and 75497486. Their visual candidates
+were recorded during admission, but none has a completed Present retirement in
+the preserved launch/navigation interval (sequences 815430–817677); older Kitty
+surfaces do. This narrows the investigation to admission/presentation rather
+than a missing launch command, but does not yet establish the root cause.
+The operator was asked to navigate back to the gap. A bounded, read-only
+checkpoint watcher retains intermediate focus and camera states locally so
+returning to the conversation does not erase that evidence.
+
+The operator confirmed that focus stops inside the blank space. The checkpoint
+watcher captured focus visiting logical windows 6, 7, and 8, with viewport
+offsets 5096, 6372, and 7648 on forward navigation. These are the three fixture
+surfaces. Their first presentations still do not retire while older windows
+continue to present. The repeated gap evidence is preserved locally under
+`focus-stops-in-gap/` beside the checkpoint sequence.
+
+Code inspection found a matching failure path in the native Present driver.
+It skips a candidate absent from the lowered physical frame, including a new
+column whose settled geometry is visible but whose animated position has not
+entered the output. For a first frame, admission still waits for that exact
+candidate's retirement and holds later drawing in quarantine. A deterministic
+head-lowering case reproduces the visibility mismatch at animation start and
+confirms capture once the camera advances. This establishes the failure path;
+the existing daily records do not identify the precise rejection branch taken
+by the live candidates.
+
+The repair retains a first candidate outside the runnable Present queue until
+its animated geometry intersects its assigned output. It preserves exact
+candidate identity, allows another surface to present, and uses existing
+removal/shutdown cancellation. Already displayed surfaces retain offscreen
+Skip semantics. The focused head-lowering and scheduler suites pass 27 tests,
+including delayed visibility, unrelated-window progress, stale-generation
+rejection, and draining the parked candidate. Workspace tests and the native
+backend's full-feature suite pass, as do formatting, offline metadata, task-ID
+uniqueness, note links, and whitespace checks. The initial sandbox run could
+not bind the test Unix sockets; the rerun with that access passed. Running the
+whole backend suite with only the two focused-test features exposed existing
+feature-gating assumptions, so broader coverage used all backend features.
+The source-layout audit still reports existing violations in unchanged files.
+Installed acceptance remains pending; t004, t007, and t011 remain open.

@@ -339,6 +339,28 @@ impl LiveProductionVisualRuntime {
         for transaction in report.superseded {
             self.reject_gpu_presentation(transaction);
         }
+        let time = self.translation_time();
+        let visible = self
+            .present_scheduler
+            .awaiting_first_visibility()
+            .filter_map(|(surface, geometry)| {
+                (self.presentation_order.contains(&surface)
+                    && self.outputs.logical_viewports().any(|(output, viewport)| {
+                        live_surface_routes_to_output(
+                            surface,
+                            &self.surface_outputs,
+                            &self.geometry_routed_surfaces,
+                            output,
+                        ) && !crate::presentation::intersect_rects(
+                            self.translations.geometry(surface, output, geometry, time),
+                            viewport,
+                        )
+                        .is_empty()
+                    }))
+                .then_some(surface)
+            })
+            .collect::<Vec<_>>();
+        self.present_scheduler.release_first_visibility(&visible);
     }
 
     pub fn commit_layout_epoch(&mut self, epoch: TransactionId) -> usize {

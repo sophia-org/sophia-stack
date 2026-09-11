@@ -371,6 +371,12 @@ admission-finalization set; an `AwaitingRetirement` surface is already owned by
 its exact visual candidate and cannot be replanned. Only the eventual matching
 visual retirement may release quarantined pixels and Present feedback.
 
+The first DMA-BUF candidate remains pending if scrolling or workspace visibility
+keeps it outside the physical frame. It becomes runnable when its presented
+geometry reaches its assigned output; another window's frames need not wait.
+Skipping that first candidate would leave admission waiting for a retirement
+that can never occur, with later pixels still quarantined behind it.
+
 For X11, the protocol authority derives this boundary from its window tree.
 Only a non-override-redirect direct child of the X root is policy-managed.
 Descendants and override-redirect windows are client-positioned.

@@ -33,6 +33,7 @@ enum LiveProductionPresentLayoutState {
     Runnable,
     Staged { epoch: TransactionId },
     AwaitingVisibility { epoch: TransactionId },
+    AwaitingFirstVisibility,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -437,6 +438,41 @@ impl LiveProductionPresentScheduler {
 
     pub fn pop_front(&mut self) -> Option<LiveProductionQueuedPresent> {
         self.queued.pop_front()
+    }
+
+    /// Keep an unpresented surface's exact first candidate until it can enter
+    /// a physical frame. Skipping it would strand admission waiting for that
+    /// candidate's retirement, with every successor still quarantined.
+    pub fn defer_first_visibility(&mut self, candidate: SurfaceTransactionKey) -> bool {
+        let Some(queued) = self.queued.front_mut() else {
+            return false;
+        };
+        if queued.candidate.key() != candidate || !queued.runnable() {
+            return false;
+        }
+        queued.layout_state = LiveProductionPresentLayoutState::AwaitingFirstVisibility;
+        true
+    }
+
+    pub fn awaiting_first_visibility(&self) -> impl Iterator<Item = (SurfaceId, Rect)> + '_ {
+        self.queued.iter().filter_map(|queued| {
+            (queued.layout_state == LiveProductionPresentLayoutState::AwaitingFirstVisibility)
+                .then_some((queued.surface, queued.candidate.target_geometry))
+        })
+    }
+
+    pub fn release_first_visibility(&mut self, visible: &[SurfaceId]) -> usize {
+        let mut released = 0;
+        for queued in &mut self.queued {
+            if queued.layout_state == LiveProductionPresentLayoutState::AwaitingFirstVisibility
+                && visible.contains(&queued.surface)
+            {
+                queued.layout_state = LiveProductionPresentLayoutState::Runnable;
+                released += 1;
+            }
+        }
+        self.observe_queue_depth();
+        released
     }
 
     pub fn mark_submitted(&mut self, mut submitted: LiveProductionSubmittedPresent) {

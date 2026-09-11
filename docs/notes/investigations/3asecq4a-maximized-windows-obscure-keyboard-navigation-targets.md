@@ -147,6 +147,25 @@ Hagia. Recovery to the existing desktop and a verified new Hagia process remain
 required before retrying maximized navigation. No process was restarted by the
 agent during this investigation.
 
+## Verified activation
+
+After the user completed the corrected return/reload/restart sequence, direct
+inspection confirmed Hagia PID 650 running executable SHA256
+`58df6b1d160efb44435a10b731ce6c7efba191a7c0c526f5812a74d5cd3d220d`,
+the `43cfcae` candidate. Sophia owner PID 30405 remains alive and tty7 is active.
+Journal record 306910 reports epoch 2, one restart, and preserved layout. The
+health record remains running with zero discarded records and storage errors;
+there is no owner fatal record. Evidence is retained under
+`.artifacts/t004-maximized-navigation/activated/`. The component journal's own
+digest is retained separately; the candidate identity above comes from hashing
+`/proc/650/exe` directly.
+
+The checkpoint preserves all four left-output windows, maximized window 1
+focused, and the empty right output. Activation is now established; visible
+navigation is still awaiting the user's next check. Pressing Super+Right once
+and holding that state will allow inspection of the intermediate focus/camera
+result before reversing direction.
+
 The preceding [pointer focus investigation](nsu4a0n2-optional-pointer-focus-follows-presented-targets-through-committed-policy.md)
 records the independent empty-output arrow trap and installed drag repair.
 The [original stacking incident](../sources/2026-09/legacy-active-0637-2026-09-06--maximized-stacking-and-gtk-startup-in-the-replacement-session.md)

@@ -52,6 +52,14 @@ stationary-translation repaint failure and its repair. The offline gate passes;
 acceptance still requires a newly installed candidate to reload cleanly without
 needing navigation to repair the display.
 
+On 2026-09-11 the user accepted a clean policy reload on installed Sophia
+`30851491` with Hagia `36bbb94`: existing windows retained correct geometry,
+no startup windows duplicated, and subsequent picker/workspace interactions
+worked. The linked investigation records the unchanged owner and shell
+processes, replacement Hagia executable hash, and activated configuration.
+This satisfies t001's normal desktop composition/reload exit; expanded-window
+stacking and other physical gates retain their separate criteria.
+
 ## t002
 
 Accept the installed Sophia/Hagia/Narthex launcher changes with

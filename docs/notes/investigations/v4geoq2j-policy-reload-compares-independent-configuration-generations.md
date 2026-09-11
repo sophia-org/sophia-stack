@@ -341,3 +341,28 @@ Private reproduction evidence is retained under
 desktop acceptance artifact directory. The original gap remains 8; no reload
 test was staged during this diagnosis. Physical acceptance of these repairs
 and the earlier reload repaint change remains outstanding.
+
+## 2026-09-11 clean installed reload acceptance
+
+On Sophia `3085149116ef418d0aefe563a1b1d9b69d9fe25f` with Hagia
+`36bbb9453f625f692369c7fa3c231c5471f0f252`, the user reloaded the personal
+`sophia/desktop.kdl` to enable pointer focus and add monitor-focus bindings.
+The user confirmed that existing windows retained correct sizes and positions,
+without overlap glitches or duplicate startup windows. Picker launch/capture
+and independent workspace switching on DP-2 also passed afterward.
+
+Session `00000001789138761895-b8f5b4e5-9487-4ec5-9919-6783dae91c45`
+retained owner PID 16982, Narthex 17026 and Quickshell 17027. Hagia changed
+from PID 16987 to 11411. The replacement's `/proc/11411/exe` SHA256 is
+`92c24358b00158b46bb1df5cc32d1751ae5763c709a0a89b097b8be895ace52e`,
+matching the packaged Hagia. Identity records 100880–100881 establish WM epoch
+2/profile generation 2 activation followed by desktop/launch generation 2.
+The component diagnostic's reload digest differs from the executable hash;
+binary identity here is established by hashing the live executable directly.
+
+The [pointer-focus acceptance record](nsu4a0n2-optional-pointer-focus-follows-presented-targets-through-committed-policy.md)
+retains exact configuration and package identity. Baseline and reload evidence
+is in `.artifacts/installed-acceptance-30851491/`. This accepts t001's normal
+desktop composition and clean policy reload gate. The gap remained 8 during
+this check; it does not separately establish the old 8→9→8 geometry reproducer,
+expanded-window stacking, normal logout, or complete t078 acceptance.

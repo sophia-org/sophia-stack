@@ -72,6 +72,11 @@ insertion/close, vertical scrolling and both outputs. The implementation adds
 committed Hagia camera anchors and Engine GPU translation; see the
 [contract and focused check](../../window-transitions.md). Broader physical
 acceptance remains pending; new-window camera following is confirmed below.
+The user's selected uniform gap model must retain eight-pixel spacing with no
+forced edge sliver when two half-width columns align with the viewport. Check
+normal scrolling on both outputs and vertical scrolling; arbitrary widths may
+still leave a partially visible neighbor. Implementation and validation are in
+the [spacing investigation](../investigations/3asecq4a-maximized-windows-obscure-keyboard-navigation-targets.md#niri-spacing-for-ordinary-scrolling).
 
 
 Previously completed evidence: [Confirm that opening new windows in the scrolling layout moves the camera to them.](../sources/2026-09/todo-cutover-completed.md#legacy-done-013).

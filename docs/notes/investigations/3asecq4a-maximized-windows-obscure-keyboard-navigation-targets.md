@@ -342,3 +342,55 @@ path, with a backup and deployment record retained locally. No live restart was
 performed by the agent. Load with Ctrl+Alt+Shift+R, release the keys, and check
 Super+F followed by Super+M for a clean gap from the first frame. Navigation
 away and back remains part of t004's physical acceptance; it is still open.
+
+
+## Niri spacing for ordinary scrolling
+
+The user separately reported a persistent sliver at the edge of ordinary
+scrolling and selected niri's model after comparing the local references.
+Niri baseline `9e72e4917ca31baf4010496bf7f4aaf78d34d236` separates one uniform
+`gaps` value from optional `struts`: `compute_working_area` reserves struts,
+and `compute_new_view_offset` supplies along-axis padding. Its default config
+explicitly describes side struts as a way to reveal neighboring columns.
+Hagia's previous outer gap reduced the viewport before the camera supplied
+another inner gap. With eight-pixel outer/inner gaps, two half-width columns
+on a 2560-pixel output put the next column at x=2552, exposing eight pixels.
+
+Hagia now accepts `gaps 8`, with zero struts by default. The corresponding
+positions are x=8 and x=1284, widths 1268, and the next column starts at x=2560.
+Top/bottom spacing remains eight pixels inside the panel work area. Explicit
+side struts reserve preview space; vertical scrolling transposes that rule.
+Native and tree layouts also honor struts. Gap actions preserve struts, edge
+maximization uses the original work area, and fullscreen uses physical bounds.
+Existing outer/inner profiles retain their geometry and cannot mix with the
+new form. Checkpoint version 16 carries the gap model and struts; older
+checkpoints retain legacy settings until the profile chooses uniform gaps.
+
+Regression coverage includes exact edge positions, navigation, asymmetric
+struts, vertical scrolling, gap actions, M/F/fullscreen bounds, native/tree
+layouts, malformed profiles, Triad migration, and checkpoint compatibility.
+A committed two-output reload case checks that custom column choices and
+focus survive legacy-to-uniform migration and a subsequent 8→9→8 gap change.
+Its initial exact-camera round-trip assertion was too strict: niri leaves a
+column still when the reduced padding already fits. The corrected case
+requires exact restored pane sizes and the retained nine-pixel camera inset,
+plus stable repeated projections. No production camera change was made to
+satisfy the initial assertion.
+
+Signed and pushed Hagia candidate `acb94e02aea6e26c643398f7ec2b160d224b24dc` passes the full
+`nimble verify` gate: 272 Nim cases, paired Sophia integration and protocol
+checks, eight Alloy assertions, Z3, and four TLA+ checks. Release compilation,
+both prepared policy fragments, and offline restoration of the checkpoint copy
+also pass. The default-profile test was updated to expect the new explicit
+uniform model; bare models retain their legacy representation for API callers.
+The release SHA256 is `6a6e28da90c344abd08aed84772b45e4791a6c8902849003794ee02cd028afb3`.
+
+The release is atomically staged at the configured executable path. The active
+personal profile and chezmoi source now use `gaps 8`, with omitted, zero-valued
+struts. Only the gap block changed in each file. No live restart was performed.
+Ctrl+Alt+R loads the changed profile and replaces the policy client; verify the
+live executable before attributing a physical retest to this candidate. All
+detailed evidence and rollback copies remain local under
+`.artifacts/t004-niri-gaps/`. Physical acceptance still belongs to
+[t004](../plans/queue-02-cp-14-3-development-session-readiness-and-milestone-14-c.md#t004)
+and [t011](../plans/queue-04-2-establish-the-live-session.md#t011).

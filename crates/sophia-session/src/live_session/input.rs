@@ -857,6 +857,11 @@ fn route_input_events_with_launcher(
                                 let _ = shortcuts.route_key(event.seat, modifier_keycode, false);
                             }
                             let _ = modifiers.map_evdev_key(modifier_keycode, false);
+                            if let Some((_, keyboard)) = launcher.as_mut() {
+                                // Releases may occur on the destination VT;
+                                // release every local keyboard view before leaving.
+                                let _ = keyboard.observe(modifier_keycode, false, false);
+                            }
                             if routing_mode != PhysicalInputRoutingMode::Full {
                                 continue;
                             }
@@ -1134,10 +1139,26 @@ fn route_input_events_with_launcher(
             kind @ (sophia_protocol::InputEventKind::PointerMotion
             | sophia_protocol::InputEventKind::PointerButton { .. }
             | sophia_protocol::InputEventKind::PointerAxis { .. }) => {
+                let is_button =
+                    matches!(kind, sophia_protocol::InputEventKind::PointerButton { .. });
+                let is_axis =
+                    matches!(kind, sophia_protocol::InputEventKind::PointerAxis { .. });
+                // Modal capture prevents application delivery, but the owner
+                // still needs observed motion to update the visible cursor.
+                report.pointer_events = report.pointer_events.saturating_add(1);
+                if is_button {
+                    report.pointer_buttons_observed =
+                        report.pointer_buttons_observed.saturating_add(1);
+                }
+                if is_axis {
+                    report.pointer_axes_observed =
+                        report.pointer_axes_observed.saturating_add(1);
+                }
                 if !control_plane_applied && let Some((capture,_))=launcher.as_mut() {
                     if capture.active() && matches!(kind,sophia_protocol::InputEventKind::PointerMotion){
                         let focused=focus.focused_surface(event.seat);
-                        let _=place_pointer_event_for_routing(&mut event,focused,input_layers,pointer,false);
+                        let (_, placement)=place_pointer_event_for_routing(&mut event,focused,input_layers,pointer,false);
+                        record_pointer_boundary_placement(&mut report, kind, placement);
                     }
                     let(consumed,input)=capture.route(&event,None,pointer.position(),false,false);
                     report.launcher_events.extend(input);
@@ -1149,24 +1170,12 @@ fn route_input_events_with_launcher(
                     if consumed {
                         if matches!(kind,sophia_protocol::InputEventKind::PointerMotion) {
                             let focused=focus.focused_surface(event.seat);
-                            let _=place_pointer_event_for_routing(&mut event,focused,input_layers,pointer,false);
+                            let (_, placement)=place_pointer_event_for_routing(&mut event,focused,input_layers,pointer,false);
+                            record_pointer_boundary_placement(&mut report, kind, placement);
                         }
                         continue;
                     }
                 }
-                let is_button =
-                    matches!(kind, sophia_protocol::InputEventKind::PointerButton { .. });
-                let is_axis =
-                    matches!(kind, sophia_protocol::InputEventKind::PointerAxis { .. });
-                if is_button {
-                    report.pointer_buttons_observed =
-                        report.pointer_buttons_observed.saturating_add(1);
-                }
-                if is_axis {
-                    report.pointer_axes_observed =
-                        report.pointer_axes_observed.saturating_add(1);
-                }
-                report.pointer_events = report.pointer_events.saturating_add(1);
                 if matches!(
                     routing_mode,
                     PhysicalInputRoutingMode::Suppressed | PhysicalInputRoutingMode::ShortcutsOnly

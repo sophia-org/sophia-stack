@@ -521,10 +521,10 @@ impl LiveWmSession {
                         .candidate()
                         .expect("public policy retains its prepared shortcut candidate"),
                     configuration,
-                    public
-                        .profile_key
-                        .map(|key| key.generation().raw())
-                        .unwrap_or(configuration.generation),
+                    // Profile activation and the action catalog have separate
+                    // generation namespaces. A replacement WM may restart its
+                    // catalog at 1 after activating a later desktop profile.
+                    configuration.generation,
                     self.desktop_reload
                         .as_ref()
                         .map(|pending| &pending.launch.commands)

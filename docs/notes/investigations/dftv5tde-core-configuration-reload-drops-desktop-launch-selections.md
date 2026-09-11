@@ -2,7 +2,7 @@
 id: dftv5tde
 date: 2026-09-10
 kind: investigation
-status: awaiting-physical-acceptance
+status: closed
 tags: [investigation, config, session]
 ---
 # Core configuration reload drops desktop launch selections
@@ -104,3 +104,27 @@ slice and serializes with policy replacement. Its external regressions retain
 the active/pending rollback checks and add removal of already-executed startup
 references. Installed-owner acceptance remains required; the earlier core-only
 candidate is superseded by the paired Session/Hagia candidate in that plan.
+
+
+## Installed launch-preservation observation on 2026-09-10
+
+The paired installed owner `171345049bf620a40b24c48d738329b1f63decaf` and Hagia
+`3459a85d5dd7a1943efcf526fa5d4ec297d246cd` ran the current acceptance session.
+The direct Brave override is in the active Sophia desktop profile. A bare
+`brave-origin` command failed to spawn because the owner's PATH omits
+`~/.local/bin`; using `/home/niltempus/.local/bin/brave-origin` fixed launch.
+It retains literal `--`, `--ozone-platform=x11` and
+`--render-node-override=/dev/dri/renderD128` arguments.
+
+After the corrected profile was applied, removing only a core test comment
+produced watcher `Applied` generation 5, digest
+`26351b1750d42f7b5fa12bd2abadacaefc137333627c5c5bc89049fa91baabf6`.
+The operator then confirmed Super+Enter and Super+B both worked without a
+further desktop reload. Evidence is in `.artifacts/t076-desktop-acceptance/`;
+the [session investigation](v4geoq2j-policy-reload-compares-independent-configuration-generations.md)
+records exact binaries and the separate policy-replacement failure. Cleanup is complete: the operator applied desktop generation 6 and confirmed
+both shortcuts again, then the watcher applied generation 6 with the original
+core digest `b74c43bad36cb75ce7a173f499f05f8e9921174116bcdcece99fe266d57c119c`.
+`cleanup-complete.json` records unchanged owner, shell and panel identities.
+The t075 launch-preservation gate is satisfied on this installed pair. This is launch-preservation
+evidence, not GPU acceptance.

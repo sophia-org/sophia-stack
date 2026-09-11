@@ -209,7 +209,9 @@ impl ReloadFixture {
         let public = self.wm.public.as_ref().unwrap();
         sophia_protocol::PolicyConfiguration {
             connection_epoch: public.connection_epoch,
-            generation: public.profile_key.unwrap().generation().raw(),
+            // Hagia starts its action catalog at 1 for each new connection,
+            // independently of the activated desktop profile generation.
+            generation: 1,
             actions: Vec::new(),
             chrome: sophia_protocol::WmChromePolicy::default(),
         }
@@ -435,6 +437,13 @@ fn policy_acceptance_keeps_active_commands_and_key_ledger_until_input_is_idle() 
         DesktopProfileReloadOutcome::RestartRequired
     );
     fixture.replacement_started();
+    assert!(fixture.wm.public.as_ref().unwrap().profile_key.unwrap().generation().raw() > 1);
+    let mut stale = fixture.configuration();
+    stale.connection_epoch -= 1;
+    assert_eq!(
+        fixture.stage_configuration(&stale),
+        sophia_protocol::PolicyProjectionOutcome::RejectedInvalid
+    );
     let seat = SeatId::from_raw(1);
     fixture
         .wm

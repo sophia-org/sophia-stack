@@ -62,9 +62,9 @@ also exercises the launch-selection regression tracked by
 
 This task does not change a browser, add application allowlists or adapters to
 Engine, or expand reload into a general seven-authority transaction. Its
-normative contracts are [configuration](../../../configuration.md),
-[desktop composition](../../../desktop-composition.md), and
-[architecture](../../../architecture.md).
+normative contracts are [configuration](../../configuration.md),
+[desktop composition](../../desktop-composition.md), and
+[architecture](../../architecture.md).
 
 ## Implemented behavior
 
@@ -140,3 +140,45 @@ The release Hagia binary SHA-256 is
 `255f49f4ee5baf54ff8aa6df7c9153b55072fa425a50c0cd65c31fe128ae23ea`.
 
 Paired Hagia source is signed commit `3459a85d5dd7a1943efcf526fa5d4ec297d246cd`. The Sophia source identity and release hash are recorded in the candidate checkpoint after signing.
+
+
+## Physical launch observations on 2026-09-10
+
+On installed Sophia `171345049bf620a40b24c48d738329b1f63decaf` and Hagia
+`3459a85d5dd7a1943efcf526fa5d4ec297d246cd`, the operator confirmed visible
+Kitty labels for named, inline and explicit core-reference commands. Changing
+the named command from A to B and pressing Ctrl+Alt+R launched B; the owner,
+Hagia, Narthex and Quickshell processes remained unchanged across those checks.
+The first fixture used Kitty `--hold`, which returned to a shell prompt; the
+corrected fixture prints a label and waits for Enter. Enter closes each test.
+
+The active owner selects `~/.config/sophia/desktop.kdl`, a distinct file from
+`~/.config/hagia/config.kdl`. Its direct Brave entry must use the absolute
+`/home/niltempus/.local/bin/brave-origin` executable because the owner's PATH
+excludes that directory. After this correction and desktop reload, the operator
+confirmed Brave opens. After core watcher generation 5 applied, both Super+Enter
+and Super+B worked without another desktop reload. Startup remains panel-only.
+
+Artifacts and the exact session identity are retained in
+`.artifacts/t076-desktop-acceptance/` and the [policy reload investigation](../investigations/v4geoq2j-policy-reload-compares-independent-configuration-generations.md).
+The policy-change check exposed a separate generation mismatch and rolled back.
+The cleaned `desktop-absolute-final.kdl` is now on disk, and chezmoi tracks
+that exact file at `dot_config/private_sophia/private_desktop.kdl`. Its first signed
+commit attempt was canceled by GPG. After signing was unlocked, chezmoi commit
+`fbee4c3` was signed and pushed to `origin/main`.
+The operator applied the cleaned profile with Ctrl+Alt+R and confirmed
+Super+Enter and Super+B both still worked. Desktop generation 6 / launch
+generation 10 was recorded. The temporary core registration was then removed;
+watcher generation 6 applied the original core digest
+`b74c43bad36cb75ce7a173f499f05f8e9921174116bcdcece99fe266d57c119c`. These observations do not pass that policy
+replacement gate or the browser GPU gate.
+
+
+The named/inline/core-reference and command-only reload acceptance for t076 is
+satisfied on the installed pair identified above. All temporary definitions are
+removed from the user's configurations. `cleanup-complete.json` retains the
+final state: Sophia 22902, Hagia 15338, Narthex 22948 and Quickshell 22949. The
+original core bytes are restored; the persistent desktop change is only the
+direct Brave command. Policy replacement and picker repairs remain separate
+t001/t002 gates requiring a repaired owner. Pending signed config publication
+does not change these observed launch results.

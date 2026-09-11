@@ -37,6 +37,11 @@ installed session on 2026-09-06; see the research log.
 Previously completed evidence: [Implement the native application launcher through the generic revision-4 shell protocol: session-owned catalog and execution policy, Engine-owned input/GPU presentation, and independent Narthex…](../sources/2026-09/todo-cutover-completed.md#legacy-done-001).
 
 
+2026-09-10 acceptance preserved the running desktop but rejected the changed
+policy and rolled back. The [generation mismatch investigation](../investigations/v4geoq2j-policy-reload-compares-independent-configuration-generations.md)
+records the installed identity, reproducer and repair; successful replacement
+acceptance still requires the repaired owner.
+
 ## t002
 
 Accept the installed Sophia/Hagia/Narthex launcher changes with
@@ -55,6 +60,13 @@ Ghostty then failed during its MIT-SHM mask upload. The upload repair passes
 an isolated Ghostty startup probe; installed interaction acceptance remains
 pending. No live reload was performed.
 
+
+2026-09-10 operator check: Super+Space opened the picker and Escape dismissed
+it, but typing and arrow keys did not respond. Search and activation acceptance
+remain unsatisfied. Wheel navigation worked; mouse motion and selection did not.
+The [launcher input investigation](../investigations/yifbnqjz-launcher-capture-loses-visible-cursor-updates-during-modal-input.md)
+records reproduced cursor-accounting and VT modifier-state defects, their
+repairs, and the remaining uncertainty about the live keyboard trigger.
 
 ## t003
 

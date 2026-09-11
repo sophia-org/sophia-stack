@@ -468,8 +468,9 @@ portable configuration.
 
 From a logged-in tty4, `tools/hagia-proof` is the one-shot current-checkout
 launcher. It requires clean Sophia, Hagia, and Narthex trees, builds each exact
-commit before takeover, verifies every signature and their locally known
-`origin/master` identities, validates the compiled profile, resolves the
+commit before takeover, verifies every signature and retains the exact commit
+identities independently of upstream publication, validates the compiled profile,
+resolves the
 configured terminal and browser executables, and then enters the guarded gate.
 The resulting evidence binds all three commits and all three binary digests. Its
 verifier requires the protected metadata broker to reach ready, commit at least

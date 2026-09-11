@@ -240,8 +240,9 @@ SOPHIA_FRAME_FED_OUTPUT_ARM=1 tools/run_frame_fed_output_gate_tty4.sh
 
 It is reference-rig-specific and refuses anything except connected `DP-1`
 2560×1440 and `DP-2` 1920×1080. Before taking DRM or input ownership it requires
-clean, signed Sophia and Hagia HEADs equal to their locally known
-`origin/master`, then builds and hashes the exact release binaries. The first
+clean, signed Sophia and Hagia HEADs, then builds and hashes the exact release
+binaries. Local signed commits qualify without pushing or fetching; upstream
+publication is separate from the identity bound by the proof. The first
 normal public-Hagia session applies, first-presents, and publishes the checked-in
 profile. The second applies the same startup candidate and forces reverse-card
 rollback after final KMS acceptance but before candidate installation. Both

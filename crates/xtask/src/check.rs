@@ -41,7 +41,11 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
     sophia_conformance::profile::check_every_profile(&[])?;
     layout(repo)?;
     anchored_readers(repo)?;
-    for pattern in ["layout_comparison_test.py", "dri3_layout_probe_test.py"] {
+    for pattern in [
+        "layout_comparison_test.py",
+        "dri3_layout_probe_test.py",
+        "physical_gate_identity_test.py",
+    ] {
         command(
             repo,
             "python3",

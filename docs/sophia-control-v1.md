@@ -22,8 +22,9 @@ cannot send role messages, internal action ordinals, Engine transactions,
 tokens, or application handles through this endpoint. Engine still validates
 and commits visual state; the WM still interprets spatial policy.
 
-Revision 1 exposes only discovery of argument-free registered WM actions and
-the session operations `reload-profile` and `restart-wm`. The owner selector
+Revision 1 exposes discovery and invocation of argument-free registered WM
+actions and the session operation `restart-wm`. The `reload-profile` operation
+is reserved but is not advertised or dispatched. The owner selector
 is `policy = 1` or `session = 2`. Shell commands, parameters, process execution,
 synthetic input, metadata queries, event subscriptions, FD transfer, and
 delegated grants are absent. No generic extension blob is reserved for them.

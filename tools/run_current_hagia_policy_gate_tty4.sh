@@ -44,14 +44,7 @@ for repo_and_commit in "$ROOT_DIR:$sophia_commit" "$HAGIA_ROOT:$hagia_commit" "$
         echo "  Run tools/check_proof_preconditions.sh first to see all three." >&2
         exit 1
     }
-    upstream="$(git -C "$repo" rev-parse --verify refs/remotes/origin/master 2>/dev/null || true)"
-    if [[ -z "$upstream" || "$commit" != "$upstream" ]]; then
-        echo "Physical-proof HEAD must equal the locally known origin/master: $repo" >&2
-        echo "  HEAD:          $commit" >&2
-        echo "  origin/master: ${upstream:-missing}" >&2
-        echo "  Run tools/check_proof_preconditions.sh first to see all three." >&2
-        exit 1
-    fi
+    # The archive verifies this exact signed identity, not its publication state.
 done
 hagia_bin="${TMPDIR:-/tmp}/hagia-policy-${hagia_commit:0:12}"
 hagia_shell_bin="${TMPDIR:-/tmp}/narthex-${narthex_commit:0:12}"

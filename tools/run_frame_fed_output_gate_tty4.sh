@@ -49,15 +49,14 @@ for file in "$CORE_CONFIG" "$DESKTOP_PROFILE"; do
 done
 
 verify_repo() {
-    local repo="$1" name="$2" head upstream
+    local repo="$1" name="$2" head
     [[ -z "$(git -C "$repo" status --porcelain --untracked-files=all)" ]] \
         || refuse "$name worktree must be clean"
     head="$(git -C "$repo" rev-parse HEAD)"
     git -C "$repo" verify-commit "$head" >/dev/null 2>&1 \
         || refuse "$name HEAD lacks a valid cryptographic signature"
-    upstream="$(git -C "$repo" rev-parse --verify refs/remotes/origin/master 2>/dev/null || true)"
-    [[ -n "$upstream" && "$head" == "$upstream" ]] \
-        || refuse "$name HEAD must equal the locally known origin/master"
+    # The archive binds this signed commit and its binary hashes. Publication
+    # to a remote does not strengthen that evidence identity.
 }
 verify_repo "$ROOT_DIR" Sophia
 verify_repo "$HAGIA_ROOT" Hagia

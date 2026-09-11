@@ -27,7 +27,7 @@ mapfile -t three_head_topology < <(
 }
 
 verify_identity() {
-    local repo commit name upstream
+    local repo commit name
     for name in Sophia Hagia; do
         if [[ "$name" == Sophia ]]; then
             repo="$ROOT_DIR"
@@ -48,13 +48,7 @@ verify_identity() {
             echo "$name HEAD lacks a valid cryptographic signature." >&2
             exit 1
         }
-        upstream="$(git -C "$repo" rev-parse --verify refs/remotes/origin/master 2>/dev/null || true)"
-        [[ -n "$upstream" && "$upstream" == "$commit" ]] || {
-            echo "$name HEAD must equal the locally known origin/master." >&2
-            echo "  HEAD:          $commit" >&2
-            echo "  origin/master: ${upstream:-missing}" >&2
-            exit 1
-        }
+        # Every phase binds the same signed commit, independently of publication.
     done
 }
 

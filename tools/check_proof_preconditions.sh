@@ -2,9 +2,8 @@
 # Report whether Sophia, Hagia, and Narthex are all in the state a physical
 # proof requires, before anyone switches to tty4 where recovery is expensive.
 #
-# This checks the same conditions as the tty4 gates and changes nothing. The
-# policy gate requires all three; the native gate deliberately does not require
-# origin/master, so that column is reported rather than enforced.
+# This checks the same source conditions as the tty4 gates and changes nothing.
+# Publication is separate from proof identity; upstream is informational only.
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -31,10 +30,8 @@ report() {
     remote="$(git -C "$repo" rev-parse --verify refs/remotes/origin/master 2>/dev/null || true)"
     if [[ -z "$remote" ]]; then
         upstream="NO origin/master"
-        status=1
     elif [[ "$remote" != "$commit" ]]; then
         upstream="AHEAD/BEHIND origin/master"
-        status=1
     fi
 
     printf '%-8s %s  clean=%s signed=%s upstream=%s\n' \
@@ -54,8 +51,7 @@ if (( status == 0 )); then
     printf '%s\n' 'sophia_proof_preconditions schema=1 status=ready repositories=3'
 else
     echo
-    echo "Resolve the repositories marked above before running a physical gate." >&2
-    echo "The native gate does not require origin/master; the policy gate does." >&2
+    echo "Resolve missing checkouts, dirty trees, or invalid signatures before running a physical gate." >&2
 fi
 
 exit "$status"

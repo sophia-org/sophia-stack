@@ -129,12 +129,20 @@ the surrounding border at `x=3820, y=40, width=1260, height=1392`.
 
 This does not show a narrow logical column. Ghostty lies beyond output 1's
 right edge in the captured scrolling layout. The operator clarified that it
-was a narrow slice about three-quarters of the way to the right; which monitor
-showed it remains unconfirmed. That distinction is still needed before
-attributing the symptom to clipping, stale presentation or policy. Evidence is retained as
+was a narrow slice about three-quarters of the way to the right, then confirmed
+that it was on the left-hand monitor. The output-routing defect below
+predicts a slice on the right-hand monitor and therefore does not explain this
+reported symptom. Left-output presentation remains under investigation.
+Evidence is retained as
 `skinny-after-gap8-restore.json`, `hagia-checkpoint-skinny-gap8`,
 `x-geometry-skinny-gap8.json` and `skinny-gap8-logs-1789094996/`.
 Configuration restoration is complete; the visual defect remains unresolved.
+
+After confirming the left-hand monitor, the operator navigated with
+Super+Arrow and reported that Ghostty recovered. The subsequent internal
+snapshot retains Ghostty's saved size; it is not an isolated one-action replay.
+A static capture produced an all-black image and supplies no visual acceptance.
+Detailed process and recovery captures remain in the private artifact directory.
 
 ## CPU frame output-routing defect
 
@@ -144,8 +152,9 @@ the output-ownership filter already used by `display_list_for_output` for
 ordinary mixed and retained frames. An output-1 scrolling column at Ghostty's
 captured coordinates therefore entered output 2's CPU display list and could
 be clipped to the part intersecting that monitor. This is a reproducible code
-defect; the operator's affected monitor is not yet confirmed, so it is not
-claimed as the established cause of every reported size/overlap symptom.
+defect. The operator subsequently confirmed that the observed slice was on
+the left-hand monitor, so this separate routing repair is not accepted as the
+fix for the reported reload distortion.
 
 The repair prepares an order for each CPU output using the same shared
 `surface_order_for_output` filter as ordinary presentation. Managed surfaces

@@ -1,5 +1,8 @@
 #![cfg(test)]
 
+#[path = "../../tests/support/launch_origin_socket.rs"]
+mod launch_origin_socket;
+
 #[cfg(feature = "native-session")]
 #[path = "../../tests/support/glx_pixmap_export.rs"]
 mod glx_pixmap_export;

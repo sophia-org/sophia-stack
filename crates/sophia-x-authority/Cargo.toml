@@ -16,3 +16,6 @@ tracing.workspace = true
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "linux")'.dependencies]
+sophia-linux-peer = { path = "../sophia-linux-peer" }

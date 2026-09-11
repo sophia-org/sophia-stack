@@ -107,6 +107,9 @@ impl ReloadFixture {
             actions: Vec::new(),
             accepted_configuration: Some(configuration),
             launch_classifications: BTreeMap::new(),
+            launch_origins: Arc::new(Mutex::new(crate::launch_origin::LaunchOriginRegistry::default())),
+            staged_launch_contexts: Vec::new(),
+            in_flight_origin_surfaces: Vec::new(),
             outputs: vec![output],
             output_bounds: bounds.clone(),
             output_generations: BTreeMap::from([(output.id, 1)]),
@@ -770,4 +773,43 @@ fn output_reload_is_delivered_once_after_the_active_candidate_and_cancellation_s
     assert_eq!(public.published_output_snapshot(), Some(snapshot));
     assert!(public.take_output_topology_reload_request());
     assert!(!public.take_output_topology_reload_request());
+}
+
+#[test]
+fn public_projection_settlement_publishes_origins_and_consumes_hints_only_on_commit() {
+    use crate::launch_origin::ProcessIdentity;
+    use sophia_protocol::*;
+    let mut fixture = ReloadFixture::new();
+    let public = fixture.wm.public.as_mut().unwrap();
+    let admission = |id| ClientAdmissionContext::new(
+        ClientAdmissionId::from_raw(id),
+        NamespaceContext::new(NamespaceId::from_raw(1), NamespaceProfile::ClassicShared, NamespaceCapabilities::NONE).unwrap(),
+        ClientAuthProvenance::new(ClientAuthenticationMethod::PeerCredentials, 1).unwrap(),
+    ).unwrap();
+    let process = |pid| ProcessIdentity { pid, start_time: u64::from(pid) };
+    let parent = SurfaceId::new(10, 1);
+    let child = SurfaceId::new(20, 1);
+    let original = PolicyLaunchContext { surface: parent, epoch: 1, token: 101 };
+    {
+        let mut registry = public.launch_origins.lock().unwrap();
+        registry.set_epoch(1);
+        registry.admit(admission(10), process(10), &[]);
+        registry.observe_toplevel(parent, admission(10));
+        registry.publish(1, &[original]);
+        registry.admit(admission(20), process(20), &[process(10)]);
+        registry.observe_toplevel(child, admission(20));
+    }
+    for (outcome, next, expected) in [(PolicyProjectionOutcome::RejectedInvalid, 30, 101), (PolicyProjectionOutcome::Committed, 40, 303)] {
+        public.staged_launch_contexts = vec![PolicyLaunchContext { token: 303, ..original }];
+        public.in_flight_origin_surfaces = vec![child];
+        public.settle_public_projection(outcome);
+        assert!(public.staged_launch_contexts.is_empty());
+        assert!(public.in_flight_origin_surfaces.is_empty());
+        let mut registry = public.launch_origins.lock().unwrap();
+        assert_eq!(registry.origins([child]).is_empty(), outcome == PolicyProjectionOutcome::Committed);
+        registry.admit(admission(u64::from(next)), process(next), &[process(10)]);
+        let surface = SurfaceId::new(next, 1);
+        registry.observe_toplevel(surface, admission(u64::from(next)));
+        assert_eq!(registry.origins([surface])[0].token, expected);
+    }
 }

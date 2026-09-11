@@ -274,6 +274,7 @@ pub struct PolicyProjectionOutputStatus {
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PolicyProjectionProposal {
+    pub launch_contexts: Vec<PolicyLaunchContext>,
     pub translation_groups: Vec<crate::PolicyTranslationGroup>,
     pub tab_groups: Vec<crate::PolicyTabGroup>,
     pub transaction: TransactionId,
@@ -284,6 +285,15 @@ pub struct PolicyProjectionProposal {
     pub outputs: Vec<PolicyOutputProjection>,
     pub indicators: Vec<PolicyProjectionIndicator>,
     pub output_statuses: Vec<PolicyProjectionOutputStatus>,
+}
+
+/// An opaque policy placement bookmark. Session may retain and echo this value,
+/// but only its issuing WM knows which logical output and tags it names.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct PolicyLaunchContext {
+    pub surface: SurfaceId,
+    pub epoch: u64,
+    pub token: u64,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

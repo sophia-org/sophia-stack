@@ -638,6 +638,7 @@ fn proposal(
     outputs: Vec<PolicyOutputProjection>,
 ) -> PolicyProjectionProposal {
     PolicyProjectionProposal {
+        launch_contexts: Vec::new(),
         translation_groups: Vec::new(),
         tab_groups: Vec::new(),
         transaction: TransactionId::from_raw(transaction),

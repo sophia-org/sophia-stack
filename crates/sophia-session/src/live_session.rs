@@ -611,7 +611,13 @@ pub(crate) fn run_persistent_xterm_session(
         .map_err(|_| "Sophia namespace registry lock was poisoned")?
         .create_namespace(config.namespace_profile, config.namespace_capabilities);
     let session_user_id = rustix::process::geteuid().as_raw();
+    let launch_origins = wm_session
+        .as_ref()
+        .and_then(|wm| wm.public.as_ref())
+        .map(|p| p.launch_origins.clone())
+        .unwrap_or_default();
     let admission_policy = Arc::new(LiveXAdmissionPolicy {
+        launch_origins: launch_origins.clone(),
         registry: namespace_registry.clone(),
         namespace: x_namespace.id,
         session_user_id,
@@ -1043,6 +1049,7 @@ pub(crate) fn run_persistent_xterm_session(
             metadata_candidates: &metadata_candidate_receiver,
         },
         SessionLoopResources {
+            launch_origins: &launch_origins,
             child: primary_child,
             secondary_children,
             physical_input: &mut physical_input,

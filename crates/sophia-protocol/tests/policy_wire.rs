@@ -174,6 +174,12 @@ fn generated_rust_record_codec_matches_every_golden_record() {
                 .data
                 .clone()
             }
+            "projection_launch_context" | "snapshot_launch_origin" => {
+                encode_wm_launch_context_records(
+                    &decode_wm_launch_context_records(&data, 1).unwrap(),
+                )
+                .unwrap()
+            }
             other => panic!("unknown record `{other}`"),
         };
         assert_eq!(encoded, data, "golden mismatch for {name}");

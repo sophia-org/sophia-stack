@@ -12,6 +12,7 @@ pub(super) struct ManagedSessionChild {
     pub(super) launch_transaction: Option<TransactionId>,
     pub(super) catalog_launch: bool,
     pub(super) child: Child,
+    pub(super) process_identity: Option<crate::launch_origin::ProcessIdentity>,
 }
 
 impl ManagedSessionChild {
@@ -20,6 +21,7 @@ impl ManagedSessionChild {
             id,
             launch_transaction: None,
             catalog_launch: false,
+            process_identity: crate::launch_origin::read_process(child.id()).map(|p| p.identity),
             child,
         }
     }
@@ -29,6 +31,7 @@ impl ManagedSessionChild {
             id,
             launch_transaction: Some(transaction),
             catalog_launch: false,
+            process_identity: crate::launch_origin::read_process(child.id()).map(|p| p.identity),
             child,
         }
     }

@@ -119,3 +119,5 @@ mod prelude {
     pub(crate) use std::time::{Duration, SystemTime, UNIX_EPOCH};
     pub(crate) use x11rb::protocol::Event;
 }
+
+pub mod launch_origin;

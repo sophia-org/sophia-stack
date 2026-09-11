@@ -359,6 +359,7 @@ impl LiveWmSession {
     ) -> Result<LiveWmRequestAdmission, Box<dyn std::error::Error>> {
         let public = self.public.as_mut().ok_or("public WM state is unavailable")?;
         public.launch_classifications.remove(&surface);
+        if let Ok(mut origins) = public.launch_origins.lock() { origins.withdraw(surface); }
         let active = public
             .outputs
             .first()

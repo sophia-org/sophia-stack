@@ -221,6 +221,11 @@ fn x11_peer_credentials(
         X11SetupSocketError::new("X11 peer process ID is outside the supported range")
     })?;
     Ok(Some(XServerFrontendPeerCredentials {
+        process_start_time: sophia_linux_peer::socket_peer_start_time(
+            std::os::fd::AsFd::as_fd(stream),
+            process_id,
+        )
+        .ok(),
         process_id,
         user_id: credentials.uid.as_raw(),
         group_id: credentials.gid.as_raw(),

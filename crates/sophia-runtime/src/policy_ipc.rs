@@ -31,7 +31,8 @@ const POLICY_SUPPORTED_CAPABILITIES: u64 = SOPHIA_WM_CAPABILITY_BINDINGS
     | SOPHIA_WM_CAPABILITY_LAUNCH_PLACEMENT
     | sophia_protocol::SOPHIA_WM_CAPABILITY_TAB_GROUPS
     | sophia_protocol::SOPHIA_WM_CAPABILITY_TRANSLATION_GROUPS
-    | sophia_protocol::SOPHIA_WM_CAPABILITY_POINTER_FOCUS;
+    | sophia_protocol::SOPHIA_WM_CAPABILITY_POINTER_FOCUS
+    | sophia_protocol::SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN;
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum PolicyTransferError {
     NotConnected,
@@ -333,13 +334,18 @@ impl PolicyConnectionState {
                 | sophia_protocol::PROJECTION_TAB_MEMBER_RECORD_KIND
                 | sophia_protocol::PROJECTION_TRANSLATION_GROUP_RECORD_KIND
                 | sophia_protocol::PROJECTION_TRANSLATION_MEMBER_RECORD_KIND
+                | sophia_protocol::PROJECTION_LAUNCH_CONTEXT_RECORD_KIND
         ) {
             let translation = matches!(
                 chunk.record_kind,
                 sophia_protocol::PROJECTION_TRANSLATION_GROUP_RECORD_KIND
                     | sophia_protocol::PROJECTION_TRANSLATION_MEMBER_RECORD_KIND
             );
-            let capability = if translation {
+            let launch_context =
+                chunk.record_kind == sophia_protocol::PROJECTION_LAUNCH_CONTEXT_RECORD_KIND;
+            let capability = if launch_context {
+                sophia_protocol::SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN
+            } else if translation {
                 sophia_protocol::SOPHIA_WM_CAPABILITY_TRANSLATION_GROUPS
             } else {
                 sophia_protocol::SOPHIA_WM_CAPABILITY_TAB_GROUPS
@@ -352,7 +358,12 @@ impl PolicyConnectionState {
             {
                 return Err(PolicyTransferError::RecordCountMismatch);
             }
-            let (size, maximum) = if translation {
+            let (size, maximum) = if launch_context {
+                (
+                    sophia_protocol::LAUNCH_CONTEXT_RECORD_LEN,
+                    sophia_protocol::POLICY_MAX_SURFACES,
+                )
+            } else if translation {
                 if chunk.record_kind == sophia_protocol::PROJECTION_TRANSLATION_GROUP_RECORD_KIND {
                     (32, sophia_protocol::POLICY_MAX_OUTPUTS)
                 } else {
@@ -672,6 +683,31 @@ impl PolicySnapshotAssembler {
             .ok_or(PolicyTransferError::ExcessiveBytes)?;
         let count = chunk.item_count as usize;
         let ordinary_chunk_count = usize::from(transfer.begin.chunk_count);
+        if chunk.record_kind == sophia_protocol::SNAPSHOT_LAUNCH_ORIGIN_RECORD_KIND {
+            if self.selected_capabilities & sophia_protocol::SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN == 0
+            {
+                return Err(PolicyTransferError::UnsupportedCapability);
+            }
+            if transfer.chunks.len() < ordinary_chunk_count
+                || transfer.chunks.len() >= POLICY_MAX_TRANSFER_CHUNKS
+            {
+                return Err(PolicyTransferError::DuplicateOrReorderedChunk);
+            }
+            let prior: usize = transfer
+                .chunks
+                .iter()
+                .filter(|c| c.record_kind == chunk.record_kind)
+                .map(|c| c.item_count as usize)
+                .sum();
+            if count > SOPHIA_WM_MAX_SURFACES.saturating_sub(prior)
+                || chunk.data.len() != count * sophia_protocol::LAUNCH_CONTEXT_RECORD_LEN
+            {
+                return Err(PolicyTransferError::RecordCountMismatch);
+            }
+            transfer.bytes = next_bytes;
+            transfer.chunks.push(chunk);
+            return Ok(());
+        }
         if chunk.record_kind == SNAPSHOT_SURFACE_CLASSIFICATION_RECORD_KIND {
             if self.selected_capabilities & SOPHIA_WM_CAPABILITY_LAUNCH_PLACEMENT == 0 {
                 return Err(PolicyTransferError::UnsupportedCapability);

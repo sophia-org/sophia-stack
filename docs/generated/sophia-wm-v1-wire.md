@@ -398,6 +398,28 @@ Transfer: `snapshot`; record kind: 0xFF00; gated on capability `launch_placement
 | 4 | `surface_generation` | `u32` | little-endian |
 | 8 | `classification` | `u64` | little-endian |
 
+## `ProjectionLaunchContext` extension record
+
+Transfer: `projection`; record kind: 0xFF05; gated on capability `launch_origin`; maximum records: 1024; fixed size: 24 bytes.
+
+| Offset | Field | Type | Rule |
+| ---: | --- | --- | --- |
+| 0 | `surface_index` | `u32` | little-endian |
+| 4 | `surface_generation` | `u32` | little-endian |
+| 8 | `epoch` | `u64` | little-endian |
+| 16 | `token` | `u64` | little-endian |
+
+## `SnapshotLaunchOrigin` extension record
+
+Transfer: `snapshot`; record kind: 0xFF06; gated on capability `launch_origin`; maximum records: 1024; fixed size: 24 bytes.
+
+| Offset | Field | Type | Rule |
+| ---: | --- | --- | --- |
+| 0 | `surface_index` | `u32` | little-endian |
+| 4 | `surface_generation` | `u32` | little-endian |
+| 8 | `epoch` | `u64` | little-endian |
+| 16 | `token` | `u64` | little-endian |
+
 ## `ProjectionTabGroup` extension record
 
 Transfer: `projection`; record kind: 0xFF01; gated on capability `tab_groups`; maximum records: 1024; fixed size: 48 bytes.

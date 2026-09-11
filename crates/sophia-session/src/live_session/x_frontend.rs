@@ -3,6 +3,7 @@ use super::*;
 mod render_device;
 
 pub(super) struct LiveXAdmissionPolicy {
+    pub(super) launch_origins: Arc<Mutex<crate::launch_origin::LaunchOriginRegistry>>,
     pub(super) registry: Arc<Mutex<NamespaceRegistry>>,
     pub(super) namespace: NamespaceId,
     pub(super) session_user_id: u32,
@@ -19,16 +20,35 @@ impl XServerFrontendAdmissionPolicy for LiveXAdmissionPolicy {
         if peer.user_id != self.session_user_id {
             return Err(XServerFrontendAdmissionError::Denied);
         }
-        self.registry
+        let context = self
+            .registry
             .lock()
             .map_err(|_| XServerFrontendAdmissionError::Unavailable)?
             .admit(self.namespace, request.setup_authentication)
-            .map_err(|_| XServerFrontendAdmissionError::Unavailable)
+            .map_err(|_| XServerFrontendAdmissionError::Unavailable)?;
+        if let Some(start_time) = peer.process_start_time {
+            let identity = crate::launch_origin::ProcessIdentity {
+                pid: peer.process_id,
+                start_time,
+            };
+            // Proc I/O runs on this admission worker, never on the display loop.
+            let ancestors = crate::launch_origin::process_ancestors(
+                identity,
+                crate::launch_origin::read_process,
+            );
+            if let Ok(mut origins) = self.launch_origins.lock() {
+                origins.admit(context, identity, &ancestors);
+            }
+        }
+        Ok(context)
     }
 
     fn revoke(&self, context: ClientAdmissionContext) -> Result<(), XServerFrontendAdmissionError> {
         if context.namespace.id != self.namespace {
             return Err(XServerFrontendAdmissionError::Unavailable);
+        }
+        if let Ok(mut origins) = self.launch_origins.lock() {
+            origins.revoke(context);
         }
         self.registry
             .lock()

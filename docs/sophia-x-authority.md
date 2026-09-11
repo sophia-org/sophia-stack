@@ -183,6 +183,16 @@ removes the file on teardown. Multiple independently credentialed confined
 groups on one listener remain before treating the listener as a general local
 X server.
 
+For child-launch placement, Linux admission also captures a process start identity
+while a socket-derived pidfd proves the connector remains alive. Failure to obtain
+that optional evidence leaves ordinary X admission intact. Session-owned ancestry
+resolution runs on the admission worker, outside the display loop; frontend route
+facts associate each new managed top-level with its creating admission. The causing
+client never supplies another window's launch identity. Sophia copies only a
+committed opaque policy context into a child's first admission snapshot; process
+and namespace evidence stays outside Hagia. See
+[child-launch origin](sophia-policy-ipc.md#optional-child-launch-origin).
+
 The live launcher accepts `--namespace-profile=classic|confined`. Classic is
 the default and intentionally shares its namespace among launched terminals.
 Confined allocates a fresh group namespace with explicit zero portal

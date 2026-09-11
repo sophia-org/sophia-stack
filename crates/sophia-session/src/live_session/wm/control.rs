@@ -150,6 +150,7 @@ impl LiveWmSession {
                 public.configured = false;
                 public.negotiated = false;
                 public.selected_capabilities = 0;
+                if let Ok(mut origins) = public.launch_origins.lock() { origins.set_epoch(0); }
                 public.cycle_submitted = false;
                 public.transport_ready = false;
                 public.in_flight_request = None;

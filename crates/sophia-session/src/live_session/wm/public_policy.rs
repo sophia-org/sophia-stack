@@ -227,6 +227,9 @@ struct LivePublicPolicyState {
     /// projection commits. Reconnects replay them; rejected/stale cycles do not
     /// consume them.
     launch_classifications: BTreeMap<SurfaceId, u64>,
+    launch_origins: Arc<Mutex<crate::launch_origin::LaunchOriginRegistry>>,
+    staged_launch_contexts: Vec<sophia_protocol::PolicyLaunchContext>,
+    in_flight_origin_surfaces: Vec<SurfaceId>,
     outputs: Vec<sophia_engine::HeadlessOutput>,
     output_bounds: BTreeMap<sophia_protocol::OutputId, Rect>,
     output_generations: BTreeMap<sophia_protocol::OutputId, u64>,
@@ -1464,6 +1467,15 @@ impl LivePublicPolicyState {
     /// never coming and died on its socket deadline, and the resulting restarts
     /// exhausted the supervisor budget.
     fn settle_public_projection(&mut self, outcome: sophia_protocol::PolicyProjectionOutcome) {
+        if outcome == sophia_protocol::PolicyProjectionOutcome::Committed
+            && let Ok(mut origins) = self.launch_origins.lock()
+        {
+            origins.publish(self.connection_epoch, &self.staged_launch_contexts);
+            origins.committed(self.in_flight_origin_surfaces.iter().copied());
+        }
+        self.staged_launch_contexts.clear();
+        self.in_flight_origin_surfaces.clear();
+
         if let Some(sophia_protocol::PolicyProjectionRequest {
             cause: sophia_protocol::PolicyRequestCause::Action { activation_serial, .. }, ..
         }) = self.in_flight_request.as_ref()
@@ -2211,6 +2223,9 @@ impl LiveWmSession {
             actions: Vec::new(),
             accepted_configuration: None,
             launch_classifications: BTreeMap::new(),
+            launch_origins: Arc::new(Mutex::new(crate::launch_origin::LaunchOriginRegistry::default())),
+            staged_launch_contexts: Vec::new(),
+            in_flight_origin_surfaces: Vec::new(),
             outputs: outputs.to_vec(),
             output_bounds,
             output_generations,
@@ -2320,6 +2335,7 @@ impl LiveWmSession {
             }
             Ok(Some(PolicyTransportEvent::ReadyForCycle { capabilities })) => {
                 public.selected_capabilities = capabilities;
+                if let Ok(mut origins) = public.launch_origins.lock() { origins.set_epoch(if capabilities & sophia_protocol::SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN != 0 { public.connection_epoch } else { 0 }); }
                 public.transport_ready = true;
                 None
             }
@@ -2381,7 +2397,8 @@ impl LiveWmSession {
                             reconciliation.adjusted_surfaces,
                         );
                     }
-                    match public.reducer.stage_proposal(&reconciliation.policy) {
+                    let context_valid = projection.launch_contexts.iter().all(|context| context.epoch == public.connection_epoch && public.reducer.scene().surfaces.iter().any(|s| s.surface == context.surface));
+                    match if context_valid { public.reducer.stage_proposal(&reconciliation.policy) } else { Err(sophia_protocol::PolicyProjectionOutcome::RejectedInvalid) } {
                     Ok(staged) => {
                         let expected_operation_slot = match source {
                             LiveWmProposalSource::Action(action) => public
@@ -2403,6 +2420,7 @@ impl LiveWmSession {
                         public.expected_operation_slot = expected_operation_slot;
                         let projections = staged.projections();
                         let active_output = projection.active_output;
+                        public.staged_launch_contexts = projection.launch_contexts.clone();
                         public.staged = Some(staged);
                         let mut live = public_live_proposal(
                             layout,
@@ -2583,6 +2601,8 @@ impl LiveWmSession {
             let request_transaction = public.mint_transaction()?;
             let classifications =
                 public_launch_classification_snapshot(&public.launch_classifications, &scene);
+            let launch_origins = public.launch_origins.lock().map(|r| r.origins(scene.surfaces.iter().map(|s| s.surface))).unwrap_or_default();
+            public.in_flight_origin_surfaces = launch_origins.iter().map(|c| c.surface).collect();
             public
                 .worker
                 .as_ref()
@@ -2593,6 +2613,7 @@ impl LiveWmSession {
                     scene: Box::new(scene),
                     actions: public.actions.clone(),
                     classifications,
+                    launch_origins,
                     request: request.clone(),
                 })
                 .map_err(|_| "public WM cycle queue is busy")?;

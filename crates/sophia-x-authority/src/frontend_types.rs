@@ -55,6 +55,8 @@ impl XServerFrontendSetupAuthorization {
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct XServerFrontendPeerCredentials {
+    /// Optional provenance evidence; unavailable kernels keep ordinary placement.
+    pub process_start_time: Option<u64>,
     pub process_id: u32,
     pub user_id: u32,
     pub group_id: u32,

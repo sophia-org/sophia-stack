@@ -85,6 +85,7 @@ fn snapshot_focus_without_its_usable_surface_fails_both_codec_directions() {
 #[test]
 fn complete_output_projection_roundtrips_in_stacking_order() {
     let proposal = PolicyProjectionProposal {
+        launch_contexts: Vec::new(),
         translation_groups: Vec::new(),
         tab_groups: Vec::new(),
         transaction: TransactionId::from_raw(11),
@@ -144,6 +145,7 @@ fn complete_output_projection_roundtrips_in_stacking_order() {
 #[test]
 fn projection_record_count_mismatch_fails_closed() {
     let proposal = PolicyProjectionProposal {
+        launch_contexts: Vec::new(),
         translation_groups: Vec::new(),
         tab_groups: Vec::new(),
         transaction: TransactionId::from_raw(13),
@@ -694,4 +696,84 @@ fn surface() -> PolicySurfaceSnapshot {
             height: 600,
         },
     }
+}
+
+#[test]
+fn launch_origin_extension_roundtrips_without_changing_frozen_counts() {
+    use sophia_protocol::*;
+    let scene = gated_scene();
+    let context = PolicyLaunchContext {
+        surface: scene.surfaces[0].surface,
+        epoch: 2,
+        token: 41,
+    };
+    let original =
+        encode_wm_v1_policy_snapshot(TransactionId::from_raw(9), 2, &scene, &[], &[], 0).unwrap();
+    let mut transfer = original.clone();
+    append_wm_launch_origins(&mut transfer, &[context], 0).unwrap();
+    assert_eq!(transfer, original);
+    append_wm_launch_origins(
+        &mut transfer,
+        &[context],
+        SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN,
+    )
+    .unwrap();
+    assert_eq!(transfer.begin, original.begin);
+    assert_eq!(transfer.end, original.end);
+    assert_eq!(
+        decode_wm_v1_policy_snapshot(&transfer)
+            .unwrap()
+            .launch_origins,
+        vec![context]
+    );
+    let mut stale = context;
+    stale.epoch = 1;
+    assert!(
+        append_wm_launch_origins(&mut transfer, &[stale], SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN)
+            .is_err()
+    );
+    let last = transfer.chunks.last_mut().unwrap();
+    last.data[0..4].copy_from_slice(&999_u32.to_le_bytes());
+    assert!(decode_wm_v1_policy_snapshot(&transfer).is_err());
+}
+
+#[test]
+fn launch_bookmarks_reject_ambiguous_identity_and_cross_chunk_duplicates() {
+    use sophia_protocol::*;
+    let context = PolicyLaunchContext {
+        surface: SurfaceId::new(0, 1),
+        epoch: 2,
+        token: 41,
+    };
+    let bytes = encode_wm_launch_context_records(&[context]).unwrap();
+    assert_eq!(bytes.len(), 24);
+    assert_eq!(
+        decode_wm_launch_context_records(&bytes, 1).unwrap(),
+        vec![context]
+    );
+    assert!(decode_wm_launch_context_records(&bytes[..23], 1).is_err());
+    for invalid in [
+        PolicyLaunchContext {
+            surface: SurfaceId::new(u32::MAX, 1),
+            ..context
+        },
+        PolicyLaunchContext {
+            surface: SurfaceId::new(0, 0),
+            ..context
+        },
+        PolicyLaunchContext {
+            epoch: 0,
+            ..context
+        },
+        PolicyLaunchContext {
+            token: 0,
+            ..context
+        },
+    ] {
+        assert!(encode_wm_launch_context_records(&[invalid]).is_err());
+    }
+    let mut chunks = encode_wm_launch_contexts(&[context], 2, 0).unwrap();
+    assert!(encode_wm_launch_contexts(&[context], 3, 0).is_err());
+    chunks.extend(encode_wm_launch_contexts(&[context], 2, 1).unwrap());
+    assert!(decode_wm_launch_contexts(&chunks).is_err());
 }

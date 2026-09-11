@@ -13,6 +13,7 @@ protocol "sophia_wm_v1" frame-version=1 interface-major=1 interface-revision=3 m
     capability "tab_groups" bit=11
     capability "translation_groups" bit=12
     capability "pointer_focus" bit=13
+    capability "launch_origin" bit=14
 
     outcome "committed" value=1
     outcome "rejected_stale" value=2
@@ -123,6 +124,19 @@ protocol "sophia_wm_v1" frame-version=1 interface-major=1 interface-revision=3 m
         field "surface_index" type="u32" sample=3
         field "surface_generation" type="u32" sample=1
         field "classification" type="u64" sample=2
+    }
+
+    extension-record "ProjectionLaunchContext" transfer="projection" kind=65285 gate="launch_origin" max=1024 {
+        field "surface_index" type="u32" sample=3
+        field "surface_generation" type="u32" sample=1
+        field "epoch" type="u64" sample=1
+        field "token" type="u64" sample=1
+    }
+    extension-record "SnapshotLaunchOrigin" transfer="snapshot" kind=65286 gate="launch_origin" max=1024 {
+        field "surface_index" type="u32" sample=3
+        field "surface_generation" type="u32" sample=1
+        field "epoch" type="u64" sample=1
+        field "token" type="u64" sample=1
     }
 
     // Tab chrome is committed with affected-output placement; extension chunks

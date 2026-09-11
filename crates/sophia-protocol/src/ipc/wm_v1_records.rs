@@ -71,6 +71,7 @@ pub struct WmV1SnapshotTransfer {
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct WmV1DecodedSnapshot {
+    pub launch_origins: Vec<crate::PolicyLaunchContext>,
     pub scene: PolicySceneSnapshot,
     pub actions: Vec<PolicyActionRegistration>,
     pub classifications: Vec<PolicySurfaceClassification>,
@@ -962,6 +963,7 @@ pub fn decode_wm_v1_policy_snapshot(
                     chunk.item_count,
                 )?)
             }
+            (false, super::SNAPSHOT_LAUNCH_ORIGIN_RECORD_KIND) => {}
             (_, other) => return Err(invalid("snapshot_record_kind", u32::from(other))),
         }
     }
@@ -1048,7 +1050,30 @@ pub fn decode_wm_v1_policy_snapshot(
             })
         })
         .collect::<Result<Vec<_>, IpcCodecError>>()?;
+    let mut launch_origins = Vec::new();
+    for chunk in transfer
+        .chunks
+        .iter()
+        .filter(|c| c.record_kind == super::SNAPSHOT_LAUNCH_ORIGIN_RECORD_KIND)
+    {
+        if chunk.item_count == 0 {
+            return Err(invalid("launch_origin_capability", 0));
+        }
+        launch_origins.extend(super::decode_wm_launch_context_records(
+            &chunk.data,
+            chunk.item_count,
+        )?);
+    }
+    super::encode_wm_launch_context_records(&launch_origins)?;
+    for origin in &launch_origins {
+        if origin.epoch != transfer.begin.connection_epoch
+            || !live_surfaces.contains(&origin.surface)
+        {
+            return Err(invalid("launch_origin_surface", 0));
+        }
+    }
     Ok(WmV1DecodedSnapshot {
+        launch_origins,
         scene,
         actions: actions
             .into_iter()
@@ -1187,6 +1212,11 @@ pub fn encode_wm_v1_policy_projection(
         proposal.connection_epoch,
         chunks.len() as u16,
     )?);
+    chunks.extend(super::encode_wm_launch_contexts(
+        &proposal.launch_contexts,
+        proposal.connection_epoch,
+        chunks.len() as u16,
+    )?);
     let begin = WmV1ProjectionBegin {
         connection_epoch: proposal.connection_epoch,
         request_id: proposal.request_id,
@@ -1260,6 +1290,7 @@ pub fn decode_wm_v1_policy_projection(
             | super::PROJECTION_TAB_MEMBER_RECORD_KIND
             | super::PROJECTION_TRANSLATION_GROUP_RECORD_KIND
             | super::PROJECTION_TRANSLATION_MEMBER_RECORD_KIND
+            | super::PROJECTION_LAUNCH_CONTEXT_RECORD_KIND
                 if ordinal >= usize::from(transfer.begin.chunk_count) => {}
             other => return Err(invalid("projection_record_kind", u32::from(other))),
         }
@@ -1289,6 +1320,7 @@ pub fn decode_wm_v1_policy_projection(
         return Err(invalid("placement_count", transfer.begin.placement_count));
     }
     Ok(PolicyProjectionProposal {
+        launch_contexts: super::decode_wm_launch_contexts(&transfer.chunks)?,
         translation_groups: super::decode_wm_translation_groups(&transfer.chunks)?,
         tab_groups: super::decode_wm_tab_groups(&transfer.chunks)?,
         transaction: transfer.transaction,

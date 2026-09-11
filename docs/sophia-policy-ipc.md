@@ -501,3 +501,49 @@ current per-role conformance scripts must converge behind one family-level
 entry point before shell stabilization so a contributor can validate the
 common contract and all stable role specializations without discovering a
 tool-specific protocol.
+
+## Optional child-launch origin
+
+Capability bit 14 (`launch_origin`) gates two uncounted extension records:
+`ProjectionLaunchContext` (`0xff05`, policy to session) and
+`SnapshotLaunchOrigin` (`0xff06`, session to policy). Each is 24 bytes:
+surface index and generation (u32 each), connection epoch and token (u64 each).
+Index zero is valid; generation, epoch and token must be nonzero. Both transfers
+reject duplicate subjects, mismatched epochs and more than 1024 records. Their
+chunks follow the ordinary counted prefix and do not change its begin/end counts.
+Neither direction sends these records unless the capability was negotiated.
+
+Policy publishes a context for each live managed top-level, including hidden
+windows. The opaque token denotes immutable logical output and tag membership;
+Sophia neither interprets nor edits that destination. Contexts become available
+to Sophia only after Engine commits the corresponding projection. They are
+session-local, bounded and invalidated when the WM connection epoch changes.
+Policy retains old destinations while space permits; an unknown, evicted token
+or destination whose output has disappeared falls back to normal placement.
+Contexts never enter checkpoints.
+
+At a new X connection, Sophia authenticates the connector using socket peer
+credentials and a socket-derived pidfd, captures its process start identity,
+and verifies a bounded ancestry chain (at most 64 links). The closest live
+ancestor with a managed surface supplies the context. If that process owns
+multiple windows, recorded successful keyboard focus selects the most recently
+focused one; absent evidence means no origin hint. Missing, unstable, inaccessible
+or excessive ancestry also means no hint. The session keeps all process and
+namespace evidence private. Only the opaque context crosses into policy.
+
+The context is frozen at connection admission and applies to that process's
+first new managed top-level. Switching output or workspace before it maps cannot
+rewrite the context. The pending hint survives a rejected candidate and is
+consumed only after a committed projection admits the surface. Source teardown
+after capture does not erase a frozen hint; WM restart invalidates all unconsumed
+hints from the previous epoch. Existing windows are never relocated by a hint.
+Single-instance forwarding without a provable new child connection uses normal
+placement; this mechanism does not swallow the launching terminal.
+
+Placement precedence is restored placement or valid transient ownership,
+explicit registered-launch classification, child origin, then ordinary policy.
+Registered classifications require process provenance matching the supervised
+launch, so concurrent unrelated surfaces cannot consume them. A child sent to a
+background origin does not switch the active output, view or keyboard focus.
+Debug admission diagnostics report context availability without application or
+process identifiers.

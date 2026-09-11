@@ -85,9 +85,13 @@ Add bounded target-resolved move, resize, drag, and scrolling interactions.
 
 ## t041
 
-Extend launch-placement or output-scoped workspace policy only for a named
-unmet workflow; opaque launch provenance and active-output selection already
-exist. Native tab implementation is complete; acceptance belongs to CP-14.3.
+User promoted the named workflow on 2026-09-11: new child applications launched
+from Kitty retain origin output/workspace while the user switches away, and
+Triad-derived floating/dialog regressions cover geometry, stacking, and focus.
+The approved implementation and evidence are recorded in the
+[owning investigation](../investigations/bwffe5lv-triad-floating-regressions-and-child-launch-origins.md).
+No swallowing, metadata rules, or existing-instance forwarding is admitted.
+Exit requires both contributor gates and separate installed two-output acceptance.
 
 
 ## t042

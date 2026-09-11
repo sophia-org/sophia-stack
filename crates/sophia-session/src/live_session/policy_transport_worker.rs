@@ -28,6 +28,7 @@ pub(super) enum PolicyTransportCommand {
         scene: Box<PolicySceneSnapshot>,
         actions: Vec<PolicyActionRegistration>,
         classifications: Vec<sophia_protocol::PolicySurfaceClassification>,
+        launch_origins: Vec<sophia_protocol::PolicyLaunchContext>,
         request: PolicyProjectionRequest,
     },
     ProjectionOutcome {
@@ -268,9 +269,10 @@ fn run_policy_transport(
                 scene,
                 actions,
                 classifications,
+                launch_origins,
                 request,
             } => {
-                let snapshot = encode_wm_v1_policy_snapshot(
+                let mut snapshot = encode_wm_v1_policy_snapshot(
                     snapshot_transaction,
                     connection_epoch,
                     &scene,
@@ -279,6 +281,12 @@ fn run_policy_transport(
                     transport.selected_capabilities(),
                 )
                 .map_err(|error| format!("policy snapshot encode failed: {error:?}"))?;
+                sophia_protocol::append_wm_launch_origins(
+                    &mut snapshot,
+                    &launch_origins,
+                    transport.selected_capabilities(),
+                )
+                .map_err(|e| format!("launch origin encode: {e:?}"))?;
                 transport
                     .send_snapshot(
                         snapshot.transaction,
@@ -325,6 +333,13 @@ fn run_policy_transport(
                         }
                     }
                 };
+                if !proposal.launch_contexts.is_empty()
+                    && transport.selected_capabilities()
+                        & sophia_protocol::SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN
+                        == 0
+                {
+                    return Err("unnegotiated launch context".to_owned());
+                }
                 events
                     .send(PolicyTransportEvent::Projection(proposal))
                     .map_err(|_| "policy owner event channel disconnected".to_owned())?;

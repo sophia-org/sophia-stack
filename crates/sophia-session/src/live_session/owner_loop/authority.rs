@@ -513,7 +513,25 @@
                         }
                     }
                     for surface in layout_observation.new_surfaces {
-                        if let Some(observation) = session_launches.observe_surface(surface) {
+                        if layout.is_policy_managed(surface)
+                            && layout.layout_facts(surface).is_some_and(|f| f.kind == sophia_protocol::LayoutNodeKind::Toplevel)
+                            && let Some(admission) = layout.client_routes.admission_for_surface(surface)
+                            && let Ok(mut origins) = launch_origins.lock() {
+                            origins.observe_toplevel(surface, admission);
+                        }
+                        // A concurrently connecting application is not evidence for
+                        // whichever registered launch happens to be awaiting a window.
+                        let registered_process = session_launches.admission().and_then(|a| {
+                            secondary_children.iter().find(|child| child.launch_transaction == Some(a.intent.transaction)
+                                && child.catalog_launch == session_launches.catalog_admission(a.intent.transaction))
+                                .and_then(|child| child.process_identity)
+                        });
+                        let registered_owner = registered_process.is_some_and(|process| {
+                            layout.client_routes.admission_for_surface(surface).is_some_and(|admission| {
+                                launch_origins.lock().is_ok_and(|r| r.belongs_to_process(admission, process))
+                            })
+                        });
+                        if registered_owner && let Some(observation) = session_launches.observe_surface(surface) {
                             if let Some(classification) = observation.placement_classification
                                 && let Some(wm_session) = wm_session.as_mut()
                             {

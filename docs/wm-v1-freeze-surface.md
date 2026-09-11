@@ -15,6 +15,10 @@ before writing unless capability bit 13 was selected. This is the gated enum
 addition anticipated by the direction rule below; existing cause encodings and
 message layouts remain unchanged. See [the wire contract](sophia-policy-ipc.md#optional-presented-pointer-focus).
 
+The optional `launch_origin` capability (bit 14) adds paired uncounted extension
+chunks `0xff05` and `0xff06`, with unchanged ordinary record counts and layouts.
+Both directions are gated; see [child-launch origin](sophia-policy-ipc.md#optional-child-launch-origin).
+
 The survey outlived the freeze, because the facts in it are about wire cost
 rather than permission. Knowing which rows are additive, which need a new
 message kind, and which need a new revision is what makes it possible to

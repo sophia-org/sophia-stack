@@ -1,8 +1,13 @@
 use std::os::fd::{AsFd, AsRawFd};
 use std::os::unix::net::UnixStream;
 
+// The leak assertion counts process-wide descriptors. Keep the other socket
+// fixture from opening/closing descriptors during that measurement.
+static SOCKET_FIXTURES: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[test]
 fn pidfd_is_cloexec_and_rejected_rights_do_not_leak_on_peek_or_truncation() {
+    let _guard = SOCKET_FIXTURES.lock().unwrap();
     let (sender, receiver) = UnixStream::pair().unwrap();
     let pidfd = sophia_linux_peer::socket_peer_pidfd(receiver.as_fd()).unwrap();
     // SAFETY: F_GETFD inspects an owned descriptor and takes no output pointer.
@@ -55,4 +60,18 @@ fn pidfd_is_cloexec_and_rejected_rights_do_not_leak_on_peek_or_truncation() {
             );
         }
     }
+}
+
+#[test]
+fn start_time_is_bound_to_the_socket_connector() {
+    let _guard = SOCKET_FIXTURES.lock().unwrap();
+    let (_sender, receiver) = UnixStream::pair().unwrap();
+    let pid = std::process::id();
+    let start = sophia_linux_peer::socket_peer_start_time(receiver.as_fd(), pid).unwrap();
+    assert!(start > 0);
+    assert!(sophia_linux_peer::socket_peer_start_time(receiver.as_fd(), 0).is_err());
+    assert!(
+        sophia_linux_peer::socket_peer_start_time(receiver.as_fd(), if pid == 1 { 2 } else { 1 })
+            .is_err()
+    );
 }

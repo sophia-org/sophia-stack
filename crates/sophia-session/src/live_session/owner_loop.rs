@@ -13,6 +13,7 @@ struct SessionLoopChannels<'a> {
 }
 
 struct SessionLoopResources<'a> {
+    launch_origins: &'a Arc<Mutex<crate::launch_origin::LaunchOriginRegistry>>,
     child: Option<&'a mut Child>,
     secondary_children: &'a mut Vec<ManagedSessionChild>,
     physical_input: &'a mut Option<SessionPhysicalInput>,
@@ -265,6 +266,7 @@ fn run_session_loop_inner(
         metadata_candidates: metadata_candidate_receiver,
     } = channels;
     let SessionLoopResources {
+        launch_origins,
         mut child,
         secondary_children,
         physical_input,

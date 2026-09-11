@@ -491,3 +491,138 @@ fn translation_extensions_require_negotiation_and_preserve_prefix_count() {
         }
     }
 }
+
+#[test]
+fn launch_origin_extensions_require_negotiation_and_preserve_the_prefix() {
+    use sophia_protocol::*;
+    for enabled in [false, true] {
+        let mut connection = PolicyConnectionState::default();
+        connection.connect(1).unwrap();
+        connection
+            .negotiate(&WmV1ClientHello {
+                minimum_revision: 3,
+                maximum_revision: 3,
+                capabilities: if enabled {
+                    SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN
+                } else {
+                    0
+                },
+            })
+            .unwrap();
+        let tx = TransactionId::from_raw(90);
+        connection
+            .begin_projection(tx, projection_begin(1))
+            .unwrap();
+        let extension = |ordinal| {
+            encode_wm_launch_contexts(
+                &[PolicyLaunchContext {
+                    surface: SurfaceId::new(0, 1),
+                    epoch: 1,
+                    token: 7,
+                }],
+                1,
+                ordinal,
+            )
+            .unwrap()
+            .remove(0)
+        };
+        assert!(
+            connection
+                .append_projection_chunk(tx, extension(0))
+                .is_err()
+        );
+        connection
+            .append_projection_chunk(tx, projection_chunk(1, 0, 1, 1))
+            .unwrap();
+        connection
+            .append_projection_chunk(tx, projection_chunk(1, 1, 2, 2))
+            .unwrap();
+        let appended = connection.append_projection_chunk(tx, extension(2));
+        if enabled {
+            appended.unwrap();
+            connection.finish_projection(tx, projection_end(1)).unwrap();
+        } else {
+            assert_eq!(appended, Err(PolicyTransferError::UnsupportedCapability));
+        }
+    }
+}
+
+#[test]
+fn snapshot_launch_origins_are_gated_bounded_and_transactional() {
+    use sophia_protocol::*;
+    for capabilities in [0, SOPHIA_WM_CAPABILITY_LAUNCH_ORIGIN] {
+        let mut assembler =
+            PolicySnapshotAssembler::new_with_capabilities(8, capabilities).unwrap();
+        let transaction = TransactionId::from_raw(41);
+        assembler
+            .begin(
+                transaction,
+                WmV1SnapshotBegin {
+                    connection_epoch: 8,
+                    scene_generation: 13,
+                    active_output: 1,
+                    chunk_count: 2,
+                    output_count: 1,
+                    surface_count: 1,
+                    action_count: 0,
+                    session_operation_count: 0,
+                },
+            )
+            .unwrap();
+        let extension = |ordinal| WmV1SnapshotChunk {
+            connection_epoch: 8,
+            ordinal,
+            record_kind: SNAPSHOT_LAUNCH_ORIGIN_RECORD_KIND,
+            item_count: 1,
+            data: encode_wm_launch_context_records(&[PolicyLaunchContext {
+                surface: SurfaceId::new(0, 1),
+                epoch: 8,
+                token: 9,
+            }])
+            .unwrap(),
+        };
+        assert!(assembler.append(transaction, extension(0)).is_err());
+        for (ordinal, record_kind) in [(0, 1), (1, 2)] {
+            assembler
+                .append(
+                    transaction,
+                    WmV1SnapshotChunk {
+                        connection_epoch: 8,
+                        ordinal,
+                        record_kind,
+                        item_count: 1,
+                        data: vec![1],
+                    },
+                )
+                .unwrap();
+        }
+        if capabilities == 0 {
+            assert_eq!(
+                assembler.append(transaction, extension(2)),
+                Err(PolicyTransferError::UnsupportedCapability)
+            );
+        } else {
+            let mut oversized = extension(2);
+            oversized.item_count = 1025;
+            oversized.data = vec![0; 1025 * 24];
+            assert!(assembler.append(transaction, oversized).is_err());
+            let mut malformed = extension(2);
+            malformed.data.pop();
+            assert!(assembler.append(transaction, malformed).is_err());
+            assembler.append(transaction, extension(2)).unwrap();
+            let transfer = assembler
+                .finish(
+                    transaction,
+                    WmV1SnapshotEnd {
+                        connection_epoch: 8,
+                        scene_generation: 13,
+                        chunk_count: 2,
+                    },
+                )
+                .unwrap()
+                .into_wire_transfer();
+            assert_eq!(transfer.begin.chunk_count, 2);
+            assert_eq!(transfer.chunks.len(), 3);
+        }
+    }
+}

@@ -34,6 +34,10 @@ macro_rules! service_session_controls {
                     }
                     if applied_client_focus == Some(completion.key.surface) {
                         applied_client_focus = None;
+                        if let Some(public) = wm_session.as_ref().and_then(|wm| wm.public.as_ref())
+                            && let Ok(mut origins) = public.launch_origins.lock() {
+                            origins.focused(None);
+                        }
                     }
                     crate::session_println!(
                         "sophia_live_session_control schema=1 status=stale_target_retired kind={:?} transaction={} surface={}",
@@ -56,6 +60,10 @@ macro_rules! service_session_controls {
                 && focus.focused_surface(seat) == Some(completion.key.surface)
             {
                 applied_client_focus = Some(completion.key.surface);
+                if let Some(public) = wm_session.as_ref().and_then(|wm| wm.public.as_ref())
+                    && let Ok(mut origins) = public.launch_origins.lock() {
+                    origins.focused(applied_client_focus);
+                }
                 let _ = reduce_session_startup(
                     &mut startup_readiness,
                     SessionStartupEvent::PinSurface(completion.key.surface),
@@ -330,6 +338,10 @@ macro_rules! release_surface_input_standing {
         }
         if applied_client_focus == Some(surface) {
             applied_client_focus = None;
+            if let Some(public) = wm_session.as_ref().and_then(|wm| wm.public.as_ref())
+                && let Ok(mut origins) = public.launch_origins.lock() {
+                origins.focused(None);
+            }
         }
         if input_content_surface == Some(surface) {
             input_content_surface = None;
@@ -576,6 +588,10 @@ macro_rules! apply_wm_commit_result {
                 })?;
             focus.clear_focus(seat);
             applied_client_focus = None;
+            if let Some(public) = wm_session.as_ref().and_then(|wm| wm.public.as_ref())
+                && let Ok(mut origins) = public.launch_origins.lock() {
+                origins.focused(None);
+            }
             keyboard_focus_handoff = KeyboardFocusHandoffState::default();
             deferred_physical_key_timings.clear();
             layout.focus_to_apply = None;

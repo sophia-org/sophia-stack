@@ -6,147 +6,226 @@ tags: [plan, milestone]
 ---
 # Concrete design for admitted synthetic input
 
-Status: proposed. No implementation or deployment authorized.
+Status: proposed, revised after review of `c2b6e262`. No implementation or
+deployment authorized.
 
 Authority, principles and the operator's chosen constraints live in
 [htm85gg0](../decisions/htm85gg0-admission-ingress-and-provenance-for-synthetic-input.md).
-This note says how to satisfy them and is reviewable against code. It does not
-restate their normative text.
+This note says how to satisfy them and does not restate their normative text.
+
+## Corrections to the previous revision
+
+Three claims about this codebase were wrong and are withdrawn:
+
+- **The owner loop does not iterate once per frame.** `primary_frame_pacer`
+  gates repaint and caps waits; `owner_loop/authority.rs:18-90` shows the loop
+  turning on work availability and preemption. "1ms is 6% of a frame" conflated
+  a turn with a frame and is withdrawn along with the derived drain claim.
+- **There is no existing atomic revocation boundary to join.**
+  `physical_input_phase.rs:936` is a local boolean inside an output-topology
+  macro. `input.rs:334` advances leases and the broker control epoch; its
+  callers separately clear captures, repeats and handoffs, and
+  `owner_loop/lifecycle.rs:44` is a second caller for seat release. This is
+  infrastructure to extend, and the extension is specified below rather than
+  assumed.
+- **`client_keys.rs`'s focus check is a repeat guard.** It decides whether a
+  key *repeat* is still deliverable. It is not evidence that dropping a release
+  is safe, and the previous design leaned on it as if it were.
 
 ## Owning components and state
 
 | Concern | Owner | State |
 | --- | --- | --- |
-| Grant issuance, revocation | Session | grant table keyed by `ClientAdmissionId` |
+| Grant issue and revoke | Session | grants keyed by `ClientAdmissionId` |
 | Admission predicates | Session, reusing Control v1's | pinned peer, credentials, namespaces |
-| Request decode, refusal | `sophia-x-authority` dispatch | none |
-| Pending delayed request | `sophia-x-authority`, per connection | at most one, see below |
-| Contribution ledger | Engine, beside `KeyRepeat` | per `(seat, keycode/button)` source set |
+| Decode, refusal, imperviousness | `sophia-x-authority` connection | per-connection grant handle |
+| Delayed request | `sophia-x-authority` connection | one `PendingSynthetic` |
+| Contribution ledger | Engine, beside `KeyRepeat` | see below |
 | Routing, focus, grabs | Engine | unchanged |
 
-The contribution ledger is the one genuinely new structure. Everything else
-extends something that exists.
+### Contribution ledger
 
-## Connection admission and discovery
+Per `(seat, input)` where input is a keycode or a button:
 
-A grant is issued per X connection, after the startup-only option is enabled
-*and* the connection independently satisfies the host-user predicates. It binds
-`(ClientAdmissionId, session identity, seat, grant generation, security epoch)`.
+```
+sources:   Set<SourceId>              // physical device ids and grant ids
+recipient: Option<DeliveredTo>        // surface, lease, epoch, device
+```
 
-Discovery reads the same grant. `advertised_extension_names()` and
-`extension_query_result` both consult it, from one function, so the two cannot
-disagree -- the property t086 repaired by hand and which a second enumeration
-path would reintroduce. Without a grant, XTEST is absent from both.
+`DeliveredTo` is recorded **at delivery of the first press**, not recomputed at
+release. That is what makes a last-holder release targetable after focus has
+moved, which the repeat guard cannot do.
 
-## Contribution ledger and duplicate transitions
+## Contribution state machine
 
-Each held key or button carries a set of contributing sources, physical and
-synthetic alike. Transitions:
+| From | Event | To | Delivery |
+| --- | --- | --- | --- |
+| empty | press(S) | {S} | **deliver press**, record `DeliveredTo` |
+| {..S..} | press(S) | unchanged | none; duplicate is not a second hold |
+| nonempty, S absent | press(S) | +S | none; already held |
+| S absent | release(S) | unchanged | none; refusal recorded |
+| size>1 | release(S) | -S | none; survivor keeps the hold |
+| {S} | release(S) | empty | **deliver release to recorded `DeliveredTo`** |
 
-- **Press from a source already holding** -- no aggregate change, ledger
-  unchanged. The duplicate is not an error and not a second hold.
-- **Press from a new source** -- source added. Aggregate already held, so no
-  delivery.
-- **Release from a source not holding** -- ignored, refusal recorded.
-- **Release from a holder that is not the last** -- source removed, no delivery.
-  This is the physical+A and A+B case: the survivor keeps the hold.
-- **Release from the last holder** -- source removed, aggregate now clear, and
-  authority-owned reconciliation delivers the release to the existing recipient
-  under the current target, lease and epoch rules.
+Release delivery targets the recorded recipient, not current focus, so a
+retirement after focus moved to B still clears A. If that delivery fails --
+recipient gone, lease stale, epoch advanced -- the ledger entry is retired and
+the failure recorded; it is never retargeted onto whoever now has focus.
 
-`client_keys.rs` already models a pressed key as
-`SessionClientPressedKey { surface, seat, device, keycode }` and validates the
-target is still current before delivering a repeat. The ledger reuses that
-validation: a reconciling release delivers only where the existing target is
-still current, and otherwise cancels rather than retargeting.
+Modifier and repeat ownership follow the aggregate: repeat is cancelled when a
+synthetic source that owned it retires, and left alone when a survivor remains.
+A passive grab activated in a target client by synthetic input is the target's;
+retirement delivers the release that would ordinarily end it and does not cancel
+the grab directly.
 
-## Delay and scheduling
+## Delayed request lifecycle
 
-The owner loop is paced by `primary_frame_interval`, derived from
-`head.refresh_millihz` -- 16.67ms at 60Hz. Every number below is a fraction of
-that, and none is a preemption promise.
+A delay cannot be a sleep. `connection/dispatch.rs:575` reads synchronously and
+then busy-waits on `server_owner` with a 1ms sleep; a sleeping connection cannot
+observe EOF, revocation, or a completion it must wait for.
 
-- **Service budget: 1ms per turn**, about 6% of a 60Hz frame. Chosen so that
-  synthetic work cannot displace composition or physical input in the same turn.
-  The budget stops *starting* new synthetic work; an operation already running
-  completes. A non-preemptible operation can overrun it and the design does not
-  claim otherwise.
-- **16 events per owner turn**, so a saturated seat drains in about one frame
-  rather than starving over many.
-- **Round robin across ready sources**, so one injector cannot monopolise.
-- **Physical input, revocation and cleanup are serviced before normal synthetic
-  work**, unconditionally.
+States, owned by the connection thread:
 
-A delay is a `Deadline` per pending source, checked against the loop's existing
-`Instant` reads. The full CARD32 millisecond range is accepted -- about 49.7
-days -- because clamping would change conformant XTEST behaviour. A long delay
-occupies one deadline and one buffered request, nothing that scales with its
-length, and does not block the server, disconnect, or revocation. Only that
-client's own later protocol work waits.
+| State | Waits on | Leaves on |
+| --- | --- | --- |
+| `Ready` | socket read | request decoded |
+| `Submitted` | completion channel | Session acknowledges processing |
+| `Delayed` | deadline, completion, revocation, **socket readability** | whichever fires |
+| `Retiring` | cleanup acknowledgement | contributions retired |
 
-## The atomic boundary
+`Delayed` and `Submitted` wait on a poll over the socket FD *and* the channel, so
+EOF is observed even with unread pipelined bytes behind the delay, and
+revocation does not wait for the deadline. Ingress is paused: no further request
+is read, and the bounded receive buffer plus socket backpressure hold the peer.
+Descriptors already received stay in `pending_request_fds` and are counted
+against the existing arity cap.
 
-Revocation already has a boundary in this loop.
-`physical_input_phase.rs:936` advances the security epoch and then
-`advance_application_input_security_epoch` revokes input leases, floating
-pointer interaction and chrome captures, resets the focus handoffs, and calls
-`key_repeat.cancel_seat(seat)`.
+The delay **starts when Session accepts the request** and ends when Session
+acknowledges that the simulated input has been *processed*, not when the timer
+expires and not at enqueue. Subsequent requests from that connection resume only
+then, which is what the protocol requires. Sequence numbers and errors stay with
+the connection thread; Session returns a completion, not a reply.
 
-Synthetic grants join that boundary rather than inventing one. At an epoch
-advance: grants bound to the old epoch stop being valid, pending delayed
-requests bound to it do not execute, and their contributions retire under the
-ledger rules above. Work already committed past the boundary is not undone.
-Focus, grab and security resolution are already coherent there, which is the
-reason to use it.
+Cancellation paths: disconnect, revocation, epoch advance, and capacity refusal
+all transition to `Retiring`, which is serviced from reserved capacity.
 
-Lock, VT loss and seat departure reach the same path. A reconnecting client
-gets a new grant; nothing pending survives, so there is no replay.
+## The commit boundary, as an extension
 
-## Cleanup and overload
+Since no single atomic boundary exists, this names one. A grant carries
+`(admission, session, seat, grant generation, control epoch)`. Session holds one
+serialized operation -- the existing authority work take in
+`owner_loop/authority.rs` is the point where batches are already taken in order
+-- and within it:
 
-Cleanup capacity is reserved outside the request budget, so retiring
-contributions works when the ordinary path is saturated -- cleanup that needs a
-free queue fails exactly when it is needed.
+1. recheck the grant against current generation and epoch;
+2. resolve focus and grabs;
+3. commit or refuse;
+4. acknowledge to the connection.
 
-Capacity refusal is `BadAlloc`, returned before any input side effect. Never a
-silent drop, never a clamp.
+A request that fails the recheck at step 1 does not execute. `input.rs:334`'s
+`advance_control_epoch` already refuses if the frontend rejects the advance,
+which is the ordering hook: grants are invalidated in the same step, before any
+subsequent synthetic work can commit. Per-client disconnect retires only that
+client's sources; it never touches another source's contribution or cancels a
+target's grab.
 
-**On the seat cap.** With one pending request per source and 16 sources, a
-16-per-seat request cap is *derived*, not additional protection, and the design
-says so rather than implying a second guard. What does need separate accounting,
-and gets it: ledger memory held per seat, the bounded ingress buffer per
-connection, the per-seat totals when more than one seat is exposed, and the
-reserved cleanup capacity, which is sized independently of injector count.
+**Protected actions.** This design does not assert an existing lock path. What
+exists is seat release in `owner_loop/lifecycle.rs` and the session control
+surface; the proposed integration is an explicit predicate consulted before
+commit, reading seat active state and session lock state, refusing when either
+denies. Synthetic provenance is checked there too, including a chord mixing
+physical and synthetic sources: if any contributing source is synthetic, the
+chord cannot reach a protected action.
 
-## Refusal record fields
+## Scheduling: provisional, and measured before fixed
 
-`kind` (absent | unauthorized | revoked | capacity | protected-action |
-malformed), `client`, `grant generation`, `security epoch`, `seat`, `request`,
-`decision`. The point is that intentional denial stays distinguishable from
-missing implementation, which the wire alone does not settle.
+All numbers below are starting points to instrument, not capacity claims.
+
+- **Insertion point.** Synthetic work is taken in the same place authority
+  batches are taken, after physical input and after revocation and cleanup.
+- **Budget.** A time budget, replenished per service interval rather than per
+  turn, since turns are work-driven and not uniform. It stops *starting* new
+  synthetic work; a running operation completes and may overrun.
+- **Round robin.** The cursor persists across budget stops, so a source that
+  missed one interval is first in the next. Progress expectation: every ready
+  source is serviced within N intervals, measurable and to be verified.
+- **No drain guarantee.** A per-interval event cap and a time budget can each
+  stop first; neither promises a seat drains within any frame.
+
+## Capacity accounting
+
+| Population | Bound | Formula |
+| --- | --- | --- |
+| Authorized injectors | 16 per seat | reserved at grant, released at revoke or disconnect |
+| Pending requests | 1 per injector | seat total is *derived*, 16, not a second guard |
+| Ledger entries | keys+buttons per seat | bounded by input space, not by injector count |
+| Sources per entry | physical devices + grants | ≤ devices + 16 |
+| Connection buffer | existing bounded receive | unchanged by this design |
+| Seats | per-seat bounds × seats | Session-wide ceiling when >1 seat is exposed |
+| Cleanup | all held inputs, not 16 | bounded resumable sweep, reserved capacity |
+
+Cleanup is sized against *accumulated held state*, not pending requests: a
+retiring injector may hold many keys and buttons while holding no pending
+request. The sweep is resumable so it completes across intervals without needing
+the ordinary path.
+
+The seventeenth connection receives `BadAlloc` on its first grant-requiring
+request, before any side effect, and its slot is never speculatively held.
+
+## The advertised bundle
+
+**GetVersion** returns the supported version wherever XTEST is advertised.
+
+**CompareCursor** with an explicit cursor obeys the caller's namespace for the
+window and cursor lookup. `None` compares against no cursor. `CurrentCursor`
+reads what the seat is displaying and is the bundle's one pure-read disclosure;
+it is permitted for the administrator bundle and refused otherwise.
+
+**GrabControl** is real scheduling behaviour, not a permission bit. The busy-wait
+at `connection/dispatch.rs:592` breaks when the server grab is unowned or owned
+by this client; an impervious client also breaks. Cases: an impervious client
+progresses under another client's server grab, an ordinary client waits, and
+imperviousness is retired on revocation and disconnect so ordinary waiting
+returns.
+
+**FakeInput** validates event type, keycode range, button mapping, absolute
+versus relative motion, and root or screen target. Invalid fields produce the
+protocol's error rather than a clamp. A guessed opcode from an unauthorized
+caller is refused exactly as an authorized-but-denied one is, since hiding is
+not a boundary.
 
 ## Acceptance matrix
 
-Socket cases, both byte orders: enabled and authorized; enabled and
-unauthorized; disabled; revoked mid-delay; reconnect not inheriting pending
-input; capacity refusal returning `BadAlloc` with no side effect; each protected
-action denied; discovery agreeing with authorization in `ListExtensions` and
-`QueryExtension`.
+Socket, both byte orders: authorized; unauthorized; disabled; revoked during a
+delay; reconnect not inheriting pending work; `BadAlloc` at capacity with no
+side effect; each protected action denied; discovery agreeing with authorization
+*for a given authorization state*; GrabControl progress and wait; FakeInput
+field validation and sequence completion; CompareCursor explicit, `None` and
+current.
 
-Rust cases, which the ClassicShared socket host cannot establish:
+Rust, which the ClassicShared socket host cannot establish:
 
-- two namespaces, injection in one not observable in the other;
-- physical + synthetic on one key, synthetic retired, physical hold survives;
-- injector A + injector B, one retired, the other survives;
-- sole synthetic holder revoked, aggregate and recipient clear, no stuck key;
-- revocation landing exactly on a delayed request at the boundary;
-- cleanup succeeding while the ordinary queue is exhausted;
-- healthy peers and physical input serviced throughout a delayed caller's block;
-- duplicate press and stale release, neither producing a second hold nor a
-  spurious delivery.
+- **cross-namespace administrative effect is permitted and correct** -- an
+  authorized administrator drives the committed focus target in another
+  namespace, delivered only to the authoritative recipient, with no broadcast
+  and no disclosure beyond it. This replaces the previous case, which promised
+  namespace confinement the approved design explicitly rejects;
+- unauthorized injector denied regardless of namespace;
+- resource and cursor lookups still namespace-restricted;
+- ordinary first press and release, before any overlap;
+- focus change between press and retirement, release reaching the recorded
+  recipient;
+- grab change between press and retirement;
+- physical + synthetic, synthetic retired, physical hold survives;
+- A + B, one retired, the other survives;
+- sole holder retired, aggregate and recipient clear;
+- failed reconciling delivery retires the entry without retargeting;
+- revocation landing on a delayed request at the boundary;
+- cleanup of many held inputs while the ordinary path is saturated;
+- duplicate press and stale release;
+- EOF observed during a delay behind unread pipelined bytes.
 
-## What this design does not do
+## Out of scope
 
-It does not implement a virtual seat, selective delegation to a confined
-harness, or configurable permission subsets. It does not make synthetic input
-eligible to close a physical acceptance obligation.
+Virtual seat, selective delegation, configurable permission subsets, and any
+route by which synthetic input could close a physical acceptance obligation.

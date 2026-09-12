@@ -13,6 +13,8 @@ cargo run --offline -q -p sophia-protocol --example shell_v1_corpus -- --malform
     >"$build_dir/sophia-shell-v1-malformed.frames"
 cargo run --offline -q -p sophia-protocol --example shell_tab_corpus >"$build_dir/sophia-shell-tabs.frames"
 cmp "$build_dir/sophia-shell-tabs.frames" protocol/golden/sophia-shell-tabs.frames
+cargo run --offline -q -p sophia-protocol --example shell_indicator_corpus >"$build_dir/sophia-shell-indicators.frames"
+cmp "$build_dir/sophia-shell-indicators.frames" protocol/golden/sophia-shell-indicators.frames
 cmp "$build_dir/sophia-shell-v1.frames" protocol/golden/sophia-shell-v1.frames
 cmp "$build_dir/sophia-shell-v1-malformed.frames" \
     protocol/golden/sophia-shell-v1-malformed.frames
@@ -21,6 +23,10 @@ cmp "$build_dir/sophia-shell-launcher.frames" protocol/golden/sophia-shell-launc
 cargo test --offline -q -p sophia-protocol --test shell_launcher
 cargo test --offline -q -p sophia-protocol --test shell_wire
 cargo test --offline -q -p sophia-protocol --test shell_tabs
+cargo test --offline -q -p sophia-protocol --test shell_indicators
+# The reference codec had golden frames and a test target but no invocation
+# here, so its coverage was retained without ever being run.
+cargo test --offline -q -p sophia-protocol --test shell_reference
 cargo test --offline -q -p sophia-runtime --test shell_transport
 
 ${CC:-cc} -std=c99 -Wall -Wextra -Werror -pedantic \

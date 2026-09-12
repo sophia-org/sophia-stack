@@ -410,6 +410,39 @@ impl LiveWmSession {
         }
     }
 
+    /// Queue the action behind a view pill the shell was actually shown.
+    ///
+    /// The action must appear in the current publication for that output. A
+    /// shell echoes identities it was given; it cannot mint one, so an action
+    /// it never received -- or one that belonged to a different output -- buys
+    /// nothing. Drawing a pill is not authority to invoke arbitrary policy.
+    fn enqueue_indicator_action(
+        &mut self,
+        action: WmActionId,
+        output: sophia_protocol::OutputId,
+    ) -> Result<LiveWmRequestAdmission, Box<dyn std::error::Error>> {
+        let public = self.public.as_mut().ok_or("public WM state is unavailable")?;
+        let published = public
+            .reducer
+            .indicator_publication()
+            .indicators
+            .iter()
+            .any(|indicator| indicator.output == output && indicator.action == Some(action));
+        if !published {
+            return Ok(LiveWmRequestAdmission::Duplicate);
+        }
+        let activation_serial = public.mint_transaction()?.raw();
+        let active_output = public.active_output;
+        Ok(public.queue_cause(LivePublicPolicyCause {
+            source: LiveWmProposalSource::Action(action),
+            cause: sophia_protocol::PolicyRequestCause::Action {
+                activation_serial,
+                action,
+            },
+            affected_outputs: public.all_outputs(active_output),
+        }))
+    }
+
     fn enqueue_action(
         &mut self,
         action: WmActionId,

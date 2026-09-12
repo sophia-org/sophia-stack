@@ -73,6 +73,79 @@ impl LiveMetadataShell {
     }
 }
 
+impl LiveMetadataShell {
+    /// Take one activation the shell sent, if it is still meaningful.
+    ///
+    /// The shell must name the snapshot it was presenting. A pill clicked
+    /// against a set that has since been replaced refers to a view that may
+    /// have moved, so it is answered stale rather than applied late. The
+    /// action itself is validated again by the WM against what was published;
+    /// this check only establishes that the shell was looking at the same
+    /// screen the session was.
+    pub(in crate::live_session) fn take_indicator_activation(
+        &mut self,
+    ) -> Result<Option<(sophia_protocol::OutputId, sophia_protocol::WmActionId)>, Box<dyn std::error::Error>>
+    {
+        if !self.connected || !self.transport.supports_indicator_activation() {
+            return Ok(None);
+        }
+        let Some(frame) = self
+            .transport
+            .poll_kind(sophia_protocol::IpcMessageKind::ShellIndicatorActivate)?
+        else {
+            return Ok(None);
+        };
+        let (tx, activation) = sophia_protocol::decode_shell_indicator_activation(&frame)
+            .map_err(sophia_runtime::ShellTransportError::Codec)?;
+
+        let published = self.indicators.last_published.as_ref();
+        let current = published.is_some_and(|snapshot| {
+            snapshot.connection_epoch == activation.connection_epoch
+                && snapshot.generation == activation.snapshot_generation
+        });
+        let known = current
+            && published.is_some_and(|snapshot| {
+                snapshot.indicators.iter().any(|indicator| {
+                    indicator.output == activation.output
+                        && indicator.indicator == activation.indicator
+                        && indicator.action == activation.action
+                })
+            });
+
+        let status = if !current {
+            sophia_protocol::ShellIndicatorActivationStatus::Stale
+        } else if !known {
+            sophia_protocol::ShellIndicatorActivationStatus::Unknown
+        } else if activation.action == 0 {
+            // A pill published without an action is not activatable, and zero
+            // is how that is spelled.
+            sophia_protocol::ShellIndicatorActivationStatus::Unauthorized
+        } else {
+            sophia_protocol::ShellIndicatorActivationStatus::Accepted
+        };
+
+        let outcome = sophia_protocol::ShellIndicatorActivationOutcome {
+            connection_epoch: self.transport.connection_epoch(),
+            snapshot_generation: activation.snapshot_generation,
+            event_id: activation.event_id,
+            status,
+            reason: 0,
+        };
+        self.transport.send_async(
+            sophia_protocol::encode_shell_indicator_activation_outcome(tx, &outcome)
+                .map_err(sophia_runtime::ShellTransportError::Codec)?,
+        )?;
+
+        if status == sophia_protocol::ShellIndicatorActivationStatus::Accepted {
+            return Ok(Some((
+                activation.output,
+                sophia_protocol::WmActionId::from_raw(activation.action),
+            )));
+        }
+        Ok(None)
+    }
+}
+
 #[derive(Default)]
 pub(in crate::live_session) struct LiveIndicatorState {
     pub(in crate::live_session) last_published: Option<ShellIndicatorSnapshot>,

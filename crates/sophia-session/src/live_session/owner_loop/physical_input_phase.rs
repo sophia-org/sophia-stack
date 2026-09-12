@@ -1107,6 +1107,16 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
                     crate::session_eprintln!("sophia_shell_indicators status=unavailable error={error}");
                     shell.recover_transport("indicator_failure")?;revoke_shell_input=true;
                 }
+                match shell.take_indicator_activation() {
+                    Ok(Some((output,action)))=>if let Some(wm)=wm_session.as_mut() {
+                        wm.enqueue_indicator_action(action,output)?;
+                    },
+                    Ok(None)=>{},
+                    Err(error)=>{
+                        crate::session_eprintln!("sophia_shell_indicators status=activation_failed error={error}");
+                        shell.recover_transport("indicator_activation_failure")?;revoke_shell_input=true;
+                    }
+                }
                 match shell.service_tabs(publication,broker,runtime,&scene,native_scanout.as_mut()) {
                     Ok(focus)=>for(surface,output) in focus {
                         if let (Some(wm),Some(output))=(wm_session.as_mut(),outputs.iter().find(|o|o.id==output).copied()) {

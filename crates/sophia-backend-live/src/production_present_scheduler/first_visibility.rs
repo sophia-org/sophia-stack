@@ -87,9 +87,20 @@ impl LiveProductionPresentScheduler {
     /// They are not rejected here. Releasing them lets the ordinary Present
     /// path reach them again, and the exhausted mark makes that pass take the
     /// rejection every non-first candidate already takes. Reusing that route
-    /// is the point: it settles content ownership and the admission debt the
-    /// way the code did before first candidates were ever parked, so bounding
-    /// the wait cannot invent a new way to strand either.
+    /// is the point: it already releases the content owner, frees the groups
+    /// waiting behind it on that surface, and sends the client Complete with
+    /// a skipped mode followed by Idle, so bounding the wait needs no second
+    /// way to unwind a candidate.
+    ///
+    /// It does not settle an admission candidate that has already been
+    /// selected and is awaiting retirement; an ordinary skip never did. What
+    /// this bounds is the candidate that arrives *before* admission selects
+    /// anything -- a client that presents its first frame before mapping its
+    /// window -- where there is no such debt to settle yet.
+    ///
+    /// Releasing the buffer is also not the same as the client drawing again.
+    /// These notifications end its wait; whether it then redraws is its own
+    /// behaviour, and only a real client can demonstrate it.
     pub fn expire_first_visibility(
         &mut self,
         now: Instant,

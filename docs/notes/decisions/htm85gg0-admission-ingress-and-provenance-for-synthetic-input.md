@@ -113,6 +113,15 @@ into something indistinguishable from a physical gesture. `source=synthetic` in
 the existing path is the precedent for saying so in evidence; the contract needs
 the state itself.
 
+**Synthetic input does not close a physical obligation.** It may drive setup and
+supply explicitly labelled regression evidence. It cannot substitute for the
+physical evidence required by t077, t060 or t062: it
+establishes nothing about hardware or libinput delivery, physical timing, VT
+behaviour, or recovery through the original device path. Before a physical phase
+begins, retire synthetic contributions under the cleanup rules below and settle
+outstanding work, and keep the two phases and their provenance separately
+identifiable in the record.
+
 **Cleanup retires a contribution, it does not release the seat.** This is where
 the naive reading is actively unsafe. If the operator physically holds Shift,
 injector A also injects Shift-down, and A is revoked, cleanup must leave the
@@ -121,11 +130,22 @@ physical hold intact. The same holds when a second injector B holds it too.
 So the contract requires **source-owned contribution tracking**: each source's
 contribution to a key, button or modifier is held separately, with a stated
 policy for overlap and for duplicate transitions. Retiring A removes A's
-contribution and nothing else. Cleanup must not:
+contribution.
 
-- send a global key-up or button-up;
-- alter another device's or another client's state;
-- manufacture a new action on whatever window now has focus.
+The prohibition is on an *unconditional* release, not on releases as such.
+Cleanup must not issue an unconditional seat-wide key or button release, remove
+another source's held contribution, or arbitrarily cancel another client's grab.
+But where retiring a source changes the aggregate logical state -- the retired
+source was the last holder -- authority-owned reconciliation may produce the
+necessary release transition and the corresponding recipient cleanup, under the
+established target, lease and epoch rules. A delivered release necessarily
+changes that recipient's protocol state; that is the point of it. What it must
+not do is retarget that cleanup into a new user action on whatever window
+currently has focus. The overlap and duplicate-transition policy defines this
+behaviour.
+
+Forbidding every release would recreate the stuck key this rule exists to
+prevent.
 
 **Injector-owned state and target-side state are different things.** A caller's
 own `GrabControl` server-grab imperviousness is its to retire. A passive grab
@@ -182,8 +202,12 @@ An implementation admitted under this note owes independent manifest cases for
 enabled, disabled, unauthorized and revoked callers in both byte orders, and
 these negatives specifically:
 
-- physical and synthetic holding the same key, with the synthetic source retired;
-- two injectors holding the same key, with one retired;
+- physical and synthetic holding the same key, with the synthetic source
+  retired, proving the physical hold survives;
+- two injectors holding the same key, with one retired, proving the other
+  survives;
+- a sole synthetic holder revoked or disconnected, proving the aggregate and
+  recipient state clear with no stuck key or button;
 - revocation landing on delayed input at the commit boundary;
 - a reconnected client, or a reused identifier, not inheriting pending input;
 - cleanup succeeding while the ordinary queue is exhausted;

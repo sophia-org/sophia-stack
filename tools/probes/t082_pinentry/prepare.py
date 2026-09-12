@@ -28,7 +28,7 @@ set -euo pipefail
 exec /usr/sbin/kitty --config NONE /bin/bash --noprofile --rcfile "$T082_CAPTURE/terminal.rc" -i
 ''')
     (capture / "terminal.rc").write_text('''printf '%s\\n' 'T082 dummy capture. Use this shell to check ordinary input while the probe runs.'
-python3 "$T082_TOOLS/runner.py" --bundle "$T082_BUNDLE" --capture "$T082_CAPTURE/cases" &
+python3 "$T082_TOOLS/runner.py" --bundle "$T082_BUNDLE" --capture "$T082_CAPTURE/cases" --case instrumented-enter &
 ''')
     for name in ("run-session", "terminal", "terminal.rc"):
         (capture / name).chmod(0o700)

@@ -19,6 +19,11 @@ def boundary(summary, events):
     opened = summary["last_observed_open_span"]
     if opened and opened != "run_native_enter":
         return f"Observed entry without a recorded return: {opened}. Review the last heartbeat and timeout boundary."
+    if "destroy_return" in stages and "event_loop_exit_requested" not in stages:
+        returned = max(e["seq"] for e in events if e["stage"] == "destroy_return")
+        later = [e for e in events if e["seq"] > returned and e["stage"] == "window_event_kind"]
+        return ("Teardown returned; no later window event was recorded. A buffered destroy and missing server notification remain distinct possibilities; correlate the XID and server dispatch trace."
+                if not later else "Teardown returned and a later window event arrived; inspect running-state and Exit markers.")
     for earlier, later, text in (
         ("event_loop_return", "run_native_return", "Event loop returned; run_native has no recorded return (including teardown)."),
         ("event_loop_exit_requested", "event_loop_return", "Event-loop exit was requested; no event-loop return was recorded."),
@@ -42,7 +47,7 @@ def report(capture):
                   "Last 24 application markers (heartbeat excluded; full stream remains in stages.jsonl):", "", "| Sequence | Monotonic ns | Stage |", "| --- | --- | --- |"]
         for event in [e for e in events if e["stage"] != "heartbeat"][-24:]:
             lines.append(f"| {event['seq']} | {event['monotonic_ns']} | {event['stage']} |")
-        lines.append("")
+        lines += ["", "Open spans (thread, opaque connection and request sequence where applicable):", "", json.dumps(summary.get("open_spans", [])), ""]
     return "\n".join(lines)
 
 if __name__ == "__main__":

@@ -98,3 +98,23 @@ impl Drop for Guard {
         mark("process_exit", 0);
     }
 }
+
+// Opaque per-thread connection ordinals, never native pointers in the trace.
+// Fixed storage keeps diagnostics bounded; zero denotes identity overflow.
+pub fn connection(pointer: usize) {
+    thread_local! {
+        static CONNECTIONS: std::cell::RefCell<[usize; 16]> = const { std::cell::RefCell::new([0; 16]) };
+    }
+    let id = CONNECTIONS.with(|slots| {
+        let mut slots = slots.borrow_mut();
+        if let Some(index) = slots.iter().position(|p| *p == pointer) {
+            return index as u64 + 1;
+        }
+        if let Some(index) = slots.iter().position(|p| *p == 0) {
+            slots[index] = pointer;
+            return index as u64 + 1;
+        }
+        0
+    });
+    mark("xcb_connection", id);
+}

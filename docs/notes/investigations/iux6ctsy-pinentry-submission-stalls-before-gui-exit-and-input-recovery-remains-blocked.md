@@ -442,3 +442,57 @@ verification and installed native verifier fixtures. Claude reviewed the repair
 read-only and approved it. The existing TLA recovery model is unchanged; no new
 model-checking claim is made for this error-classification patch. Installation
 of the repair, capture retargeting and attended acceptance remain outstanding.
+
+### Follow-up capture and shutdown instrumentation
+
+The attended capture `/tmp/sophia-pinentry-trace/run.QUTcIk` used the installed
+peer-write repair `1a59ab8c1406`. Its instrumented PID 23234 reported XID
+8388611 (0x800003), explicitly mapped to authority client 4. Enter sent the
+result and queued Close; close acceptance, paint, swap and viewport processing
+all returned. The last application marker was viewport_output_return. The
+heartbeat remained fresh with no reported trace loss, but native return and the
+Assuan result were absent before the 15-second submission watchdog terminated
+the child. The session continued. This is not evidence of a blocked swap or of
+the earlier session-fatal peer-write defect recurring.
+
+Client 4 has no recorded major-4 DestroyWindow dispatch in that specimen.
+Its final recorded requests include GLX context/window destruction, FreePixmap
+and QueryExtension sequence 872. A nearby DestroyWindow belongs to client 5.
+Consequently the independently discovered missing DestroyNotify cannot explain
+this specimen without first establishing that the relevant destroy request was
+issued and reached the server. A missing dispatch does not prove the client
+never called destroy_window: teardown may stall earlier, or a request may remain
+buffered. The eframe CloseRequested path destroys running state without itself
+requesting event-loop exit; a subsequent window event with no running state can
+produce Exit. That is a branch to test, not an established cause.
+
+The approved diagnostic extension is materialized as immutable
+`.artifacts/t082-probe-v6`, selected by the fixed capture script. It patches
+private, checksum-verified winit 0.30.12 and x11rb 0.13.2 copies in addition to
+the original three crates. Baseline and traced builds retain the original
+dependency versions. The trace now brackets autosave, minimized-state querying,
+saving, on_exit, painter destruction, running-state drop, the Window::drop body,
+DestroyWindow request construction and existing X11 waits/flushes. Window-event
+categories and running-state/Exit markers distinguish later-event handling.
+No flush, sync, synthetic event or forced exit is added.
+
+Request-wait correlation includes thread, opaque connection ordinal and sequence.
+All open spans remain available; ordinal overflow, dropped or invalid records
+make the result inconclusive. Window::drop's body-return marker precedes automatic
+field destruction; it is not an assertion that the entire value was dropped.
+A returning request/flush call is not proof of server processing or client event
+consumption.
+
+The fixed launcher now runs only one instrumented Enter specimen: type the dummy
+word test and press Enter once. The full six-case matrix remains an explicit
+runner selection. Lifetime and post-submission deadlines remain 60 and 15 seconds,
+with cleanup confined to the spawned child. No GPG configuration, installed
+binary, desktop profile or live session is changed by preparation.
+
+Offline validation: both release binaries built; 15 harness tests and all six
+upstream in-memory UI tests passed. Original lockfile archive checksums, bundle
+hashes, the retained installed release manifest/checksums, and bash syntax for
+the fixed launcher and all generated wrappers were verified. The whole-repository
+source-layout audit is not green: it reports oversized X11 socket tests outside
+this probe's changes; the concurrent runtime owner was notified. No new physical
+run was performed, and t082 remains open pending the instrumented specimen.

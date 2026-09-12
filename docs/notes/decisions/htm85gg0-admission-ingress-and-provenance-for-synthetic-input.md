@@ -2,7 +2,7 @@
 id: htm85gg0
 date: 2026-09-12
 kind: adr
-status: proposed
+status: accepted
 tags: [adr]
 ---
 # Admission, ingress and provenance for synthetic input
@@ -217,3 +217,21 @@ XTS results stay separate from physical acceptance records.
 
 Nothing here authorises writing the extension. It states what writing it would
 have to honour, and what still has to be decided first.
+
+## Acceptance and connections
+
+Accepted 2026-09-12 on Codex review of `a60f837a`, the revision restoring the
+physical-evidence rule and correcting source-owned cleanup so that retiring the
+last holder may produce the release which clears an aggregate hold while other
+sources' holds survive.
+
+**Accepted as a principles contract only. Grant issuance/binding, permission
+scope, delegation boundary, bounds/fairness and reserved actions remain open
+implementation-admission gates. No XTEST implementation or deployment is
+authorized by this acceptance.**
+
+Default absence and current implementation behaviour are unchanged by this
+record. [t030](../plans/queue-11-parallel-production-readiness.md) excluded XTEST
+pending exactly this admission story and invited the revisit; this note supplies
+the principles it asked for, not the decisions the operator still owes. When
+those gates are chosen, the concrete design returns for review before any code.

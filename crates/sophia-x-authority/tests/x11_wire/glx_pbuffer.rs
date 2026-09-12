@@ -191,10 +191,12 @@ fn a_created_pbuffer_answers_core_get_geometry() {
         &mut atoms,
         &mut properties,
     );
+    // BadDrawable, not BadWindow: GetGeometry takes a drawable, and an id that
+    // names nothing is not a window of the wrong kind.
     assert!(matches!(
         missing.outputs.as_slice(),
         [XClientOutput::Error(XClientError {
-            code: XErrorCode::BadWindow,
+            code: XErrorCode::BadDrawable,
             resource_id,
             ..
         })] if *resource_id == unknown
@@ -223,10 +225,11 @@ fn a_created_pbuffer_answers_core_get_geometry() {
         &mut atoms,
         &mut properties,
     );
+    // Destroyed, so the id names nothing: BadDrawable for the same reason.
     assert!(matches!(
         after.outputs.as_slice(),
         [XClientOutput::Error(XClientError {
-            code: XErrorCode::BadWindow,
+            code: XErrorCode::BadDrawable,
             ..
         })]
     ));

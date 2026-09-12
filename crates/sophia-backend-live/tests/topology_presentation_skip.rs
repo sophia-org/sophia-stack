@@ -489,6 +489,5 @@ fn feedback_names(entry: &LivePresentProtocolFeedback, transaction: TransactionI
         | LivePresentProtocolFeedback::Idle {
             transaction: named, ..
         } => *named == transaction,
-        _ => false,
     }
 }

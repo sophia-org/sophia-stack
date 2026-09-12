@@ -15,8 +15,7 @@ struct XServerFrontendRouteRegistry {
     /// subscribed. One client may watch several selections, and the same
     /// selection through different windows, so the window is part of the key
     /// rather than a value that the next subscription overwrites.
-    xfixes_selection_subscriptions:
-        Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId, u32), (NamespaceId, u32)>>>,
+    xfixes_selection_subscriptions: XFixesSelectionSubscriptions,
     present_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), XPresentSubscription>>>,
     pending_presentations: Arc<XPendingPresentRegistry>,
@@ -97,6 +96,17 @@ struct XAuthorityEpochRoutedInput {
     route: XAuthorityRoutedInput,
 }
 
+/// Who is watching which selection, and for which of its three causes.
+///
+/// Keyed by subscribing client, the window it named, and the selection atom:
+/// one client may watch several selections, and the same selection through
+/// different windows, so none of the three alone identifies a subscription.
+/// The value carries the namespace the subscription belongs to, because atoms
+/// are global and the atom alone does not say whose selection it is.
+#[cfg(unix)]
+type XFixesSelectionSubscriptions =
+    Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId, u32), (NamespaceId, u32)>>>;
+
 #[cfg(unix)]
 #[derive(Clone)]
 struct XServerFrontendClientRouteSenders {
@@ -129,8 +139,7 @@ struct XServerFrontendClientRouteRegistration {
     /// subscribed. One client may watch several selections, and the same
     /// selection through different windows, so the window is part of the key
     /// rather than a value that the next subscription overwrites.
-    xfixes_selection_subscriptions:
-        Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId, u32), (NamespaceId, u32)>>>,
+    xfixes_selection_subscriptions: XFixesSelectionSubscriptions,
     present_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), XPresentSubscription>>>,
     pending_presentations: Arc<XPendingPresentRegistry>,

@@ -271,7 +271,7 @@ fn dispatch_core_window_request(
                                     // reported in its own right, before the
                                     // destroy. `from_configure` is false: an
                                     // explicit request caused it.
-                                    let unmap = destroyed.was_mapped.then(|| {
+                                    let unmap = destroyed.was_mapped.then_some(
                                         XClientOutput::Event(
                                             crate::XClientEvent::UnmapNotify {
                                                 sequence: context.sequence,
@@ -279,8 +279,8 @@ fn dispatch_core_window_request(
                                                 window: destroyed.window,
                                                 from_configure: false,
                                             },
-                                        )
-                                    });
+                                        ),
+                                    );
                                     // Addressed to the window itself. The router
                                     // adds the parent-addressed copy for
                                     // SubstructureNotify selectors, the same way
@@ -371,14 +371,14 @@ fn dispatch_core_window_request(
                                 // As for a single destroy: a mapped window is
                                 // unmapped on its way out, and that is reported
                                 // before the destroy.
-                                let unmap = destroyed.was_mapped.then(|| {
+                                let unmap = destroyed.was_mapped.then_some(
                                     XClientOutput::Event(crate::XClientEvent::UnmapNotify {
                                         sequence: context.sequence,
                                         event: destroyed.window,
                                         window: destroyed.window,
                                         from_configure: false,
-                                    })
-                                });
+                                    }),
+                                );
                                 unmap.into_iter().chain(std::iter::once(
                                     XClientOutput::Event(crate::XClientEvent::DestroyNotify {
                                         sequence: context.sequence,
@@ -616,8 +616,13 @@ fn dispatch_core_window_request(
                 XWireRequest::GetGeometry { drawable } => {
                     // Every kind of drawable answers the same four facts, so the
                     // resolver states them once rather than each kind being tried
-                    // in turn here. A miss keeps reporting the window error, which
-                    // is the identity an unknown id has always had.
+                    // in turn here.
+                    //
+                    // A miss answers BadDrawable, not BadWindow. This request
+                    // takes a DRAWABLE, and a pixmap id that names nothing is
+                    // not a bad window: reporting the window error tells a
+                    // client its pixmap was the wrong kind of thing rather than
+                    // that it does not exist.
                     let output = match runtime.drawable_facts(context.namespace, drawable) {
                         Ok(facts) => XClientOutput::Reply(XClientReply::GetGeometry {
                             sequence: context.sequence,
@@ -626,12 +631,19 @@ fn dispatch_core_window_request(
                             geometry: facts.geometry,
                             border_width: 0,
                         }),
-                        Err(error) => XClientOutput::Error(x_error_from_runtime(
-                            error,
-                            context.sequence,
-                            context.major_opcode,
-                            0,
-                            u32::try_from(drawable.local.raw()).unwrap_or(0))),
+                        Err(error) => {
+                            let mut error = x_error_from_runtime(
+                                error,
+                                context.sequence,
+                                context.major_opcode,
+                                0,
+                                u32::try_from(drawable.local.raw()).unwrap_or(0),
+                            );
+                            if error.code == XErrorCode::BadWindow {
+                                error.code = XErrorCode::BadDrawable;
+                            }
+                            XClientOutput::Error(error)
+                        }
                     };
                     XDispatchResult {
                         response: None,

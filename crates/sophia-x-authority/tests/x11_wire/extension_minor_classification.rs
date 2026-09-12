@@ -13,7 +13,11 @@ fn every_extension_separates_unimplemented_minors_from_unknown_ones() {
 
     // (major opcode, a minor inside the advertised version that is not
     // implemented, a minor beyond the advertised version)
-    let cases: Vec<(u8, u8, u8, fn(u8) -> XWireRequest)> = vec![
+    // (major opcode, a defined-but-unimplemented minor, a minor past the
+    // advertised version, how to build that extension's refused request)
+    type MinorCase = (u8, u8, u8, fn(u8) -> XWireRequest);
+
+    let cases: Vec<MinorCase> = vec![
         // Present 1.2 defines 0..=4 and implements all of them, so the
         // in-version tier is exercised by its own boundary rather than a gap.
         (X_PRESENT_MAJOR_OPCODE, 4, 255, |minor| {

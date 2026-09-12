@@ -245,11 +245,13 @@ fn opaque_dri3_planes_are_bounded_by_their_descriptors_before_any_allocation() {
                     refusal[10], X_DRI3_MAJOR_OPCODE,
                     "{tag}: correlated to DRI3"
                 );
-                // An unknown id keeps the window error, which is how this server
-                // has always reported one.
+                // BadDrawable: the refused id was to be a pixmap, and
+                // GetGeometry asks about drawables. Reporting a window error
+                // would say the id is the wrong kind of thing rather than that
+                // nothing was ever created under it.
                 assert_eq!(
                     errors[1][1],
-                    XErrorCode::BadWindow.wire_code(),
+                    XErrorCode::BadDrawable.wire_code(),
                     "{tag}: a refused import leaves its XID uncreated",
                 );
                 assert_eq!(

@@ -1,0 +1,1042 @@
+{
+  "schema": 1,
+  "scope": "Mandatory isolated software X-authority core lifecycle, completion, properties, selections, focus, grabs, disconnect; extension discovery/negotiation/refusal and selected SHAPE/SYNC operations. Not full X11/extension semantics, WM policy, GPU, physical input or XTS5 certification.",
+  "byte_orders": [
+    "little",
+    "big"
+  ],
+  "cases": [
+    {
+      "id": "setup",
+      "mandatory": true
+    },
+    {
+      "id": "window_tree",
+      "mandatory": true
+    },
+    {
+      "id": "map",
+      "mandatory": true
+    },
+    {
+      "id": "configure",
+      "mandatory": true
+    },
+    {
+      "id": "unmap",
+      "mandatory": true
+    },
+    {
+      "id": "destroy",
+      "mandatory": true
+    },
+    {
+      "id": "reply_errors",
+      "mandatory": true
+    },
+    {
+      "id": "property_values",
+      "mandatory": true
+    },
+    {
+      "id": "selection_owner",
+      "mandatory": true
+    },
+    {
+      "id": "selection_transfer",
+      "mandatory": true
+    },
+    {
+      "id": "selection_absent",
+      "mandatory": true
+    },
+    {
+      "id": "focus",
+      "mandatory": true
+    },
+    {
+      "id": "pointer_grab",
+      "mandatory": true
+    },
+    {
+      "id": "keyboard_grab",
+      "mandatory": true
+    },
+    {
+      "id": "disconnect",
+      "mandatory": true
+    },
+    {
+      "id": "extensions",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_subscribers",
+      "mandatory": true
+    },
+    {
+      "id": "extension_discovery",
+      "mandatory": true
+    },
+    {
+      "id": "policy_absence",
+      "mandatory": true
+    },
+    {
+      "id": "extension_versions",
+      "mandatory": true
+    },
+    {
+      "id": "extension_errors",
+      "mandatory": true
+    },
+    {
+      "id": "shape",
+      "mandatory": true
+    },
+    {
+      "id": "sync_counter",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection",
+      "mandatory": true
+    },
+    {
+      "id": "disconnect_grab",
+      "mandatory": true
+    },
+    {
+      "id": "truncated_peer",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_descendants",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_subwindows",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_peer_close",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_invalid",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_xid_reuse",
+      "mandatory": true
+    }
+  ],
+  "features": [
+    {
+      "name": "setup resource ranges",
+      "accepted_core_opcodes": [],
+      "cases": [
+        "setup"
+      ]
+    },
+    {
+      "name": "CreateWindow QueryTree GetGeometry",
+      "accepted_core_opcodes": [
+        1,
+        14,
+        15
+      ],
+      "cases": [
+        "window_tree"
+      ]
+    },
+    {
+      "name": "MapWindow GetWindowAttributes MapNotify",
+      "accepted_core_opcodes": [
+        8,
+        3
+      ],
+      "cases": [
+        "map"
+      ]
+    },
+    {
+      "name": "ConfigureWindow ConfigureNotify",
+      "accepted_core_opcodes": [
+        12,
+        14
+      ],
+      "cases": [
+        "configure"
+      ]
+    },
+    {
+      "name": "UnmapWindow UnmapNotify",
+      "accepted_core_opcodes": [
+        10,
+        3
+      ],
+      "cases": [
+        "unmap"
+      ]
+    },
+    {
+      "name": "DestroyWindow DestroyNotify BadWindow",
+      "accepted_core_opcodes": [
+        4,
+        3
+      ],
+      "cases": [
+        "destroy"
+      ]
+    },
+    {
+      "name": "BadWindow BadLength BadRequest sequence completion NoOperation",
+      "accepted_core_opcodes": [
+        3,
+        14,
+        127
+      ],
+      "cases": [
+        "reply_errors"
+      ]
+    },
+    {
+      "name": "InternAtom GetAtomName ChangeProperty GetProperty ListProperties DeleteProperty PropertyNotify",
+      "accepted_core_opcodes": [
+        16,
+        17,
+        18,
+        19,
+        20,
+        21
+      ],
+      "cases": [
+        "property_values"
+      ]
+    },
+    {
+      "name": "SetSelectionOwner GetSelectionOwner SelectionClear",
+      "accepted_core_opcodes": [
+        22,
+        23
+      ],
+      "cases": [
+        "selection_owner"
+      ]
+    },
+    {
+      "name": "ConvertSelection SelectionRequest SendEvent SelectionNotify transfer",
+      "accepted_core_opcodes": [
+        24,
+        25,
+        18,
+        20
+      ],
+      "cases": [
+        "selection_transfer"
+      ]
+    },
+    {
+      "name": "ConvertSelection without owner completes",
+      "accepted_core_opcodes": [
+        24
+      ],
+      "cases": [
+        "selection_absent"
+      ]
+    },
+    {
+      "name": "SetInputFocus GetInputFocus FocusIn FocusOut",
+      "accepted_core_opcodes": [
+        42,
+        43
+      ],
+      "cases": [
+        "focus"
+      ]
+    },
+    {
+      "name": "GrabPointer contention UngrabPointer",
+      "accepted_core_opcodes": [
+        26,
+        27
+      ],
+      "cases": [
+        "pointer_grab"
+      ]
+    },
+    {
+      "name": "GrabKeyboard contention UngrabKeyboard",
+      "accepted_core_opcodes": [
+        31,
+        32
+      ],
+      "cases": [
+        "keyboard_grab"
+      ]
+    },
+    {
+      "name": "peer cleanup live client continuation",
+      "accepted_core_opcodes": [
+        1,
+        3,
+        22,
+        23
+      ],
+      "cases": [
+        "disconnect"
+      ]
+    },
+    {
+      "name": "ListExtensions QueryExtension inventory and intentional absence",
+      "accepted_core_opcodes": [
+        98,
+        99
+      ],
+      "cases": [
+        "extensions"
+      ]
+    },
+    {
+      "name": "DestroyNotify both addressed masks, other client and no-subscription control",
+      "accepted_core_opcodes": [
+        2,
+        4
+      ],
+      "cases": [
+        "destroy_subscribers"
+      ]
+    },
+    {
+      "name": "QueryExtension unique opcode for every advertised extension",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "extension_discovery"
+      ]
+    },
+    {
+      "name": "Intentional policy exclusions remain absent; absence is not implementation coverage",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "policy_absence"
+      ]
+    },
+    {
+      "name": "Version negotiation and BIG-REQUESTS enable complete",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "extension_versions"
+      ]
+    },
+    {
+      "name": "Unknown extension minors return BadRequest and client continues",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "extension_errors"
+      ]
+    },
+    {
+      "name": "SHAPE Set input rectangles and GetRectangles externally agree",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "shape"
+      ]
+    },
+    {
+      "name": "SYNC CreateCounter ChangeCounter QueryCounter DestroyCounter",
+      "accepted_core_opcodes": [
+        98
+      ],
+      "cases": [
+        "sync_counter"
+      ]
+    },
+    {
+      "name": "XFIXES SelectSelectionInput produces SelectionNotify when ownership changes",
+      "accepted_core_opcodes": [
+        22,
+        98
+      ],
+      "cases": [
+        "xfixes_selection"
+      ]
+    },
+    {
+      "name": "peer disconnect releases pointer grab to healthy client",
+      "accepted_core_opcodes": [
+        26
+      ],
+      "cases": [
+        "disconnect_grab"
+      ]
+    },
+    {
+      "name": "mid-request peer disconnect remains client-local",
+      "accepted_core_opcodes": [
+        3
+      ],
+      "cases": [
+        "truncated_peer"
+      ]
+    },
+    {
+      "name": "destroy_descendants",
+      "accepted_core_opcodes": [
+        4
+      ],
+      "cases": [
+        "destroy_descendants"
+      ]
+    },
+    {
+      "name": "destroy_subwindows",
+      "accepted_core_opcodes": [
+        5
+      ],
+      "cases": [
+        "destroy_subwindows"
+      ]
+    },
+    {
+      "name": "destroy_peer_close",
+      "accepted_core_opcodes": [
+        2
+      ],
+      "cases": [
+        "destroy_peer_close"
+      ]
+    },
+    {
+      "name": "destroy_invalid",
+      "accepted_core_opcodes": [
+        4
+      ],
+      "cases": [
+        "destroy_invalid"
+      ]
+    },
+    {
+      "name": "XID reuse does not retain retired event subscriptions",
+      "accepted_core_opcodes": [
+        1,
+        2,
+        4
+      ],
+      "cases": [
+        "destroy_xid_reuse"
+      ]
+    }
+  ],
+  "extensions": {
+    "SOPHIA-PRESENT": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "MIT-SHM": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "Present": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "XFIXES": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions",
+        "xfixes_selection"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "XC-MISC": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "RENDER": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "SHAPE": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions",
+        "shape"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "XFree86-VidModeExtension": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "GLX": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "SYNC": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions",
+        "sync_counter"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "RANDR": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "XKEYBOARD": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "XInputExtension": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "Generic Event Extension": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    },
+    "BIG-REQUESTS": {
+      "mandatory_cases": [
+        "extensions",
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions"
+      ],
+      "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
+    }
+  },
+  "intentional_absence": {
+    "Composite": "Engine owns composition; no redirection delegation",
+    "DAMAGE": "deliberately absent pending a driving client",
+    "XTEST": "synthetic input requires explicit authority",
+    "DPMS": "power belongs to Session"
+  },
+  "specification": "https://www.x.org/releases/X11R7.7/doc/xproto/x11protocol.html",
+  "fixture_absence": {
+    "DRI3": "No render-device provider in this software-only host; production frontend suppresses advertisement. This is not policy denial or a protocol omission."
+  },
+  "core_request_inventory": {
+    "1": {
+      "name": "X_CREATE_WINDOW",
+      "cases": [
+        "destroy_xid_reuse",
+        "disconnect",
+        "window_tree"
+      ]
+    },
+    "2": {
+      "name": "X_CHANGE_WINDOW_ATTRIBUTES",
+      "cases": [
+        "destroy_peer_close",
+        "destroy_subscribers",
+        "destroy_xid_reuse"
+      ]
+    },
+    "3": {
+      "name": "X_GET_WINDOW_ATTRIBUTES",
+      "cases": [
+        "destroy",
+        "disconnect",
+        "map",
+        "reply_errors",
+        "truncated_peer",
+        "unmap"
+      ]
+    },
+    "4": {
+      "name": "X_DESTROY_WINDOW",
+      "cases": [
+        "destroy",
+        "destroy_descendants",
+        "destroy_invalid",
+        "destroy_subscribers",
+        "destroy_xid_reuse"
+      ]
+    },
+    "5": {
+      "name": "DestroySubwindows",
+      "cases": [
+        "destroy_subwindows"
+      ],
+      "baseline": "Required core request missing from decoder at b3941c04; strict case must fail until implemented."
+    },
+    "7": {
+      "name": "X_REPARENT_WINDOW",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "8": {
+      "name": "X_MAP_WINDOW",
+      "cases": [
+        "map"
+      ]
+    },
+    "9": {
+      "name": "X_MAP_SUBWINDOWS",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "10": {
+      "name": "X_UNMAP_WINDOW",
+      "cases": [
+        "unmap"
+      ]
+    },
+    "12": {
+      "name": "X_CONFIGURE_WINDOW",
+      "cases": [
+        "configure"
+      ]
+    },
+    "14": {
+      "name": "X_GET_GEOMETRY",
+      "cases": [
+        "configure",
+        "reply_errors",
+        "window_tree"
+      ]
+    },
+    "15": {
+      "name": "X_QUERY_TREE",
+      "cases": [
+        "window_tree"
+      ]
+    },
+    "16": {
+      "name": "X_INTERN_ATOM",
+      "cases": [
+        "property_values"
+      ]
+    },
+    "17": {
+      "name": "X_GET_ATOM_NAME",
+      "cases": [
+        "property_values"
+      ]
+    },
+    "18": {
+      "name": "X_CHANGE_PROPERTY",
+      "cases": [
+        "property_values",
+        "selection_transfer"
+      ]
+    },
+    "19": {
+      "name": "X_DELETE_PROPERTY",
+      "cases": [
+        "property_values"
+      ]
+    },
+    "20": {
+      "name": "X_GET_PROPERTY",
+      "cases": [
+        "property_values",
+        "selection_transfer"
+      ]
+    },
+    "21": {
+      "name": "X_LIST_PROPERTIES",
+      "cases": [
+        "property_values"
+      ]
+    },
+    "22": {
+      "name": "X_SET_SELECTION_OWNER",
+      "cases": [
+        "disconnect",
+        "selection_owner",
+        "xfixes_selection"
+      ]
+    },
+    "23": {
+      "name": "X_GET_SELECTION_OWNER",
+      "cases": [
+        "disconnect",
+        "selection_owner"
+      ]
+    },
+    "24": {
+      "name": "X_CONVERT_SELECTION",
+      "cases": [
+        "selection_absent",
+        "selection_transfer"
+      ]
+    },
+    "25": {
+      "name": "X_SEND_EVENT",
+      "cases": [
+        "selection_transfer"
+      ]
+    },
+    "26": {
+      "name": "X_GRAB_POINTER",
+      "cases": [
+        "disconnect_grab",
+        "pointer_grab"
+      ]
+    },
+    "27": {
+      "name": "X_UNGRAB_POINTER",
+      "cases": [
+        "pointer_grab"
+      ]
+    },
+    "28": {
+      "name": "X_GRAB_BUTTON",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "29": {
+      "name": "X_UNGRAB_BUTTON",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "31": {
+      "name": "X_GRAB_KEYBOARD",
+      "cases": [
+        "keyboard_grab"
+      ]
+    },
+    "32": {
+      "name": "X_UNGRAB_KEYBOARD",
+      "cases": [
+        "keyboard_grab"
+      ]
+    },
+    "33": {
+      "name": "X_GRAB_KEY",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "34": {
+      "name": "X_UNGRAB_KEY",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "35": {
+      "name": "X_ALLOW_EVENTS",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "36": {
+      "name": "X_GRAB_SERVER",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "37": {
+      "name": "X_UNGRAB_SERVER",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "38": {
+      "name": "X_QUERY_POINTER",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "40": {
+      "name": "X_TRANSLATE_COORDINATES",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "42": {
+      "name": "X_SET_INPUT_FOCUS",
+      "cases": [
+        "focus"
+      ]
+    },
+    "43": {
+      "name": "X_GET_INPUT_FOCUS",
+      "cases": [
+        "focus"
+      ]
+    },
+    "45": {
+      "name": "X_OPEN_FONT",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "46": {
+      "name": "X_CLOSE_FONT",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "47": {
+      "name": "X_QUERY_FONT",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "49": {
+      "name": "X_LIST_FONTS",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "50": {
+      "name": "X_LIST_FONTS_WITH_INFO",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "53": {
+      "name": "X_CREATE_PIXMAP",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "54": {
+      "name": "X_FREE_PIXMAP",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "55": {
+      "name": "X_CREATE_GC",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "56": {
+      "name": "X_CHANGE_GC",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "59": {
+      "name": "X_SET_CLIP_RECTANGLES",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "60": {
+      "name": "X_FREE_GC",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "61": {
+      "name": "X_CLEAR_AREA",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "62": {
+      "name": "X_COPY_AREA",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "65": {
+      "name": "X_POLY_LINE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "66": {
+      "name": "X_POLY_SEGMENT",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "67": {
+      "name": "X_POLY_RECTANGLE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "69": {
+      "name": "X_FILL_POLY",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "70": {
+      "name": "X_POLY_FILL_RECTANGLE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "71": {
+      "name": "X_POLY_FILL_ARC",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "72": {
+      "name": "X_PUT_IMAGE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "73": {
+      "name": "X_GET_IMAGE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "74": {
+      "name": "X_POLY_TEXT8",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "76": {
+      "name": "X_IMAGE_TEXT8",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "78": {
+      "name": "X_CREATE_COLORMAP",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "79": {
+      "name": "X_FREE_COLORMAP",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "84": {
+      "name": "X_ALLOC_COLOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "85": {
+      "name": "X_ALLOC_NAMED_COLOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "91": {
+      "name": "X_QUERY_COLORS",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "93": {
+      "name": "X_CREATE_CURSOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "94": {
+      "name": "X_CREATE_GLYPH_CURSOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "95": {
+      "name": "X_FREE_CURSOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "96": {
+      "name": "X_RECOLOR_CURSOR",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "97": {
+      "name": "X_QUERY_BEST_SIZE",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "98": {
+      "name": "X_QUERY_EXTENSION",
+      "cases": [
+        "extension_discovery",
+        "extension_errors",
+        "extension_versions",
+        "extensions",
+        "policy_absence",
+        "shape",
+        "sync_counter",
+        "xfixes_selection"
+      ]
+    },
+    "99": {
+      "name": "X_LIST_EXTENSIONS",
+      "cases": [
+        "extensions"
+      ]
+    },
+    "101": {
+      "name": "X_GET_KEYBOARD_MAPPING",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "103": {
+      "name": "X_GET_KEYBOARD_CONTROL",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "104": {
+      "name": "X_BELL",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "117": {
+      "name": "X_GET_POINTER_MAPPING",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "119": {
+      "name": "X_GET_MODIFIER_MAPPING",
+      "cases": [],
+      "coverage_debt": "Decoded request outside this selected mandatory profile; not claimed behaviorally conformant. Expand t057 using a named independent case."
+    },
+    "127": {
+      "name": "NoOperation",
+      "cases": [
+        "reply_errors"
+      ],
+      "baseline": "Required core request missing from decoder at b3941c04; strict case must fail until implemented."
+    }
+  }
+}

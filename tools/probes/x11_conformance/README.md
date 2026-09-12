@@ -1,0 +1,128 @@
+# Independent X11 socket conformance gate
+
+Run from this checkout:
+
+```sh
+python3 -B tools/probes/x11_conformance/check.py --output /tmp/sophia-x11-results
+```
+
+The evidence directory must be new. The command runs gate regressions, builds
+the software-only `x11_conformance_host`, then runs every mandatory case in
+both byte orders. `--target-dir /absolute/build-cache` selects a build cache.
+Python, the offline Rust dependencies and the normal X-authority build
+dependencies are required. Private Unix socket creation must be permitted.
+Socket denial is a launch failure, not protocol evidence.
+
+No Sophia session, renderer, DRM device, input device, VT, installation or
+operator display is used. The runner clears inherited `SOPHIA_*`, `HAGIA_*`,
+display endpoints and `PYTHONOPTIMIZE`. It creates a new mode-0700 temporary
+directory and starts the production `XServerFrontend` with its real routed
+broker and concurrent workers there. There is deliberately no public option
+to attach the gate to an existing display. The test namespace is ClassicShared;
+this gate does not certify confined namespace separation or Session policy.
+
+The host has deterministic software output facts and no render-device provider.
+DRI3 is therefore expected to be unadvertised. This fixture limitation is
+distinct from the deliberate Composite/DAMAGE/XTEST/DPMS exclusions and from
+missing implementations of mandatory protocol requests.
+
+## Independent assertions and mandatory accounting
+
+`wire.py` implements client framing directly from the
+[X11 protocol specification](https://xorg.freedesktop.org/archive/X11R7.7/doc/xproto/x11protocol.html).
+It imports no Sophia encoders, decoders, constants or generated bindings.
+`cases.py` observes replies, error sequences/resources, subscribed events,
+cross-client property/selection effects, grab contention and cleanup. GetInputFocus
+round trips establish request ordering; a successful write is never a barrier.
+Each case has an absolute socket deadline, record/backlog limits and an outer
+client-process deadline. Progress or unrelated events do not reset the deadline.
+Only process groups created by the runner are terminated.
+
+`manifest.json` binds the mandatory profile to cases, core request numbers and
+extension obligations. Every required case must produce exactly one PASS per
+byte order. Missing, duplicate, unexecuted, unknown, malformed, NORESULT,
+UNSUPPORTED, UNTESTED and timeout results fail. A PASS with a failing process
+exit also fails. There are no XFAIL baselines or automatic skip-to-pass paths.
+Python `-O` is rejected so assertions cannot silently disappear.
+
+The source declaration inventory is a separate coverage audit, not an oracle
+for wire behavior. Every currently decoded core request has either named cases
+or explicit coverage debt. A new decoder arm missing from the inventory fails
+the audit. Coverage debt is reported, not counted as tested. The selected gate
+does not claim all core requests, every extension operation, actual input
+delivery, GPU behavior, or the native protocol-family t023 exit. Add independently
+specified cases when expanding those obligations; do not regenerate expected
+behavior from Sophia replies.
+
+`report.json` retains complete verdicts, scope, coverage debt, host digest,
+harness/manifest digests, source commit and dirty-state flag. A source commit
+alone does not identify a dirty build. Host logs are per case. During development,
+changes between a build and a run require rebuilding; preserve the report with
+its actual binary hash. A run on an older candidate remains older evidence.
+
+## Optional selected XTS5 adapter
+
+XTS is a separate checkout/build; the yserver checkout does not supply it.
+Once it is available, prepare a selected scenario in that checkout and a JSON
+array of its exact mandatory purpose identities:
+
+```json
+[{"case":"/ACTUAL/BUILT/CASE/PATH","purpose":1}]
+```
+
+Use actual paths and purpose IDs from that XTS build. The example above is a
+schema illustration, not a real selection or a passing baseline. Select the
+window/property/focus requests supported by the software fixture; requests
+requiring real devices do not belong in this adapter's acceptance profile.
+
+```sh
+python3 -B tools/probes/x11_conformance/xts.py \
+  --host .artifacts/x11-conformance-target/debug/examples/x11_conformance_host \
+  --xts-root /absolute/separate/xts \
+  --scenario selected-core \
+  --expected /absolute/selected-purposes.json \
+  --output /tmp/sophia-selected-xts
+```
+
+The adapter requires the separate checkout's `check.sh`, built `xts5` directory,
+executable TET `tcc`, bubblewrap, the exact selected-purpose manifest and the
+selected scenario. It copies the external tree privately, excludes old results
+and `tetexec.cfg`, then runs with a private `/tmp/.X11-unix/X99`, network namespace
+and `/dev`. An old wrapper hardcoding a host display cannot reach that display.
+The original XTS tree is not modified. The host/harness are copied inside the
+private filesystem so an isolated worktree under `/tmp` remains usable.
+
+Exactly one fresh journal is required. Every declared mandatory purpose must
+start and finish PASS. The numeric TET verdict must agree with its text;
+duplicate/unstarted records fail. Process failure/timeout fails even when a
+partial journal contains PASS results. This deliberately rejects the yserver
+comparator's PASS-to-NORESULT and missing-candidate-purpose false positives.
+No results from an older directory can supply a pass.
+
+With missing dependencies the adapter writes `BLOCKED`, `suite_executed=false`
+and concrete missing paths/tools, and exits 2. This host currently has no XTS
+checkout at `~/src/xts`, no built suite there and no TET `tcc` on PATH. No actual
+XTS5 scenario has been run. Synthetic TET fixtures test adapter isolation and
+reporting only; they are not XTS evidence.
+
+## Gate regressions and references
+
+```sh
+python3 -B -m unittest discover -s tools/probes/x11_conformance -p test_gate.py -v
+```
+
+These include absent/empty results, NORESULT, unsupported/untested statuses,
+duplicates, nonexistent mandatory cases, process timeouts despite continuing
+output, optimized-Python refusal, extension inventory drift and strict TET
+purpose accounting. The real socket run is separate and can correctly fail
+while all gate-regression tests pass.
+
+Reviewed external references: `~/src/yserver/tools/xts-run.sh`,
+`xts-vs-baseline.py`, `fontset-probe.c`, `xid-exhaust-probe.c`; and XLibre's
+`~/src/xserver/test/pyxtest` and `test/xi2`. XLibre's raw-protocol tests and
+swapped-byte-order tests are useful models. Its default Xvfb/Xorg launchers and
+live-display option are not used here. No external implementation code was copied.
+
+See the [investigation](../../../docs/notes/investigations/wzxlxbok-independent-x11-socket-conformance-exposes-missing-client-completions.md)
+for candidate-specific failures and linked repair tasks. The gate must remain
+red until those mandatory behaviors work; it does not establish a pinentry cause.

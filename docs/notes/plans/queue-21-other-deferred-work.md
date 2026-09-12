@@ -35,7 +35,12 @@ VRR until physical hardware reports `vrr_capable=1`.
 
 ## t057
 
-General X11 conformance not required by a retained daily-driver client.
+On 2026-09-12 the operator explicitly admitted the broader independent X11
+conformance gate and placed it ahead of the individual protocol repairs. Its
+selected mandatory profile, evidence and remaining coverage are owned by the
+[socket investigation](../investigations/wzxlxbok-independent-x11-socket-conformance-exposes-missing-client-completions.md#gate-and-coverage).
+Task priority and status remain in `todo.md`; this historical deferred heading
+does not restrict that explicit assignment.
 
 
 ## t058

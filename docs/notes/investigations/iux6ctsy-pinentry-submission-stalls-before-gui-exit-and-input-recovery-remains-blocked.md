@@ -496,3 +496,66 @@ the fixed launcher and all generated wrappers were verified. The whole-repositor
 source-layout audit is not green: it reports oversized X11 socket tests outside
 this probe's changes; the concurrent runtime owner was notified. No new physical
 run was performed, and t082 remains open pending the instrumented specimen.
+
+### Clipboard teardown isolated without a display
+
+V6 capture `run.jIl4gS` narrowed the native stall further: PID 17825,
+GUI XID 4194307, explicitly authority client 2. Saving, on_exit, painter cleanup
+and Window::drop's body returned; running_drop_enter did not. The visible
+window's destroy_window call returned success, but client 2 has no recorded
+major-4 dispatch. No trace loss and a fresh heartbeat preceded watchdog cleanup.
+The detailed timeline is retained in that capture's review.md.
+
+Source reading found a separate path inside that still-open drop. Each viewport
+drops its egui-winit state after its window. That state owns arboard; arboard's
+X11 clipboard owns a separate RustConnection and hidden window. Clipboard::drop
+destroys and flushes that window, then joins a worker whose normal exit is
+DestroyNotify. Therefore the nearby client-3 DestroyWindow is a plausible
+clipboard request from the same process, despite not belonging to the GUI's
+client 2. The earlier rejection of the *post-teardown GUI event* hypothesis
+remains valid; it does not exclude an *in-teardown clipboard worker join*.
+The old trace does not positively identify client 3 as this clipboard.
+
+A minimal executable using the real, checksum-verified arboard 3.6.1 constructs
+and drops the clipboard without reading or setting any data. The software-only
+production XServerFrontend runs in a private bubblewrap namespace. Historical
+1a59ab8c stalls at clipboard_join_enter after destroy and flush returned; a
+five-second harness deadline terminates only that test client. A fresh-target
+d9c49d85 host sends DestroyNotify for the exact hidden XID, the worker exits,
+join/drop return and the client exits zero in milliseconds. Both servers remain
+alive until fixture cleanup. The final reusable checker retains strict FAIL/exit1
+and PASS/exit0 respectively under
+`.artifacts/t082-validation/clipboard-final-{before,after}`.
+
+The initial shared-target after-host was stale and its result is invalid.
+Historical archive timestamps allowed cached included-source code to survive:
+the after-host lacked the destroy_window_subtree symbol, while the fresh
+dedicated-target host contains it. Both binaries and build logs are retained in
+`.artifacts/t082-clipboard-v1`; the final comparison uses the fresh host.
+Private diagnostic eprintln probes used during this investigation were removed
+from the rebuilt source and are not repository runtime changes.
+
+This establishes the library failure and recovery. It does not yet establish
+which destructor blocked in the attended full GUI, nor prove full pinentry
+exit after the server repair. V8 adds hidden-window identity, clipboard-manager,
+destroy/flush, notification and join markers to the native probe so that the
+remaining claim can be tested directly. V7 failed the strict dependency check;
+V8 preserves the original package/version set, including the Windows-only
+dependency choice affected by path-patching arboard.
+
+Nineteen probe/checker tests and six upstream in-memory UI tests pass. The
+headless regression fails on missing or wrong-XID notification, out-of-order or
+duplicate completion, nonzero exit, timeout and diagnostic loss. Generated
+wrapper syntax and immutable bundle hashes are checked. No full-session gate,
+new native run, installation, or runtime repair is claimed by this work.
+The installed release and retained capture pin are still 1a59ab8c1406; full GUI
+acceptance on a release containing the destroy repair remains outstanding.
+
+Validation correction: the earlier raw source-layout audit exit was not a
+failure of the repository's actual layout gate. `cargo xtask check layout`
+normalizes the raw audit findings and compares them with the recorded debt;
+that exact gate passes unchanged for this work. The prior note identifying raw
+socket-test findings as an outstanding gate failure was too broad. Final
+source snapshots were also compared byte-for-byte with their exported archives;
+the only fixture addition is the conformance host example. Commit, archive,
+example and host hashes are retained in t082-clipboard-v1/provenance.json.

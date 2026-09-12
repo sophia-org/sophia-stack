@@ -7,7 +7,7 @@ umask 077
 export T082_TOOLS
 T082_TOOLS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export T082_RELEASE=/opt/sophia/releases/0.1.0-1a59ab8c1406
-export T082_BUNDLE=/home/niltempus/dev/sophia-stack/.artifacts/t082-probe-v6
+export T082_BUNDLE=/home/niltempus/dev/sophia-stack/.artifacts/t082-probe-v8
 export T082_CAPTURE
 mkdir -p /tmp/sophia-pinentry-trace
 T082_CAPTURE=$(mktemp -d /tmp/sophia-pinentry-trace/run.XXXXXX)

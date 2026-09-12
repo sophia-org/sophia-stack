@@ -12,8 +12,8 @@ import subprocess
 import time
 
 STAGES = frozenset("process_start process_exit heartbeat app_update submit_enter submit_ok submit_cancel submit_escape result_send_enter result_sent close_request_enter close_enqueued run_native_enter run_native_return run_native_error window_created getpin_enter result_received assuan_data_enter assuan_data_return assuan_terminal_return paint_enter paint_return swap_enter swap_return viewport_output_enter viewport_output_return native_close_requested close_processed close_observed close_accepted event_loop_exit_requested event_loop_return".split())
-STAGES |= frozenset("autosave_enter autosave_return minimized_enter minimized_return request_check_enter request_check_return xcb_event_wait_enter xcb_event_wait_return destroy_enter destroy_return save_enter save_return on_exit_enter on_exit_return painter_destroy_enter painter_destroy_return running_drop_enter running_drop_return window_drop_enter window_drop_return destroy_request_enter destroy_request_return window_event_kind window_event_running window_event_exit xpending_enter xpending_return reply_wait_enter reply_wait_return xcb_flush_enter xcb_flush_return xcb_connection".split())
-XIDS = frozenset("window_created window_drop_enter window_drop_return destroy_request_enter".split())
+STAGES |= frozenset("clipboard_window clipboard_destroy_notify clipboard_drop_enter clipboard_lock_enter clipboard_lock_return clipboard_manager_enter clipboard_manager_return clipboard_destroy_enter clipboard_destroy_return clipboard_flush_enter clipboard_flush_return clipboard_join_enter clipboard_join_return clipboard_new_enter clipboard_new_return clipboard_drop_complete autosave_enter autosave_return minimized_enter minimized_return request_check_enter request_check_return xcb_event_wait_enter xcb_event_wait_return destroy_enter destroy_return save_enter save_return on_exit_enter on_exit_return painter_destroy_enter painter_destroy_return running_drop_enter running_drop_return window_drop_enter window_drop_return destroy_request_enter destroy_request_return window_event_kind window_event_running window_event_exit xpending_enter xpending_return reply_wait_enter reply_wait_return xcb_flush_enter xcb_flush_return xcb_connection".split())
+XIDS = frozenset("clipboard_window clipboard_destroy_notify clipboard_drop_enter window_created window_drop_enter window_drop_return destroy_request_enter".split())
 SEQUENCES = frozenset("reply_wait_enter reply_wait_return request_check_enter request_check_return".split())
 SUBMIT = frozenset("submit_enter submit_ok submit_cancel submit_escape native_close_requested".split())
 INSTRUCTIONS = {
@@ -69,11 +69,13 @@ def open_spans(events):
     # Correlate each thread independently. XCB sequence numbers are meaningful
     # only within a connection; identities here are per-thread opaque ordinals.
     opened, connections = [], {}
-    pairs = {"result_sent": "result_send_enter", "close_enqueued": "close_request_enter"}
+    pairs = {"clipboard_drop_complete": "clipboard_drop_enter", "result_sent": "result_send_enter", "close_enqueued": "close_request_enter"}
     for name in ("paint", "swap", "viewport_output", "run_native", "assuan_data",
                  "destroy", "save", "on_exit", "painter_destroy", "running_drop",
                  "window_drop", "destroy_request", "xpending", "reply_wait", "xcb_flush",
-                 "autosave", "minimized", "request_check", "xcb_event_wait"):
+                 "autosave", "minimized", "request_check", "xcb_event_wait",
+                 "clipboard_new", "clipboard_lock", "clipboard_manager",
+                 "clipboard_destroy", "clipboard_flush", "clipboard_join"):
         pairs[name + "_return"] = name + "_enter"
     for event in sorted(events, key=lambda e: e["seq"]):
         stage, thread = event["stage"], event.get("thread", "legacy")
@@ -238,6 +240,7 @@ def run_case(command, output, case, instrumented, lifetime=60.0, submitted_timeo
                    open_spans=open_spans(events),
                    last_application_stage=next((e["stage"] for e in reversed(events) if e["stage"] != "heartbeat"), None),
                    window_ids=sorted({e["value"] for e in events if e["stage"] == "window_created"}),
+                   clipboard_window_ids=sorted({e["value"] for e in events if e["stage"] == "clipboard_window"}),
                    response_after_submit_ms=None if submitted_at is None or terminal_at is None else round((terminal_at-submitted_at)*1000, 3))
     expected = protocol.terminal == ("pin" if case in ("enter", "ok") else "cancelled")
     expected = expected and (case not in ("enter", "ok") or protocol.dummy_matches is True)

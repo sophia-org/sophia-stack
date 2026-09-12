@@ -18,7 +18,7 @@ From the main Sophia checkout, the reproducible build is:
 ```sh
 python3 -B tools/probes/t082_pinentry/build.py \
   --sources .artifacts/pinentry-egui-20260912/sources \
-  --output .artifacts/t082-probe-v6
+  --output .artifacts/t082-probe-v8
 python3 -B tools/probes/t082_pinentry/test_probe.py
 ```
 
@@ -116,7 +116,7 @@ linked investigation, identify the first missing transition and propose the
 repair against that evidence. No live capture or GUI repair is claimed by the
 offline tests in this directory.
 
-### Shutdown trace (v6)
+### Shutdown trace (introduced in v6)
 
 The private patches additionally cover locked winit 0.30.12 and x11rb 0.13.2;
 their archives are copied into the source archive directory from Cargo's cache
@@ -151,3 +151,63 @@ request sequence; analysis matches thread, connection and sequence independently
 All open spans remain in the summary rather than hiding outer teardown behind
 a nested reply wait. Unmatched spans and absence of later events remain
 observations, not automatic diagnoses.
+
+### Clipboard teardown (v8)
+
+The bundle now also patches checksum-verified arboard 3.6.1. Its hidden window
+is identified separately from the GUI window. Markers bracket clipboard-lock
+acquisition, clipboard-manager handoff, the existing destroy and flush, and
+the worker join. The worker records the DestroyNotify window it actually reads.
+No clipboard data is traced. No wakeup, flush or timeout is added inside arboard.
+V7 failed the strict lock-identity check and is not a usable bundle. V8 pins the
+private crate's broad Windows dependency range to the original lock's 0.60.2,
+preventing path-patch resolution from choosing 0.52.0 instead; Linux behavior
+and the full original package/version set are preserved.
+
+The standalone `clipboard-probe` executable constructs and drops the same
+patched arboard library without reading or setting clipboard data. Run it only
+through the isolated fixture, never directly against the operator's DISPLAY:
+
+```sh
+python3 -B tools/probes/t082_pinentry/clipboard_check.py \
+  --host .artifacts/t082-clipboard-v1/fresh-after/host \
+  --bundle .artifacts/t082-probe-v8 \
+  --output /tmp/t082-clipboard-result
+```
+
+The output directory must be new. Bubblewrap provides private network, /tmp,
+device and process namespaces, with DISPLAY=:99 naming only the fixture's socket.
+The host is the software-only production XServerFrontend example, not a full
+Sophia session. No graphics device, VT, user clipboard, GPG or compositor is used.
+The client has a five-second deadline, and the entire namespace a 15-second
+deadline. Only fixture processes are cleaned up.
+
+PASS requires exactly one matching hidden-window notification followed by one
+successful join return, drop completion and clean exit, with no missing/duplicate
+trace records. Timeout, absent notification, wrong XID, reordered evidence,
+failed exit or absent fixture report returns nonzero. Reports preserve host,
+client, fixture and parser hashes. A caller-supplied host path is not itself
+proof of a source revision: retain its build source and commit separately.
+
+For host rebuilds, export the intended source revision into a private directory,
+add the unchanged `crates/sophia-x-authority/examples/x11_conformance_host.rs`
+from the conformance fixture if the historical revision predates it, and build
+`cargo build --offline --locked -p sophia-x-authority --example x11_conformance_host`.
+Use a NEW CARGO_TARGET_DIR for EACH exported revision. A shared target reused
+with historical git-archive timestamps yielded a stale included-source library
+in the initial comparison. The fresh after-host contains destroy_window_subtree;
+the invalid shared-target after-host did not. Never treat the latter's failure
+as evidence about the repaired revision.
+
+Retained final fixture results:
+`.artifacts/t082-validation/clipboard-final-before` (1a59ab8c, FAIL at join)
+and `clipboard-final-after` (fresh d9c49d85, PASS).
+This proves the library failure/recovery, not that arboard was the destructor
+blocked in the original full-GUI specimen. V8's GUI markers are for establishing
+that identity or observing full-GUI recovery.
+
+The fixed capture still deliberately names installed 1a59ab8c1406. Running it
+now would be a historical-server diagnostic, not acceptance of the destroy
+repair. The next full-GUI acceptance should use a verified installed release
+containing the repair and an explicitly retargeted capture. No install or native
+launch is part of this delivery.

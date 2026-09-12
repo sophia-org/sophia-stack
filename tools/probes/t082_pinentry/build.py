@@ -9,9 +9,11 @@ import shutil
 import subprocess
 import tarfile
 import tomllib
+import clipboard_trace
 
 HERE = Path(__file__).resolve().parent
 ARCHIVES = {
+    clipboard_trace.ARCHIVE: clipboard_trace.CHECKSUM,
     "winit-0.30.12": "c66d4b9ed69c4009f6321f762d6e61ad8a2389cd431b97cb1e146812e9e6c732",
     "x11rb-0.13.2": "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414",
     "pinentry-egui-0.1.1": "8e94e92457a4f08152a825bb1175bfca805f73af76bdee8d864d37ee7348cf04",
@@ -143,7 +145,7 @@ def build(args):
     def versions(path):
         return {(p["name"], p["version"]) for p in tomllib.loads(path.read_text())["package"] if p["name"] != "t082-trace"}
     locked_versions = versions(dest / "baseline/Cargo.lock")
-    tool_hashes = {name: hashlib.sha256((HERE / name).read_bytes()).hexdigest() for name in ("build.py", "trace.rs")}
+    tool_hashes = {name: hashlib.sha256((HERE / name).read_bytes()).hexdigest() for name in ("build.py", "trace.rs", "clipboard_trace.py")}
     helper = source / "t082-trace"
     (helper / "src").mkdir(parents=True)
     (helper / "Cargo.toml").write_text('[package]\nname="t082-trace"\nversion="0.0.0"\nedition="2021"\n')
@@ -160,8 +162,13 @@ def build(args):
         out.write('\n[dependencies.raw-window-handle]\nversion="0.6"\n'
                   '\n[patch.crates-io]\neframe={path="../eframe-0.33.3"}\n'
                   'egui-winit={path="../egui-winit-0.33.3"}\n'
-                  'winit={path="../winit-0.30.12"}\nx11rb={path="../x11rb-0.13.2"}\n')
+                  'winit={path="../winit-0.30.12"}\nx11rb={path="../x11rb-0.13.2"}\n'
+                  'arboard={path="../arboard-3.6.1"}\n')
     instrument(source)
+    clipboard_trace.instrument(source, replace, mark)
+    (pin / "src/clipboard_probe.rs").write_text(clipboard_trace.CLIENT)
+    with (pin / "Cargo.toml").open("a") as out:
+        out.write('\n[dependencies.arboard]\nversion="=3.6.1"\ndefault-features=false\nfeatures=["image-data"]\n[[bin]]\nname="clipboard-probe"\npath="src/clipboard_probe.rs"\n')
     env = {k: v for k, v in os.environ.items() if not k.startswith(("SOPHIA_", "HAGIA_"))}
     env["CARGO_BUILD_JOBS"] = "4"
     target = args.target.resolve() if args.target else dest / "target"
@@ -172,12 +179,13 @@ def build(args):
         with (dest / (name + "-build.log")).open("w") as log:
             subprocess.run(command, cwd=project, env=env, stdout=log, stderr=subprocess.STDOUT, check=True)
         shutil.copy2(target / "release/pinentry-egui", dest / ("pinentry-" + name))
+    shutil.copy2(target / "release/clipboard-probe", dest / "clipboard-probe")
     if versions(dest / "baseline/Cargo.lock") != locked_versions or versions(pin / "Cargo.lock") != locked_versions:
         raise RuntimeError("Registry dependency versions drifted")
     identity = {"archives": ARCHIVES, "generator_sha256": tool_hashes,
                 "generated_source_sha256": {str(p.relative_to(dest)): hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted(source.rglob("*")) if p.is_file() and (p.suffix == ".rs" or p.name in ("Cargo.toml", "Cargo.lock"))},
                 "tools_base_commit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=HERE, text=True).strip(),
-                "binaries": {name: hashlib.sha256((dest / name).read_bytes()).hexdigest() for name in ("pinentry-baseline", "pinentry-instrumented")}}
+                "binaries": {name: hashlib.sha256((dest / name).read_bytes()).hexdigest() for name in ("pinentry-baseline", "pinentry-instrumented", "clipboard-probe")}}
     (dest / "identity.json").write_text(json.dumps(identity, indent=2) + "\n")
     print(dest)
 

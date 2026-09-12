@@ -42,7 +42,7 @@ def report(capture):
         summary = json.loads(path.read_text())
         records = [json.loads(line) for line in (path.parent / "stages.jsonl").read_text().splitlines()]
         events = [r for r in records if r["event"] == "trace"]
-        lines += [f"## {path.parent.name}", "", f"PID {summary['pid']}; XIDs {summary['window_ids']}; outcome `{summary['result']}`.", "", boundary(summary, events), "",
+        lines += [f"## {path.parent.name}", "", f"PID {summary['pid']}; GUI XIDs {summary['window_ids']}; clipboard XIDs {summary.get('clipboard_window_ids', [])}; outcome `{summary['result']}`.", "", boundary(summary, events), "",
                   f"Protocol: `{summary['protocol_terminal']}`. Harness termination: `{summary['harness_termination']}`.", "",
                   "Last 24 application markers (heartbeat excluded; full stream remains in stages.jsonl):", "", "| Sequence | Monotonic ns | Stage |", "| --- | --- | --- |"]
         for event in [e for e in events if e["stage"] != "heartbeat"][-24:]:

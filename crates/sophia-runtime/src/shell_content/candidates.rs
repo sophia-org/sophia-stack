@@ -4,6 +4,9 @@ use sophia_protocol::*;
 
 use super::{ContentResourceLease, ContentResourceStore, ContentStoreError};
 
+mod demands;
+use demands::StandingDemand;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ContentCandidateError {
     Stale,
@@ -130,6 +133,7 @@ impl ContentRenderBundle {
 pub struct ContentCandidateStore {
     limits: ContentLimits,
     permits: BTreeMap<ContentOutputId, Permit>,
+    demands: BTreeMap<ContentOutputId, StandingDemand>,
     assemblies: BTreeMap<ContentOutputId, Assembly>,
     pending: BTreeMap<ContentOutputId, Candidate>,
     submitted: BTreeMap<ContentOutputId, Candidate>,
@@ -137,6 +141,7 @@ pub struct ContentCandidateStore {
     /// Reserved output records for obligations which have not settled yet.
     response_credits: usize,
     last_candidate_generation: u64,
+    last_demand_id: u64,
     last_permit_id: u64,
     last_now: u64,
     revoked: bool,
@@ -150,12 +155,14 @@ impl ContentCandidateStore {
         Ok(Self {
             limits,
             permits: BTreeMap::new(),
+            demands: BTreeMap::new(),
             assemblies: BTreeMap::new(),
             pending: BTreeMap::new(),
             submitted: BTreeMap::new(),
             events: VecDeque::new(),
             response_credits: 0,
             last_candidate_generation: 0,
+            last_demand_id: 0,
             last_permit_id: 0,
             last_now: 0,
             revoked: false,
@@ -186,6 +193,7 @@ impl ContentCandidateStore {
 
     pub fn quiescent(&self) -> bool {
         self.permits.is_empty()
+            && self.demands.is_empty()
             && self.assemblies.is_empty()
             && self.pending.is_empty()
             && self.submitted.is_empty()
@@ -732,6 +740,7 @@ impl ContentCandidateStore {
     /// leases stay owned until their non-cancellable caller retires them.
     pub fn revoke(&mut self) {
         self.revoked = true;
+        self.demands.clear();
         self.permits.clear();
         self.assemblies.clear();
         self.pending.clear();

@@ -511,3 +511,142 @@ fn disconnected_epoch_retains_submitted_candidate_until_renderer_retirement() {
     assert_eq!(epochs.retired_bytes(), 0);
     assert_eq!(epochs.reserved_bytes(), 0);
 }
+
+#[test]
+fn demands_coalesce_but_withdrawal_keeps_priority_until_permitted() {
+    let (mut candidates, _) = stores();
+    let allocation = allocation();
+    let demand = |id, reason| ContentFrameDemand {
+        grant: grant(),
+        output: output(),
+        allocation: allocation.allocation,
+        demand_id: id,
+        reason,
+    };
+    candidates
+        .demand(
+            tx(1),
+            demand(1, 1),
+            &[output()],
+            std::slice::from_ref(&allocation),
+        )
+        .unwrap();
+    candidates
+        .demand(
+            tx(2),
+            demand(2, 2),
+            &[output()],
+            std::slice::from_ref(&allocation),
+        )
+        .unwrap();
+    assert_eq!(candidates.next_demand().unwrap().1.demand_id, 2);
+    candidates
+        .demand(
+            tx(3),
+            demand(3, 3),
+            &[output()],
+            std::slice::from_ref(&allocation),
+        )
+        .unwrap();
+    assert_eq!(
+        candidates.demand(
+            tx(4),
+            demand(4, 1),
+            &[output()],
+            std::slice::from_ref(&allocation),
+        ),
+        Err(ContentCandidateError::Stale)
+    );
+    assert_eq!(candidates.next_demand().unwrap().1.demand_id, 3);
+    candidates.grant_demand(tx(5), output(), 1, 0).unwrap();
+    assert!(candidates.next_demand().is_none());
+}
+
+#[test]
+fn demand_and_unconsumed_permit_cancellation_are_explicit_and_exact() {
+    let (mut candidates, _) = stores();
+    let request = ContentFrameDemand {
+        grant: grant(),
+        output: output(),
+        allocation: ContentAllocationId::default(),
+        demand_id: 1,
+        reason: 1,
+    };
+    candidates.demand(tx(1), request, &[output()], &[]).unwrap();
+    candidates.grant_demand(tx(2), output(), 4, 0).unwrap();
+    assert_eq!(
+        candidates.cancel_demand(
+            tx(3),
+            ContentFrameDemandCancel {
+                grant: grant(),
+                output: output(),
+                demand_id: 1,
+                permit_id: 5,
+            }
+        ),
+        Err(ContentCandidateError::Stale)
+    );
+    candidates
+        .cancel_demand(
+            tx(4),
+            ContentFrameDemandCancel {
+                grant: grant(),
+                output: output(),
+                demand_id: 1,
+                permit_id: 4,
+            },
+        )
+        .unwrap();
+    let events: Vec<_> = std::iter::from_fn(|| candidates.take_event()).collect();
+    assert!(events.iter().any(|event| matches!(
+        &event.record,
+        ShellContentRecord::FramePermit(ContentFramePermit {
+            permit_id: 4,
+            state: 3,
+            reason,
+            ..
+        }) if *reason == ContentReason::Cancelled as u16
+    )));
+}
+
+#[test]
+fn a_demand_cannot_invent_an_output_or_cancel_the_wrong_standing_request() {
+    let (mut candidates, _) = stores();
+    let request = ContentFrameDemand {
+        grant: grant(),
+        output: output(),
+        allocation: ContentAllocationId::default(),
+        demand_id: 1,
+        reason: 1,
+    };
+    assert_eq!(
+        candidates.demand(tx(1), request.clone(), &[], &[]),
+        Err(ContentCandidateError::Stale)
+    );
+    candidates.demand(tx(2), request, &[output()], &[]).unwrap();
+    assert_eq!(
+        candidates.cancel_demand(
+            tx(3),
+            ContentFrameDemandCancel {
+                grant: grant(),
+                output: output(),
+                demand_id: 2,
+                permit_id: 0,
+            }
+        ),
+        Err(ContentCandidateError::Stale)
+    );
+    assert_eq!(candidates.next_demand().unwrap().1.demand_id, 1);
+    candidates
+        .cancel_demand(
+            tx(4),
+            ContentFrameDemandCancel {
+                grant: grant(),
+                output: output(),
+                demand_id: 1,
+                permit_id: 0,
+            },
+        )
+        .unwrap();
+    assert!(candidates.next_demand().is_none());
+}

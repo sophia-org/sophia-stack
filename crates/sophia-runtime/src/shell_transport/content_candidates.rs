@@ -8,6 +8,83 @@ use crate::{ContentCandidateContext, ContentRenderBundle};
 const MAX_CANDIDATE_RESPONSE_BYTES: usize = sophia_protocol::SOPHIA_IPC_HEADER_LEN + 72;
 
 impl ShellSessionTransport {
+    /// Accept and coalesce frame demands and exact cancellations. Allocation
+    /// validity is supplied by the Engine owner, never inferred from the wire.
+    pub fn service_content_demands(
+        &mut self,
+        outputs: &[ContentOutputId],
+        allocations: &[crate::ContentAllocationSnapshot],
+    ) -> Result<usize, ShellTransportError> {
+        let limits = self
+            .content_limits
+            .clone()
+            .ok_or(ShellTransportError::MissingCapability)?;
+        let mut processed = 0;
+        while processed < limits.max_frames_per_service_tick as usize {
+            if self
+                .output
+                .len()
+                .saturating_add(MAX_CANDIDATE_RESPONSE_BYTES)
+                > limits.max_output_queue_bytes as usize
+            {
+                break;
+            }
+            let Some((transaction, record)) = self.poll_content_demand_record()? else {
+                break;
+            };
+            let candidates = self
+                .content_epochs
+                .active_candidates_mut()
+                .ok_or(ShellTransportError::MissingCapability)?;
+            match record {
+                ShellContentRecord::FrameDemand(value) => {
+                    candidates.demand(transaction, value, outputs, allocations)?;
+                }
+                ShellContentRecord::FrameDemandCancel(value) => {
+                    candidates.cancel_demand(transaction, value)?;
+                }
+                _ => return Err(ShellTransportError::WrongContentRecord),
+            }
+            processed += 1;
+            self.flush_content_candidate_events()?;
+        }
+        Ok(processed)
+    }
+
+    pub fn next_content_demand(
+        &self,
+    ) -> Option<(TransactionId, sophia_protocol::ContentFrameDemand)> {
+        self.content_epochs
+            .active_candidates()
+            .and_then(|candidates| candidates.next_demand())
+    }
+
+    pub fn grant_content_demand(
+        &mut self,
+        transaction: TransactionId,
+        output: ContentOutputId,
+        permit_id: u64,
+        now_msec: u64,
+    ) -> Result<(), ShellTransportError> {
+        let limits = self
+            .content_limits
+            .as_ref()
+            .ok_or(ShellTransportError::MissingCapability)?;
+        if self
+            .output
+            .len()
+            .saturating_add(MAX_CANDIDATE_RESPONSE_BYTES)
+            > limits.max_output_queue_bytes as usize
+        {
+            return Err(ShellTransportError::ContentQueueSaturated);
+        }
+        self.content_epochs
+            .active_candidates_mut()
+            .ok_or(ShellTransportError::MissingCapability)?
+            .grant_demand(transaction, output, permit_id, now_msec)?;
+        self.flush_content_candidate_events()
+    }
+
     /// Publish one Engine-issued permit after the owner has accepted/coalesced a
     /// demand. This reserves the candidate's complete response lifecycle.
     pub fn grant_content_permit(
@@ -211,6 +288,31 @@ impl ShellSessionTransport {
             .inbox
             .iter()
             .position(|frame| matches!(u16::from_le_bytes([frame[6], frame[7]]), 172..=174));
+        let Some(frame) = at.and_then(|index| self.inbox.remove(index)) else {
+            return if self.peer_closed {
+                Err(ShellTransportError::NotConnected)
+            } else {
+                Ok(None)
+            };
+        };
+        let (transaction, record) = sophia_protocol::decode_shell_content_frame(&frame)?;
+        if !content_admission::client_record(&record) {
+            return Err(ShellTransportError::WrongContentRecord);
+        }
+        if content_admission::record_grant(&record) != self.content_grant {
+            return Err(ShellTransportError::WrongContentGrant);
+        }
+        Ok(Some((transaction, record)))
+    }
+
+    fn poll_content_demand_record(
+        &mut self,
+    ) -> Result<Option<(TransactionId, ShellContentRecord)>, ShellTransportError> {
+        self.poll_io()?;
+        let at = self
+            .inbox
+            .iter()
+            .position(|frame| matches!(u16::from_le_bytes([frame[6], frame[7]]), 176 | 178));
         let Some(frame) = at.and_then(|index| self.inbox.remove(index)) else {
             return if self.peer_closed {
                 Err(ShellTransportError::NotConnected)

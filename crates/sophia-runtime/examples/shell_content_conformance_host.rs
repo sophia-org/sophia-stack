@@ -2,8 +2,9 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sophia_protocol::{
-    ContentAllocationId, ContentMargins, ContentOutputId, ContentPixelRect, ContentReason,
-    ContentResourceId, TransactionId,
+    ContentAllocationId, ContentMargins, ContentOutputFacts, ContentOutputFactsEntry,
+    ContentOutputId, ContentPixelRect, ContentReason, ContentResourceId, ShellContentRecord,
+    TransactionId,
 };
 use sophia_runtime::{
     ContentAllocationSnapshot, ContentCandidateContext, ContentRenderBundle, ProcessLaunchSpec,
@@ -72,6 +73,21 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         id: 2,
         generation: 1,
     };
+    transport.send_content_record(
+        TransactionId::from_raw(2),
+        &ShellContentRecord::OutputFacts(ContentOutputFacts {
+            grant,
+            facts_generation: 1,
+            outputs: vec![ContentOutputFactsEntry {
+                output,
+                local_width: 64,
+                local_height: 32,
+                scale_numerator: 1,
+                scale_denominator: 1,
+                scale_generation: 1,
+            }],
+        }),
+    )?;
     let allocation = ContentAllocationId {
         id: 1,
         generation: 1,
@@ -121,11 +137,18 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .is_some_and(|usage| usage == Default::default()) => {}
             Err(error) => return Err(error.into()),
         }
-        if !permit_sent && transport.lease_content_resource(grant, resource).is_ok() {
-            transport.grant_content_permit(
+        match transport.service_content_demands(&[output], &allocations) {
+            Ok(_) => {}
+            Err(sophia_runtime::ShellTransportError::NotConnected) if verified => {}
+            Err(error) => return Err(error.into()),
+        }
+        if !permit_sent && let Some((_, demand)) = transport.next_content_demand() {
+            if demand.output != output || demand.allocation != ContentAllocationId::default() {
+                return Err("independent client demanded an unknown output or allocation".into());
+            }
+            transport.grant_content_demand(
                 TransactionId::from_raw(10),
                 output,
-                1,
                 1,
                 started.elapsed().as_millis() as u64,
             )?;

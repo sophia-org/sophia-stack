@@ -216,6 +216,21 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
             }
         }
         assert_eq!(statuses, [1, 2]);
+        client
+            .send_content(
+                TransactionId::from_raw(9),
+                &ShellContentRecord::FrameDemand(ContentFrameDemand {
+                    grant: limits.grant,
+                    output: ContentOutputId {
+                        id: 2,
+                        generation: 1,
+                    },
+                    allocation: ContentAllocationId::default(),
+                    demand_id: 1,
+                    reason: 1,
+                }),
+            )
+            .unwrap();
         uploaded_tx.send(()).unwrap();
 
         let ShellContentRecord::FramePermit(permit) = next_content(&mut client) else {
@@ -325,9 +340,6 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
         id: 2,
         generation: 1,
     };
-    session
-        .grant_content_permit(TransactionId::from_raw(19), output, 1, 1, 10)
-        .unwrap();
     let allocation_id = ContentAllocationId {
         id: 1,
         generation: 1,
@@ -357,6 +369,16 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
         interaction_generation: 4,
         allocations: &allocations,
     };
+    while session.next_content_demand().is_none() {
+        session
+            .service_content_demands(&[output], &allocations)
+            .unwrap();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    session
+        .grant_content_demand(TransactionId::from_raw(19), output, 1, 10)
+        .unwrap();
     let mut processed = 0;
     while processed < 3 {
         processed += session

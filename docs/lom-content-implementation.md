@@ -61,8 +61,16 @@ permit, receives a complete candidate from Lom, verifies its immutable pixels
 and tables, and deliberately reports renderer failure because the host has no
 native output. That is a real terminal path and explicitly not presentation.
 
-This service is not yet called by the production owner loop. Demand coalescing,
-allocation authority, actions and native renderer integration remain absent.
+Frame demands now take the same bounded route. One standing demand per output
+coalesces until Engine grants it; withdrawal cannot be replaced by lower-priority
+dirty or animation work. The client may hold one new standing demand alongside
+one granted, unconsumed permit. Exact cancellation and permit expiry produce
+visible `FramePermit` states, and their response capacity is reserved before the
+demand is accepted. Lom's conformance client derives the output identity from
+`ContentOutputFacts`, raises a demand, and uses only the returned permit.
+
+This service is not yet called by the production owner loop. Allocation
+authority, actions and native renderer integration remain absent.
 Event creation and output queueing are not proof of client receipt. Cancellation
 echoes its request transaction; timeout correlates to Begin. Peer loss accounts
 for undeliverable events without reporting delivery.
@@ -141,7 +149,7 @@ No render-node bind, GPU permission, installed profile or shell replacement was
 added. The CPU pool does not claim to count renderer/upload copies that are not
 yet integrated with it.
 
-Still required: demand and action lifecycle, production candidate service,
+Still required: action lifecycle, production demand/candidate service,
 allocation and work-area integration, native upload/composition/retirement,
 production operator-policy configuration, GPU admission, Lom connection
 and exact presented-target adapter, and attended acceptance. The first live

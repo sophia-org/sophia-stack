@@ -208,6 +208,25 @@ pub enum XClientEvent {
         sequence: u16,
         bytes: [u8; X_CLIENT_OUTPUT_RECORD_LEN],
     },
+    /// `XFixesSelectionNotify`: a selection's ownership changed.
+    ///
+    /// `window` is the window the recipient named when it subscribed, not the
+    /// selection's owner: a watcher asks about a selection through a window of
+    /// its own, and the event comes back addressed to that window.
+    ///
+    /// `subtype` says what changed the ownership -- it was set (0), the owner
+    /// window was destroyed (1), or the owning client went away (2) -- and a
+    /// subscriber receives only the subtypes its mask selected, bit `1 <<
+    /// subtype`.
+    XfixesSelectionNotify {
+        sequence: u16,
+        subtype: u8,
+        window: XResourceId,
+        owner: XResourceId,
+        selection: u32,
+        time: XTimestamp,
+        selection_time: XTimestamp,
+    },
     /// `ShapeNotify`: one of a window's shapes changed.
     ///
     /// `shaped` reports whether the kind is set at all, not whether the

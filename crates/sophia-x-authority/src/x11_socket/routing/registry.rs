@@ -11,6 +11,12 @@ struct XServerFrontendRouteRegistry {
     core_event_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), u32>>>,
     randr_subscriptions: Arc<Mutex<BTreeMap<XServerFrontendClientId, (XResourceId, u16)>>>,
+    /// Selections a client watches, keyed by the window it named when it
+    /// subscribed. One client may watch several selections, and the same
+    /// selection through different windows, so the window is part of the key
+    /// rather than a value that the next subscription overwrites.
+    xfixes_selection_subscriptions:
+        Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId, u32), (NamespaceId, u32)>>>,
     present_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), XPresentSubscription>>>,
     pending_presentations: Arc<XPendingPresentRegistry>,
@@ -119,6 +125,12 @@ struct XServerFrontendClientRouteRegistration {
     core_event_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), u32>>>,
     randr_subscriptions: Arc<Mutex<BTreeMap<XServerFrontendClientId, (XResourceId, u16)>>>,
+    /// Selections a client watches, keyed by the window it named when it
+    /// subscribed. One client may watch several selections, and the same
+    /// selection through different windows, so the window is part of the key
+    /// rather than a value that the next subscription overwrites.
+    xfixes_selection_subscriptions:
+        Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId, u32), (NamespaceId, u32)>>>,
     present_subscriptions:
         Arc<Mutex<BTreeMap<(XServerFrontendClientId, XResourceId), XPresentSubscription>>>,
     pending_presentations: Arc<XPendingPresentRegistry>,
@@ -294,6 +306,7 @@ impl XServerFrontendRouteRegistry {
                 window_parents: self.window_parents.clone(),
                 core_event_subscriptions: self.core_event_subscriptions.clone(),
                 randr_subscriptions: self.randr_subscriptions.clone(),
+                xfixes_selection_subscriptions: self.xfixes_selection_subscriptions.clone(),
                 present_subscriptions: self.present_subscriptions.clone(),
                 pending_presentations: self.pending_presentations.clone(),
                 frozen_input: self.frozen_input.clone(),
@@ -468,6 +481,72 @@ impl XServerFrontendRouteRegistry {
             .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
             .iter()
             .find_map(|((_, candidate), parent)| (*candidate == window).then_some(*parent)))
+    }
+
+    fn select_xfixes_selection_input(
+        &self,
+        client: XServerFrontendClientId,
+        namespace: NamespaceId,
+        window: XResourceId,
+        selection: u32,
+        mask: u32,
+    ) -> Result<(), XServerFrontendRouteError> {
+        let mut subscriptions = self
+            .xfixes_selection_subscriptions
+            .lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?;
+        // A mask of zero is how a client stops watching, so it removes the
+        // subscription rather than recording an interest in nothing.
+        if mask == 0 {
+            subscriptions.remove(&(client, window, selection));
+        } else {
+            subscriptions.insert((client, window, selection), (namespace, mask));
+        }
+        Ok(())
+    }
+
+    /// Who is owed an event for `selection`, and through which window.
+    ///
+    /// Filtered by subtype: a subscriber hears only about the causes it asked
+    /// for, and one that selected none of them is not a recipient at all.
+    fn xfixes_selection_subscribers(
+        &self,
+        namespace: NamespaceId,
+        selection: u32,
+        subtype: u8,
+    ) -> Result<Vec<(XServerFrontendClientId, XResourceId)>, XServerFrontendRouteError> {
+        let wanted = 1u32 << subtype;
+        Ok(self
+            .xfixes_selection_subscriptions
+            .lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+            .iter()
+            .filter_map(|((client, window, candidate), (owner_namespace, mask))| {
+                // Atoms are global, so the selection name alone does not say
+                // whose selection changed. Delivering across namespaces would
+                // disclose another namespace's owner window to a confined
+                // client that only ever named an atom.
+                (*candidate == selection
+                    && *owner_namespace == namespace
+                    && mask & wanted != 0)
+                    .then_some((*client, *window))
+            })
+            .collect())
+    }
+
+    /// Retire every selection subscription naming `window`.
+    ///
+    /// A destroyed window cannot receive anything, and its id may be handed to
+    /// the next client that asks for one.
+    fn remove_xfixes_selection_window(
+        &self,
+        window: XResourceId,
+    ) -> Result<(), XServerFrontendRouteError> {
+        self.xfixes_selection_subscriptions
+            .lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+            .retain(|(_, candidate, _), _| *candidate != window);
+        Ok(())
     }
 
     fn select_randr_input(

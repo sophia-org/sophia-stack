@@ -195,6 +195,15 @@ pub const X_PRESENT_LAST_MINOR_OPCODE: u8 = X_PRESENT_QUERY_CAPABILITIES_MINOR_O
 pub const X_XFIXES_EXTENSION_NAME: &str = "XFIXES";
 pub const X_XFIXES_MAJOR_OPCODE: u8 = 139;
 pub const X_XFIXES_FIRST_EVENT: u8 = 66;
+/// `XFixesSelectionNotify` is the extension's first event number; its three
+/// causes are distinguished by the detail byte, not by separate event numbers.
+pub const X_XFIXES_SELECTION_NOTIFY_SUBEVENT: u8 = 0;
+/// Ownership was set, including being cleared to no owner.
+pub const X_XFIXES_SET_SELECTION_OWNER_SUBTYPE: u8 = 0;
+/// The owning window was destroyed.
+pub const X_XFIXES_SELECTION_WINDOW_DESTROY_SUBTYPE: u8 = 1;
+/// The owning client went away.
+pub const X_XFIXES_SELECTION_CLIENT_CLOSE_SUBTYPE: u8 = 2;
 pub const X_XFIXES_QUERY_VERSION_MINOR_OPCODE: u8 = 0;
 pub const X_XFIXES_SELECT_SELECTION_INPUT_MINOR_OPCODE: u8 = 2;
 pub const X_XFIXES_CREATE_REGION_MINOR_OPCODE: u8 = 5;

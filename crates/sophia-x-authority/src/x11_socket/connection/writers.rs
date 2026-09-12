@@ -190,7 +190,8 @@ fn set_x11_protocol_event_sequence(event: &mut XClientEvent, value: u16) {
         | XClientEvent::RandrResourceChange { sequence, .. }
         | XClientEvent::PresentConfigureNotify { sequence, .. }
         | XClientEvent::PresentCompleteNotify { sequence, .. }
-        | XClientEvent::PresentIdleNotify { sequence, .. } => *sequence = value,
+        | XClientEvent::PresentIdleNotify { sequence, .. }
+        | XClientEvent::XfixesSelectionNotify { sequence, .. } => *sequence = value,
         _ => unreachable!("protocol routing received a non-routable event"),
     }
 }

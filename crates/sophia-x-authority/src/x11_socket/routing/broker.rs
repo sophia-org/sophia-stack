@@ -386,6 +386,7 @@ impl XServerFrontendRouteBroker {
                 window_parents: Arc::new(Mutex::new(BTreeMap::new())),
                 core_event_subscriptions: Arc::new(Mutex::new(BTreeMap::new())),
                 randr_subscriptions: Arc::new(Mutex::new(BTreeMap::new())),
+                xfixes_selection_subscriptions: Arc::new(Mutex::new(BTreeMap::new())),
                 present_subscriptions: Arc::new(Mutex::new(BTreeMap::new())),
                 pending_presentations: Arc::new(XPendingPresentRegistry::default()),
                 present_clock: Arc::new(Mutex::new(None)),

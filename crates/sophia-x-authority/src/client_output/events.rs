@@ -345,6 +345,31 @@ pub fn encode_x_client_event(byte_order: XByteOrder, event: XClientEvent) -> Vec
             put_u32(byte_order, &mut out[16..20], target);
             put_u32(byte_order, &mut out[20..24], property);
         }
+        XClientEvent::XfixesSelectionNotify {
+            sequence,
+            subtype,
+            window,
+            owner,
+            selection,
+            time,
+            selection_time,
+        } => {
+            // The subtype rides in the detail byte, so one event number covers
+            // all three causes and a subscriber reads which happened from
+            // byte 1 rather than from a separate event type.
+            write_event_header(
+                byte_order,
+                &mut out,
+                crate::X_XFIXES_FIRST_EVENT + crate::X_XFIXES_SELECTION_NOTIFY_SUBEVENT,
+                subtype,
+                sequence,
+            );
+            put_resource(byte_order, &mut out[4..8], window);
+            put_resource(byte_order, &mut out[8..12], owner);
+            put_u32(byte_order, &mut out[12..16], selection);
+            put_u32(byte_order, &mut out[16..20], time);
+            put_u32(byte_order, &mut out[20..24], selection_time);
+        }
         XClientEvent::ClientMessage { sequence, bytes } => {
             out = bytes.to_vec();
             put_u16(byte_order, &mut out[2..4], sequence);

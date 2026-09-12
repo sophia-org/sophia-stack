@@ -347,9 +347,12 @@ owner, selection, timestamp, selectionTimestamp, two pads. Subtypes are
 `SelectionClientClose`(2), with mask bits `1 << subtype`.
 
 Emit from the existing `XSelectionMonitor` change points -- `apply_event` and
-`clear_window_owner` in `selection.rs` already carry owner transitions -- gated
-on an actual change rather than on every assertion, which is the discipline
-`ShapeNotify` established. Subscriptions key on `(client, window, selection)`
+`clear_window_owner` in `selection.rs` already carry owner transitions. Every
+valid SetSelectionOwner assertion notifies, including reassertion of the same
+owner; it can signal changed selection contents. The earlier owner-XID-change
+restriction was incorrect: XLibre `dix/selection.c` invokes the selection callback
+for every valid assertion, and `Xext/xfixes/select.c` forwards it. Subscriptions
+key on `(client, window, selection)`
 and must be dropped on window destroy and on disconnect. Tests: one notify per
 owner change with the right subtype, none for a non-subscriber, the mask
 filtering subtypes, and teardown on both destroy paths.

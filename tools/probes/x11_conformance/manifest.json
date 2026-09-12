@@ -165,6 +165,34 @@
     {
       "id": "destroy_mapped",
       "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_changes",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_masks",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_invalid",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_destroy",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_close",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_reuse",
+      "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_self",
+      "mandatory": true
     }
   ],
   "features": [
@@ -519,6 +547,22 @@
       "cases": [
         "destroy_mapped"
       ]
+    },
+    {
+      "name": "XFixes selection changes, ordered notifications, masks, invalid subscriptions, teardown subtypes, subscriber XID reuse and self-delivery",
+      "accepted_core_opcodes": [
+        22,
+        23
+      ],
+      "cases": [
+        "xfixes_selection_changes",
+        "xfixes_selection_masks",
+        "xfixes_selection_invalid",
+        "xfixes_selection_destroy",
+        "xfixes_selection_close",
+        "xfixes_selection_reuse",
+        "xfixes_selection_self"
+      ]
     }
   ],
   "extensions": {
@@ -554,7 +598,14 @@
         "extension_discovery",
         "extension_errors",
         "extension_versions",
-        "xfixes_selection"
+        "xfixes_selection",
+        "xfixes_selection_changes",
+        "xfixes_selection_masks",
+        "xfixes_selection_invalid",
+        "xfixes_selection_destroy",
+        "xfixes_selection_close",
+        "xfixes_selection_reuse",
+        "xfixes_selection_self"
       ],
       "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
     },

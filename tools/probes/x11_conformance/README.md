@@ -82,6 +82,15 @@ alone does not identify a dirty build. Host logs are per case. During developmen
 changes between a build and a run require rebuilding; preserve the report with
 its actual binary hash. A run on an older candidate remains older evidence.
 
+XFixes selection obligations also exercise reasserted and rapidly changing
+owners, explicit clear, replacement/zero masks, invalid subscription requests,
+window destruction versus client close, subscription retirement on XID reuse,
+and same-client delivery. Assertions cover the recipient sequence and resolved
+CurrentTime fields. The semantics are checked against XFixes selection tracking
+in [fixesproto](https://github.com/X11Libre/mirror.fdo.xorgproto/blob/master/fixesproto.txt)
+and the local XLibre `Xext/xfixes/select.c` and `dix/selection.c`; no implementation
+code is copied. This software fixture still does not certify namespace policy.
+
 ## Optional selected XTS5 adapter
 
 XTS is a separate checkout/build; the yserver checkout does not supply it.

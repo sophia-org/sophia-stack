@@ -486,6 +486,139 @@ def xfixes_selection(context):
         event = watcher.event(event_base)
         assert event[1] == 0
         assert watcher.unpack('III', event, 4) == (watched, window, selection)
+        assert watcher.u16(event, 2) == watcher.sequence, 'event used the sender sequence'
+        assert watcher.u32(event, 16) != 0 and watcher.u32(event, 20) != 0, 'CurrentTime was not resolved'
+
+
+def xfixes_listen(c, window, selection, mask):
+    extension = c.query_extension('XFIXES')
+    c.reply(extension[9], c.pack('II', 5, 0))
+    c.send(extension[9], c.pack('III', window, selection, mask), detail=2)
+    c.sync()
+    return extension[9], extension[10]
+
+
+def xfixes_notice(c, base, window, owner, selection, subtype=0):
+    event = c.event(base)
+    assert event[1] == subtype, ('wrong selection subtype', subtype, event.hex())
+    assert c.unpack('III', event, 4) == (window, owner, selection), event.hex()
+    return event
+
+
+def xfixes_owner(c, window, selection):
+    c.send(22, c.pack('III', window, selection, 0))
+    c.sync()
+
+
+def xfixes_selection_changes(context):
+    with client(context) as owner, peer_client(context) as watcher:
+        first, second, watched = owner.window(), owner.window(), watcher.window()
+        selection = owner.atom('SOPHIA_XFIXES_CHANGES')
+        _, base = xfixes_listen(watcher, watched, selection, 1)
+        # Reassertion of the same owner can signal new contents. None is an
+        # explicit SetSelectionOwner notification, not a destruction subtype.
+        for window in (first, first, second, 0):
+            xfixes_owner(owner, window, selection)
+            event = xfixes_notice(watcher, base, watched, window, selection)
+            assert watcher.u16(event, 2) == watcher.sequence
+        # No intervening round trip: every transition must be retained in order.
+        for window in (first, second, 0, first):
+            owner.send(22, owner.pack('III', window, selection, 0))
+        owner.sync()
+        for window in (first, second, 0, first):
+            xfixes_notice(watcher, base, watched, window, selection)
+        watcher.sync()
+        assert not any(e[0] & 127 == base for e in watcher.events), 'duplicate selection event'
+
+
+def xfixes_selection_masks(context):
+    with client(context) as owner, peer_client(context) as watcher, client(context) as silent:
+        owned = owner.window()
+        watched, control = watcher.window(), watcher.window()
+        selection = owner.atom('SOPHIA_XFIXES_MASKS')
+        other = owner.atom('SOPHIA_XFIXES_OTHER')
+        op, base = xfixes_listen(watcher, watched, selection, 1)
+        xfixes_listen(watcher, control, selection, 1)
+        silent.sync()  # Connected, but never subscribed.
+        for mask in (0, 2, 4):
+            watcher.send(op, watcher.pack('III', watched, selection, mask), detail=2)
+            watcher.sync()
+            xfixes_owner(owner, owned, selection)
+            xfixes_notice(watcher, base, control, owned, selection)
+            watcher.sync()
+            assert not any(e[0] & 127 == base for e in watcher.events), 'mask removal/replacement leaked an event'
+        # An unrelated atom must not activate either subscription.
+        xfixes_owner(owner, owned, other)
+        watcher.sync()
+        assert not any(e[0] & 127 == base for e in watcher.events), 'selection atom isolation failed'
+        silent.sync()
+        assert not any(e[0] & 127 == base for e in silent.events), 'unsubscribed peer got selection metadata'
+
+
+def xfixes_selection_invalid(context):
+    with client(context) as owner, peer_client(context) as watcher:
+        owned, watched = owner.window(), watcher.window()
+        selection = owner.atom('SOPHIA_XFIXES_INVALID')
+        op, base = xfixes_listen(watcher, watched, selection, 1)
+        for window, atom, mask, code, resource in (
+            (watched, selection, 8, 2, 8),
+            (watched, 0xffffffff, 1, 5, 0xffffffff),
+            (watcher.xid(), selection, 1, 3, None),
+        ):
+            watcher.completion(watcher.send(op, watcher.pack('III', window, atom, mask), detail=2),
+                               error=code, opcode=op, minor=2,
+                               resource=window if resource is None else resource)
+        watcher.sync()
+        xfixes_owner(owner, owned, selection)
+        xfixes_notice(watcher, base, watched, owned, selection)
+
+
+def xfixes_selection_end(context):
+    with client(context) as owner, peer_client(context) as watcher:
+        owned, watched = owner.window(), watcher.window()
+        selection = owner.atom('SOPHIA_XFIXES_END')
+        _, base = xfixes_listen(watcher, watched, selection, 7)
+        xfixes_owner(owner, owned, selection)
+        first = xfixes_notice(watcher, base, watched, owned, selection)
+        if context['case'] == 'xfixes_selection_destroy':
+            owner.send(4, owner.pack('I', owned))
+            owner.sync()
+            subtype = 1
+        else:
+            owner.close()
+            subtype = 2
+        event = xfixes_notice(watcher, base, watched, 0, selection, subtype)
+        assert watcher.u32(event, 20) == watcher.u32(first, 20), 'ownership timestamp changed on teardown'
+        assert watcher.u32(watcher.reply(23, watcher.pack('I', selection)), 8) == 0
+        watcher.sync()
+        assert not any(e[0] & 127 == base for e in watcher.events), 'duplicate teardown subtype'
+
+
+def xfixes_selection_reuse(context):
+    with client(context) as owner, peer_client(context) as watcher:
+        owned, watched, control = owner.window(), watcher.window(), watcher.window()
+        selection = owner.atom('SOPHIA_XFIXES_REUSE')
+        _, base = xfixes_listen(watcher, watched, selection, 1)
+        xfixes_listen(watcher, control, selection, 1)
+        watcher.send(4, watcher.pack('I', watched))
+        watcher.sync()
+        watcher.window(xid=watched)
+        watcher.events.clear()
+        xfixes_owner(owner, owned, selection)
+        xfixes_notice(watcher, base, control, owned, selection)
+        watcher.sync()
+        assert not any(e[0] & 127 == base for e in watcher.events), 'reused XID inherited an old subscription'
+
+
+def xfixes_selection_self(context):
+    with client(context) as c:
+        owned, watched = c.window(), c.window()
+        selection = c.atom('SOPHIA_XFIXES_SELF')
+        _, base = xfixes_listen(c, watched, selection, 1)
+        sequence = c.send(22, c.pack('III', owned, selection, 0))
+        event = xfixes_notice(c, base, watched, owned, selection)
+        assert c.u16(event, 2) == sequence, 'self-notification has wrong sequence'
+        c.sync()
 
 
 def disconnect_grab(context):
@@ -554,7 +687,15 @@ CASES = {'setup': setup,
          'destroy_subscribers': destroy_subscribers, 'extension_discovery': extensions,
          'policy_absence': extensions, 'extension_versions': extension_versions,
          'extension_errors': extension_errors, 'shape': shape, 'sync_counter': sync_counter,
-         'xfixes_selection': xfixes_selection, 'disconnect_grab': disconnect_grab,
+         'xfixes_selection': xfixes_selection,
+         'xfixes_selection_changes': xfixes_selection_changes,
+         'xfixes_selection_masks': xfixes_selection_masks,
+         'xfixes_selection_invalid': xfixes_selection_invalid,
+         'xfixes_selection_destroy': xfixes_selection_end,
+         'xfixes_selection_close': xfixes_selection_end,
+         'xfixes_selection_reuse': xfixes_selection_reuse,
+         'xfixes_selection_self': xfixes_selection_self,
+         'disconnect_grab': disconnect_grab,
          'truncated_peer': truncated_peer, 'destroy_descendants': destroy_family,
          'destroy_subwindows': destroy_family, 'destroy_peer_close': destroy_family,
          'destroy_invalid': destroy_family, 'destroy_xid_reuse': destroy_xid_reuse,

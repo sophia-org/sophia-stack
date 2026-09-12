@@ -176,10 +176,27 @@ fn encode_core_early_reply(
                     out[11] = first_error;
                     out
                 }
-                XClientReply::ListExtensions { sequence } => {
-                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN];
-                    write_reply_header(byte_order, &mut out, sequence, 0);
-                    out[1] = 0;
+                XClientReply::ListExtensions { sequence, names } => {
+                    // Same STRING8 list body as ListFonts; the difference is
+                    // that the count lives in the header's spare byte rather
+                    // than in the payload.
+                    let names_len = names.iter().map(|name| 1 + name.len()).sum::<usize>();
+                    let padded_names_len = padded_len(names_len);
+                    let mut out = vec![0; X_CLIENT_OUTPUT_RECORD_LEN + padded_names_len];
+                    write_reply_header(
+                        byte_order,
+                        &mut out[..X_CLIENT_OUTPUT_RECORD_LEN],
+                        sequence,
+                        u32::try_from(padded_names_len / 4).unwrap_or(0),
+                    );
+                    out[1] = u8::try_from(names.len()).unwrap_or(u8::MAX);
+                    let mut at = X_CLIENT_OUTPUT_RECORD_LEN;
+                    for name in &names {
+                        out[at] = u8::try_from(name.len()).unwrap_or(u8::MAX);
+                        at += 1;
+                        out[at..at + name.len()].copy_from_slice(name.as_bytes());
+                        at += name.len();
+                    }
                     out
                 }
                 XClientReply::ListFonts { sequence, names } => {

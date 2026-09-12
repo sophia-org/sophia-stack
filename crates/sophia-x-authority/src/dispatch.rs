@@ -618,6 +618,36 @@ fn loggable_extension_name(name: &str) -> String {
         .collect()
 }
 
+/// Every extension this authority advertises.
+///
+/// `ListExtensions` answers from here and `extension_query_result` answers per
+/// name, so the two can disagree. A test asserts every name here reports
+/// present, and that nothing outside it does -- a client that enumerates and
+/// then queries must not be told different things.
+pub(crate) fn advertised_extension_names() -> Vec<String> {
+    [
+        X_SOPHIA_PRESENT_EXTENSION_NAME,
+        X_MIT_SHM_EXTENSION_NAME,
+        crate::X_DRI3_EXTENSION_NAME,
+        crate::X_PRESENT_EXTENSION_NAME,
+        crate::X_XFIXES_EXTENSION_NAME,
+        crate::X_XC_MISC_EXTENSION_NAME,
+        crate::X_RENDER_EXTENSION_NAME,
+        crate::X_SHAPE_EXTENSION_NAME,
+        crate::X_XF86_VIDMODE_EXTENSION_NAME,
+        crate::X_GLX_EXTENSION_NAME,
+        crate::X_SYNC_EXTENSION_NAME,
+        X_RANDR_EXTENSION_NAME,
+        crate::X_KEYBOARD_EXTENSION_NAME,
+        crate::X_INPUT_EXTENSION_NAME,
+        crate::X_GENERIC_EVENT_EXTENSION_NAME,
+        X_BIG_REQUESTS_EXTENSION_NAME,
+    ]
+    .into_iter()
+    .map(str::to_owned)
+    .collect()
+}
+
 fn extension_query_result(name: &str) -> XExtensionQueryResult {
     match name {
         X_SOPHIA_PRESENT_EXTENSION_NAME => XExtensionQueryResult {

@@ -262,6 +262,7 @@ fn dispatch_core_input_discovery_request(
                     response: None,
                     outputs: vec![XClientOutput::Reply(XClientReply::ListExtensions {
                         sequence: context.sequence,
+                        names: crate::dispatch::advertised_extension_names(),
                     })],
                     metadata_candidates: Vec::new(),
                 },

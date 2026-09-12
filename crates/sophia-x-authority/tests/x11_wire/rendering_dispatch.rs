@@ -292,7 +292,7 @@ fn x11_image_text_updates_bounded_xrgb_cpu_pixels() {
 }
 
 #[test]
-fn x11_dispatch_reports_empty_extension_list() {
+fn x11_dispatch_lists_the_extensions_it_advertises() {
     let namespace = NamespaceId::from_raw(45);
     let mut runtime = XAuthorityRuntime::new();
     let mut atoms = XAtomTable::new();
@@ -311,9 +311,49 @@ fn x11_dispatch_reports_empty_extension_list() {
         &mut properties,
     );
     let encoded = result.encoded_outputs(XByteOrder::LittleEndian);
-    assert_eq!(encoded[0][0], 1);
-    assert_eq!(encoded[0][1], 0);
-    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[0][4..8]), 0);
+    assert_eq!(encoded[0][0], 1, "a reply, not an error");
+    let count = usize::from(encoded[0][1]);
+    assert!(
+        count > 0,
+        "the authority advertises extensions through QueryExtension and must \
+         enumerate them here; reporting none told every client that asked \
+         there were no extensions at all"
+    );
+
+    // Decode the STRING8 list and check it against QueryExtension. A client
+    // that enumerates and then queries each name must not be told two
+    // different things, and these answers come from separate code.
+    let payload_words = read_u32(XByteOrder::LittleEndian, &encoded[0][4..8]) as usize;
+    assert!(payload_words > 0, "a non-empty list needs a payload");
+    let mut at = 32;
+    let mut listed = Vec::new();
+    for _ in 0..count {
+        let len = usize::from(encoded[0][at]);
+        at += 1;
+        listed.push(String::from_utf8(encoded[0][at..at + len].to_vec()).expect("utf8"));
+        at += len;
+    }
+    assert_eq!(listed.len(), count, "every declared name is present");
+
+    for name in &listed {
+        let query = decode_x11_core_request(
+            context(namespace, 524, XByteOrder::LittleEndian),
+            &query_extension_request(XByteOrder::LittleEndian, name),
+        )
+        .unwrap();
+        let answered = dispatch_x11_wire_request(
+            dispatch_context(namespace, 2, XByteOrder::LittleEndian, 98),
+            query,
+            &mut runtime,
+            &mut atoms,
+            &mut properties,
+        );
+        let reply = answered.encoded_outputs(XByteOrder::LittleEndian);
+        assert_eq!(
+            reply[0][8], 1,
+            "{name} is listed but QueryExtension says it is absent"
+        );
+    }
 }
 
 #[test]

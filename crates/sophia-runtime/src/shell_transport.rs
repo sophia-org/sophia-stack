@@ -601,6 +601,10 @@ impl ShellSessionTransport {
         self.content_epochs.reserved_bytes()
     }
 
+    pub fn content_usage(&self) -> Option<crate::ContentMemoryUsage> {
+        self.content_epochs.active().map(|store| store.usage())
+    }
+
     pub fn lease_content_resource(
         &self,
         grant: ContentGrant,

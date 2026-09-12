@@ -3,6 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
 narthex_root=${SOPHIA_NARTHEX_ROOT:-"$(dirname -- "$root")/narthex"}
+lom_client=${SOPHIA_LOM_CONTENT_CLIENT:-}
 build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 
@@ -15,6 +16,8 @@ cmp "$build_dir/sophia-shell-content.frames" protocol/golden/sophia-shell-conten
 cmp "$build_dir/sophia-shell-content-malformed.frames" protocol/golden/sophia-shell-content-malformed.frames
 cargo test --offline -q -p sophia-protocol --test shell_content_wire
 cargo test --offline -q -p sophia-runtime --test shell_content_resources
+cargo test --offline -q -p sophia-runtime --test shell_content_admission
+cargo test --offline -q -p sophia-runtime --test shell_content_transport
 cc -std=c11 -Wall -Wextra -Werror -pedantic \
     bindings/c/tests/sophia_shell_content_client.c -o "$build_dir/content-client"
 "$build_dir/content-client" --valid protocol/golden/sophia-shell-content.frames
@@ -103,5 +106,23 @@ cargo run --offline -q -p sophia-runtime \
 
 cargo run --offline -q -p sophia-runtime --example shell_launcher_conformance_host -- "$build_dir/narthex"
 
+lom_content=unavailable
+if [ -n "$lom_client" ]; then
+    case "$lom_client" in
+        /*) ;;
+        *) echo 'SOPHIA_LOM_CONTENT_CLIENT must be an absolute path' >&2; exit 2 ;;
+    esac
+    if [ ! -x "$lom_client" ]; then
+        echo "Lom content client is not executable: $lom_client" >&2
+        exit 2
+    fi
+    cargo run --offline -q -p sophia-runtime \
+        --example shell_content_conformance_host -- "$lom_client"
+    lom_content=complete
+else
+    printf '%s\n' \
+        'sophia_shell_lom_content schema=1 status=unavailable reason=client_not_supplied native_presentation=false'
+fi
+
 printf '%s\n' \
-    'sophia_shell_behavior_corpus schema=1 status=complete clients=rust,c,nim protected=true live_serve=true descriptors=2 activations=1 withdrawn=true reservations=1'
+    "sophia_shell_behavior_corpus schema=1 status=complete clients=rust,c,nim protected=true live_serve=true descriptors=2 activations=1 withdrawn=true reservations=1 lom_content=$lom_content"

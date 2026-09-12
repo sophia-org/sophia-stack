@@ -51,6 +51,13 @@ include!("runtime/pointer_query.rs");
 pub struct XAuthorityClientResourceRelease {
     /// X11 windows whose properties must be removed from the frontend table.
     pub destroyed_windows: Vec<crate::XResourceId>,
+    /// Selection ownerships this client's departure ended.
+    ///
+    /// Carried out with the release rather than left on the runtime's shared
+    /// queue: that queue is drained by whichever request next reaches it, so
+    /// another connection could take these, reorder them against this
+    /// teardown, or route them before this release has finished.
+    pub retired_selection_ownerships: Vec<crate::XSelectionOwnerUpdate>,
     /// Sophia surfaces that must be removed from Engine's committed snapshot.
     pub removed_surfaces: Vec<sophia_protocol::SurfaceId>,
     pub released_pixmaps: usize,

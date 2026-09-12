@@ -44,14 +44,15 @@ fn selection_change_subtype(kind: crate::XSelectionChangeKind) -> u8 {
 /// Whether a routing failure belongs to the recipient rather than to the
 /// service.
 ///
-/// A watcher that stopped reading, or that has already gone, must not end
-/// everyone else's session: its event is dropped and the sender carries on.
-/// Shared state failing is a different thing and stays fatal.
+/// A watcher that has already gone must not end everyone else's session: its
+/// event is dropped and the sender carries on. A watcher that is still
+/// connected but no longer draining is not covered here -- it is owed its
+/// events, so it is disconnected rather than quietly skipped. Shared state
+/// failing is a different thing again and stays fatal.
 fn x11_recipient_is_gone(error: &XServerFrontendRouteError) -> bool {
     matches!(
         error,
-        XServerFrontendRouteError::ClientQueueFull { .. }
-            | XServerFrontendRouteError::ClientQueueDisconnected { .. }
+        XServerFrontendRouteError::ClientQueueDisconnected { .. }
             | XServerFrontendRouteError::UnknownClient { .. }
     )
 }
@@ -1249,6 +1250,7 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                 .all(|out| !matches!(out, crate::XClientOutput::Error(_)))
                         {
                             changes.push((
+                                namespace,
                                 selection_change_subtype(kind),
                                 selection,
                                 owner.unwrap_or(crate::XResourceId::NONE),
@@ -1260,8 +1262,19 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         // away. The event time is now; the selection time stays
                         // the one the ownership began with, which is what the
                         // watcher is being told about.
+                        // Each retired ownership carries the namespace it
+                        // belonged to. The queue is shared, so a drain here may
+                        // pick up another namespace's entries; routing them
+                        // under this connection's namespace would deliver them
+                        // to the wrong watchers, or to none.
                         for retired in runtime.take_retired_selection_ownerships() {
+                            let Some(owner_namespace) = retired.current.namespace else {
+                                // Unattributable, so undeliverable: there is no
+                                // namespace whose watchers this belongs to.
+                                continue;
+                            };
                             changes.push((
+                                owner_namespace,
                                 selection_change_subtype(retired.kind),
                                 retired.current.selection,
                                 crate::XResourceId::NONE,
@@ -1269,9 +1282,11 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                 retired.current.selection_timestamp,
                             ));
                         }
-                        for (subtype, selection, owner, time, selection_time) in changes {
+                        for (owner_namespace, subtype, selection, owner, time, selection_time) in
+                            changes
+                        {
                             for (recipient, window) in routing
-                                .xfixes_selection_subscribers(namespace, selection, subtype)
+                                .xfixes_selection_subscribers(owner_namespace, selection, subtype)
                                 .map_err(|error| {
                                     X11SetupSocketError::new(format!(
                                         "failed to inspect XFixes selection subscriptions: {error}"
@@ -1289,12 +1304,25 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                 };
                                 if recipient == client {
                                     output.outputs.push(crate::XClientOutput::Event(event));
-                                } else if let Err(error) = routing.route_protocol(recipient, event)
-                                    && !x11_recipient_is_gone(&error)
+                                } else if let Err(error) =
+                                    routing.route_protocol(recipient, event)
                                 {
-                                    return Err(X11SetupSocketError::new(format!(
-                                        "failed to route an XFixes selection change: {error}"
-                                    )));
+                                    if let XServerFrontendRouteError::ClientQueueFull {
+                                        client: stalled,
+                                    } = error
+                                    {
+                                        routing
+                                            .disconnect_saturated_recipient(stalled)
+                                            .map_err(|error| {
+                                                X11SetupSocketError::new(format!(
+                                                    "failed to end a stalled XFixes watcher: {error}"
+                                                ))
+                                            })?;
+                                    } else if !x11_recipient_is_gone(&error) {
+                                        return Err(X11SetupSocketError::new(format!(
+                                            "failed to route an XFixes selection change: {error}"
+                                        )));
+                                    }
                                 }
                             }
                         }
@@ -2383,16 +2411,17 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     // The selections this client owned ended with it, and its watchers are
     // owed that. Drained before the subscriptions are retired below, because
     // those are what name the recipients.
-    let retired_selections = state
-        .runtime
-        .lock()
-        .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
-        .take_retired_selection_ownerships();
+    let retired_selections = core::mem::take(&mut release.retired_selection_ownerships);
     if let Some(routing) = protocol_routing.as_ref() {
         for retired in retired_selections {
+            // Routed under the namespace the ownership belonged to, not this
+            // connection's: the queue is shared across namespaces.
+            let Some(owner_namespace) = retired.current.namespace else {
+                continue;
+            };
             let subtype = selection_change_subtype(retired.kind);
             for (recipient, window) in routing
-                .xfixes_selection_subscribers(namespace, retired.current.selection, subtype)
+                .xfixes_selection_subscribers(owner_namespace, retired.current.selection, subtype)
                 .map_err(|error| {
                     X11SetupSocketError::new(format!(
                         "failed to inspect XFixes selection subscriptions: {error}"
@@ -2414,11 +2443,20 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         time: x11_server_time_msec(),
                         selection_time: retired.current.selection_timestamp,
                     },
-                ) && !x11_recipient_is_gone(&error)
-                {
-                    return Err(X11SetupSocketError::new(format!(
-                        "failed to route a departed peer's selection change: {error}"
-                    )));
+                ) {
+                    if let XServerFrontendRouteError::ClientQueueFull { client: stalled } = error {
+                        routing
+                            .disconnect_saturated_recipient(stalled)
+                            .map_err(|error| {
+                                X11SetupSocketError::new(format!(
+                                    "failed to end a stalled XFixes watcher: {error}"
+                                ))
+                            })?;
+                    } else if !x11_recipient_is_gone(&error) {
+                        return Err(X11SetupSocketError::new(format!(
+                            "failed to route a departed peer's selection change: {error}"
+                        )));
+                    }
                 }
             }
         }

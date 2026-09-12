@@ -626,7 +626,10 @@ impl XAuthorityRuntime {
                  &self.windows,
                  crate::XSelectionChangeKind::SelectionClientClosed,
              );
-             self.retired_selection_ownerships.extend(cleared);
+             // Kept with this release, not put on the shared queue: it is
+             // drained by whichever request next reaches it, which could route
+             // this teardown out of order or before the release completes.
+             release.retired_selection_ownerships.extend(cleared);
          }
 
          // Resource records come back in XID allocation order, which is

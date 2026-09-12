@@ -542,6 +542,25 @@ impl XServerFrontendRouteRegistry {
     ///
     /// A client id may be reissued, and an inherited subscription would
     /// deliver another client's selections to whoever takes the id next.
+    /// End a watcher that has stopped draining its queue.
+    ///
+    /// Dropping its event instead would leave an admitted client believing it
+    /// is still subscribed while the server quietly stopped telling it things.
+    /// A client that cannot keep up has failed as an endpoint, which is what
+    /// the input path already concludes for the same failure.
+    fn disconnect_saturated_recipient(
+        &self,
+        client: XServerFrontendClientId,
+    ) -> Result<(), XServerFrontendRouteError> {
+        self.input_recovery
+            .disconnect(client, XAuthorityInputDeliveryOutcome::ClientDisconnected)?;
+        self.clients
+            .lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+            .remove(&client);
+        Ok(())
+    }
+
     fn remove_xfixes_selection_client(
         &self,
         client: XServerFrontendClientId,

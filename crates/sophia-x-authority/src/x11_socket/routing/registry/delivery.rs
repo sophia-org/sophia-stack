@@ -555,6 +555,13 @@ impl Drop for XServerFrontendClientRouteRegistration {
         if let Ok(mut subscriptions) = self.randr_subscriptions.lock() {
             subscriptions.remove(&self.client);
         }
+        // Retired here as well as on an orderly close, because a client whose
+        // connection failed before that point never reaches it. A client id
+        // may be reissued, and an inherited subscription would deliver one
+        // client's selections to whoever takes the id next.
+        if let Ok(mut subscriptions) = self.xfixes_selection_subscriptions.lock() {
+            subscriptions.retain(|(client, _, _), _| *client != self.client);
+        }
         if let Ok(mut subscriptions) = self.present_subscriptions.lock() {
             subscriptions.retain(|(client, _), _| *client != self.client);
         }

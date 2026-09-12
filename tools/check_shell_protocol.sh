@@ -40,6 +40,21 @@ ${CC:-cc} -std=c11 -Wall -Wextra -Werror -pedantic \
     bindings/c/tests/sophia_shell_launcher_client.c -o "$build_dir/sophia-shell-launcher-c-client"
 cargo run --offline -q -p sophia-runtime --example shell_launcher_conformance_host -- "$build_dir/sophia-shell-launcher-c-client"
 
+# An independent decoder written from the schema, not from the Rust. It must
+# also refuse malformed frames itself: a second implementation that accepts
+# everything proves nothing about the format being described well enough.
+${CC:-cc} -std=c11 -Wall -Wextra -Werror -pedantic \
+    bindings/c/tests/sophia_shell_indicator_client.c -o "$build_dir/sophia-shell-indicator-c-client"
+"$build_dir/sophia-shell-indicator-c-client" protocol/golden/sophia-shell-indicators.frames
+for mutation in stale-active label-padding bad-count; do
+    python3 tools/mutate_shell_indicator_corpus.py "$mutation" \
+        protocol/golden/sophia-shell-indicators.frames "$build_dir/bad-$mutation.frames"
+    if "$build_dir/sophia-shell-indicator-c-client" "$build_dir/bad-$mutation.frames" >/dev/null 2>&1; then
+        echo "independent C decoder accepted a $mutation corpus" >&2
+        exit 1
+    fi
+done
+
 if [ ! -f "$narthex_root/src/narthex.nim" ]; then
     echo "Narthex checkout not found at $narthex_root" >&2
     exit 2

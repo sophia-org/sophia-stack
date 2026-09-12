@@ -120,3 +120,12 @@ first — it was expecting that phase alone to produce a visible panel.
 [Nothing shell-facing carries workspace state](fbtlnuad-nothing-shell-facing-carries-workspace-state-or-the-active-output.md)
 asked the prior question and was answered by building the feed. `t081` in
 [todo](../../../todo.md) owns the visible outcome and stays open.
+
+**Outstanding handoff, not performed here.** Narthex carries the same stale
+sentence this record corrects in Sophia: `docs/architecture.md:100-104` in the
+sibling checkout says a panel persisting independently of the switcher needs a
+second shell role. The newer contract specifies combined capabilities within one
+admitted shell, so that sentence is stale for the same reason Sophia's was.
+Narthex remains the descriptor reference and its owner owns the correction; this
+task deliberately does not edit or commit the sibling repository, and the
+external correction is **not** complete.

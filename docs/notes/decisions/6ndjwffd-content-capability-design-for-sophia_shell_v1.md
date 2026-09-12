@@ -486,6 +486,14 @@ uploads no pixels, so nothing existing bounds accepted resident bytes.
     action settles exactly once or is accounted under peer loss. A saturated
     queue rejects; it never silently drops an outcome.
 
+**Revalidate at commit; do not trust readiness.** Readiness latches when
+content, reservation and the WM answer agree, and content can stop being live
+between that latch and presentation. Presentation therefore rechecks that the
+candidate's resources are still accepted and rejects rather than committing a
+bundle whose pixels have gone. The rule is here because the composition model
+violates `PresentedBundleHasLiveContent` without it — a latch that neither the
+content nor the work-area model was watching.
+
 **The renderer transition is non-cancellable.** Once Engine hands a composed
 bundle to the renderer it completes or fails as a unit. Prepared means a
 validated complete candidate was submitted for rendering, not merely parsed;
@@ -509,8 +517,14 @@ Not covered, and not claimed:
 
 - **ImmutableAcceptedContent** is structural. No update-in-place operation
   exists, so the model has nothing to violate.
-- **CoherentBundle** is checked only for pixels. Reservation and WM commit are
-  `ShellWorkAreaCoordination`'s, and joining the two models is separate work.
+- **CoherentBundle** is checked across both halves by
+  `ShellContentBundleComposition.tla`, which models the seam rather than merging
+  two large models. It found an assumption neither model states: the work-area
+  model latches `candidateReady` and treats it as opaque, while content can be
+  retired or revoked afterwards, so **presentation must revalidate content
+  liveness at commit rather than trust the latch**. Without that revalidation a
+  presented bundle pairs live geometry with dead pixels, and its control proves
+  the check catches exactly that.
 - **NoClickThrough** is a dispatch property about event routing, not a property
   of this state machine.
 - **The liveness half of NoOrphanedStorage** needs fairness assumptions about
@@ -956,12 +970,14 @@ discharge that. The gate is a sequence, and each step blocks the next:
    `ShellWorkAreaCoordination` named explicitly, along with its renderer-progress
    and scheduling-fairness assumptions. **Done**, with the coverage limits in §9.
 3. Model checking runs and its traces are retained under the evidence policy.
-   **Done for the safety invariants named in §9**; the liveness half and the
-   cross-model composition are not.
+   **Done for the safety invariants named in §9, including the cross-model
+   composition.** The liveness half of release is not, and remains an explicit
+   renderer-progress assumption.
 4. **Only then** is implementation authorized.
 
-Step 4 is therefore still blocked, on the composition check and on whichever of
-§9's uncovered properties the implementation is expected to rest on.
+Step 4's blocking condition is now the liveness assumption and whichever of §9's
+uncovered properties the implementation is expected to rest on -- not the
+composition, which is checked.
 
 - [Content shell proposal](../../content-shell.md) — the normative document this
   design admits, and the source of the two amendments above.

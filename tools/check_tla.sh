@@ -39,7 +39,7 @@ fi
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
-for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation ShellContentLifecycle XAuthorityShutdown; do
+for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation ShellContentLifecycle ShellContentBundleComposition XAuthorityShutdown; do
     cp "$MODEL_DIR/$model.tla" "$TEMP_DIR/"
     cp "$MODEL_DIR/$model.cfg" "$TEMP_DIR/"
     (
@@ -221,7 +221,11 @@ if (
     echo "TLA+ negative control unexpectedly passed: $control" >&2
     exit 1
 fi
-grep -Fq 'Temporal property PendingPresentSettles was violated.' "$log" || {
+# TLC 1.7.4 reports the generic form and never names the property, so this
+# matches what the sibling fairness controls already grep for. The cfg declares
+# PendingPresentSettles as its only PROPERTY, which is what keeps the generic
+# message unambiguous here.
+grep -Fq 'Error: Temporal properties were violated.' "$log" || {
     echo "TLA+ zombie-cohort control failed for the wrong reason" >&2
     exit 1
 }
@@ -346,3 +350,29 @@ for control in \
             ;;
     esac
 done
+
+# Latched readiness is the assumption neither the content nor the work-area
+# model states. A passing run would mean the seam between them stopped being
+# checked.
+control=ShellContentBundleCompositionLatchedReadiness
+control_dir="$TEMP_DIR/$control"
+mkdir "$control_dir"
+cp "$MODEL_DIR/ShellContentBundleComposition.tla" "$control_dir/"
+cp "$MODEL_DIR/$control.cfg" "$control_dir/"
+log="$control_dir/control.log"
+if (
+    cd "$control_dir"
+    java -XX:+UseParallelGC -jar "$JAR_PATH" \
+        -deadlock \
+        -workers 1 \
+        -fp 0 \
+        -config "$control.cfg" \
+        ShellContentBundleComposition.tla
+) >"$log" 2>&1; then
+    echo "TLA+ negative control unexpectedly passed: $control" >&2
+    exit 1
+fi
+grep -Fq 'Invariant PresentedBundleHasLiveContent is violated.' "$log" || {
+    echo "TLA+ latched-readiness control failed for the wrong reason" >&2
+    exit 1
+}

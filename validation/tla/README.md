@@ -371,6 +371,21 @@ demand its next frame only after an outcome, and must violate
 `Invariant NoAcceptedObligationLost`. `tools/check_tla.sh` verifies both exact
 failures.
 
+`ShellContentBundleComposition.tla` models the seam between the two shell
+models rather than merging them. The work-area model carries `candidateReady`
+as an opaque boolean and proves a presented bundle was ready, coherent and
+generation-exact; the content model proves what makes a candidate's pixels
+legitimate. Between them sits an assumption neither states, that readiness
+stays true. It does not: readiness latches when content, reservation and the WM
+answer agree, and content may be retired or revoked afterwards. The model checks
+that presentation revalidates content liveness at commit, which is the only way
+a bundle cannot be spliced from live geometry and dead pixels. Its bounded
+configuration explores 883 generated states and 161 distinct states.
+
+`ShellContentBundleCompositionLatchedReadiness.cfg` trusts the latch instead of
+revalidating, and must violate `Invariant PresentedBundleHasLiveContent`.
+`tools/check_tla.sh` verifies that exact failure.
+
 `PixelSilentAdmission.tla` distinguishes presentation intent from complete
 pixels. A first timeout without a safe extent preserves the standing target,
 owner loop, and one bounded retry. Later pixels may complete admission;

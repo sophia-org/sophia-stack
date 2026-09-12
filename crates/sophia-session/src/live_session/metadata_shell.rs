@@ -1,5 +1,5 @@
 use super::*;
-pub(in crate::live_session) mod indicators;
+pub(crate) mod indicators;
 
 mod launcher;
 mod reference;

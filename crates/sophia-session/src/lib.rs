@@ -50,6 +50,15 @@ pub mod support;
 
 #[cfg(feature = "native-session")]
 mod live_session;
+
+/// The one published seam a conformance host needs: the projection from a
+/// policy indicator publication onto the `sophia_shell_v1` wire snapshot.
+///
+/// Exported as a single named item rather than by opening `metadata_shell`, so
+/// a host shares the production mapping without gaining the transport.
+pub mod shell_indicator_publication {
+    pub use crate::live_session::metadata_shell::indicators::indicator_snapshot;
+}
 /// Cadence of the bounded native-session resource evidence population.
 #[cfg(feature = "native-session")]
 pub const LIVE_RESOURCE_SAMPLE_INTERVAL: std::time::Duration =

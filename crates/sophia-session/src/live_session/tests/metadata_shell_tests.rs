@@ -258,3 +258,85 @@ mod indicator_activation {
         );
     }
 }
+
+mod indicator_projection {
+    use crate::live_session::metadata_shell::indicators::indicator_snapshot;
+    use sophia_protocol::{OutputId, PolicyProjectionIndicator, PolicyProjectionOutputStatus};
+
+    fn publication(
+        indicators: Vec<PolicyProjectionIndicator>,
+    ) -> sophia_engine::PolicyIndicatorPublication {
+        sophia_engine::PolicyIndicatorPublication {
+            tab_groups: Vec::new(),
+            generation: 6,
+            connection_epoch: Some(5),
+            indicators,
+            output_statuses: vec![PolicyProjectionOutputStatus {
+                output: OutputId::from_raw(2),
+                focus_bits: 1,
+                layout: "Scroller".to_owned(),
+            }],
+        }
+    }
+
+    fn indicator(action: Option<u64>) -> PolicyProjectionIndicator {
+        PolicyProjectionIndicator {
+            output: OutputId::from_raw(1),
+            slot: 0,
+            indicator: 11,
+            action: action.map(sophia_protocol::WmActionId::from_raw),
+            state_bits: 1,
+            label: "web".to_owned(),
+        }
+    }
+
+    /// An indicator with no action must publish zero. Identities allocate from
+    /// one, so zero cannot collide with a real action, and the shell answers an
+    /// activation naming it as unauthorized rather than honouring it.
+    #[test]
+    fn an_absent_action_publishes_the_zero_sentinel() {
+        let snapshot = indicator_snapshot(&publication(vec![indicator(None)]), None, 5);
+        assert_eq!(snapshot.indicators[0].action, 0);
+    }
+
+    #[test]
+    fn a_present_action_is_carried_unchanged() {
+        let snapshot = indicator_snapshot(&publication(vec![indicator(Some(41))]), None, 5);
+        assert_eq!(snapshot.indicators[0].action, 41);
+    }
+
+    /// The case the vocabulary exists for: an output is focused while holding no
+    /// indicator, so only the separate global identity can say where focus is.
+    #[test]
+    fn an_active_output_survives_with_no_indicators() {
+        let snapshot = indicator_snapshot(&publication(Vec::new()), Some(OutputId::from_raw(2)), 5);
+        assert_eq!(snapshot.active_output, Some(OutputId::from_raw(2)));
+        assert!(snapshot.indicators.is_empty());
+        assert_eq!(snapshot.statuses.len(), 1);
+    }
+
+    #[test]
+    fn an_absent_active_output_stays_absent() {
+        let snapshot = indicator_snapshot(&publication(vec![indicator(Some(41))]), None, 5);
+        assert_eq!(snapshot.active_output, None);
+    }
+
+    /// Generation comes from the publication and the epoch from the connection;
+    /// confusing them would let a reconnect look like a fresh set, or a new set
+    /// look like a stale one.
+    #[test]
+    fn generation_and_epoch_come_from_their_own_sources() {
+        let snapshot = indicator_snapshot(&publication(vec![indicator(Some(41))]), None, 9);
+        assert_eq!(snapshot.generation, 6);
+        assert_eq!(snapshot.connection_epoch, 9);
+    }
+
+    #[test]
+    fn output_status_fields_are_carried_verbatim() {
+        let snapshot = indicator_snapshot(&publication(Vec::new()), None, 5);
+        let status = &snapshot.statuses[0];
+        assert_eq!(status.output, OutputId::from_raw(2));
+        assert_eq!(status.focus_bits, 1);
+        assert_eq!(status.layout, "Scroller");
+    }
+}

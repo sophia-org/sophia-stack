@@ -27,34 +27,11 @@ impl LiveMetadataShell {
         };
         self.transport.poll_io()?;
 
-        let snapshot = ShellIndicatorSnapshot {
-            connection_epoch: self.transport.connection_epoch(),
-            generation: publication.generation,
+        let snapshot = indicator_snapshot(
+            publication,
             active_output,
-            statuses: publication
-                .output_statuses
-                .iter()
-                .map(|status| ShellOutputStatus {
-                    output: status.output,
-                    focus_bits: status.focus_bits,
-                    layout: status.layout.clone(),
-                })
-                .collect(),
-            indicators: publication
-                .indicators
-                .iter()
-                .map(|indicator| ShellIndicator {
-                    output: indicator.output,
-                    indicator: indicator.indicator,
-                    // Identities are allocated from one, so zero is free to mean
-                    // "not activatable" and can never collide with a real action.
-                    action: indicator.action.map_or(0, sophia_protocol::WmActionId::raw),
-                    slot: indicator.slot,
-                    state_bits: indicator.state_bits,
-                    label: indicator.label.clone(),
-                })
-                .collect(),
-        };
+            self.transport.connection_epoch(),
+        );
 
         // Republishing an unchanged set would wake a shell for nothing on every
         // committed frame.
@@ -122,6 +99,47 @@ impl LiveMetadataShell {
             )));
         }
         Ok(None)
+    }
+}
+
+/// Project a policy indicator publication onto the wire snapshot.
+///
+/// Extracted from the transport so the conformance host publishes through the
+/// same code the session does. A host that built its own snapshot would be
+/// re-implementing exactly the mapping most worth checking, and agreement would
+/// then prove only that two encoders match each other.
+pub fn indicator_snapshot(
+    publication: &sophia_engine::PolicyIndicatorPublication,
+    active_output: Option<OutputId>,
+    connection_epoch: u64,
+) -> ShellIndicatorSnapshot {
+    ShellIndicatorSnapshot {
+        connection_epoch,
+        generation: publication.generation,
+        active_output,
+        statuses: publication
+            .output_statuses
+            .iter()
+            .map(|status| ShellOutputStatus {
+                output: status.output,
+                focus_bits: status.focus_bits,
+                layout: status.layout.clone(),
+            })
+            .collect(),
+        indicators: publication
+            .indicators
+            .iter()
+            .map(|indicator| ShellIndicator {
+                output: indicator.output,
+                indicator: indicator.indicator,
+                // Identities are allocated from one, so zero is free to mean
+                // "not activatable" and can never collide with a real action.
+                action: indicator.action.map_or(0, sophia_protocol::WmActionId::raw),
+                slot: indicator.slot,
+                state_bits: indicator.state_bits,
+                label: indicator.label.clone(),
+            })
+            .collect(),
     }
 }
 

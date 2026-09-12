@@ -73,20 +73,34 @@ retirement after focus moved to B still clears A.
 **A failed release becomes reconciliation debt, not a log line.** A recipient
 whose lease is stale or whose epoch advanced may still be alive and still
 believe the input is held; that is a different case from a recipient that is
-gone. So:
+gone.
 
-- the source's authorization and its ledger contribution retire immediately --
-  a revoked injector gains nothing by holding debt open;
-- the **debt** persists, bounded, until either targeted clearing is acknowledged
-  by the recipient, or recipient recovery or termination establishes there is no
-  surviving state to clear;
-- debt is settled by cleanup authority that outlives the grant and the lease,
-  carrying the recorded target identity rather than resolving a current one;
-- it is never replayed to current focus, and the recorded identity is not
-  disclosed to anyone but the settlement path.
+**Settlement is a server-side fact, never an application acknowledgement.** Core
+key and button events carry no application acknowledgement, and a socket write
+proves only that bytes left, not that a client processed them. So settlement is
+one of these existing receipts, each settling a different layer:
 
-`client_keys.rs`'s flush path already retains failed releases rather than
-discarding them; this follows it.
+| Receipt | Settles |
+| --- | --- |
+| `RoutedInputOutcome::Accepted` for the release | the release reached the authoritative recipient's route |
+| `RoutedInputOutcome::RejectedStaleTarget` / `RejectedDeniedNamespace` | the recorded target no longer exists as such -- nothing survives to clear |
+| `XAuthorityRouteLeaseRelease` for the recorded lease | that lease's held state is gone with it |
+| client termination or recovery through `input_recovery` | the recipient itself is gone |
+
+Debt therefore persists after a **failed enqueue** (never routed), a **stale
+identity** that did not resolve to one of the rejection outcomes above, and a
+**blocked delivery** that has not yet produced an outcome. It does not persist
+once any row above applies.
+
+Debt carries the recorded target *and* a hold identity, so a late completion for
+an old debt cannot erase a newer hold on the same input: the identities differ
+and the stale completion is discarded.
+
+**Unresponsive recipients end, they are not waited on forever.** A debt whose
+recipient produces no outcome within a bounded number of service intervals
+escalates to recipient termination through the existing disconnect path, which
+then settles it by the last row. Logging alone is not settlement; neither is
+waiting for an acknowledgement the protocol does not define.
 
 **`DeliveredTo` is invalidated when something else already cleared that
 delivery.** A global focus transition that released A's input clears the record,
@@ -121,9 +135,23 @@ alone spins forever. The wait is therefore on:
 `POLLIN` on paused ingress is *not* a wake reason and is masked out. A stream
 read returns EOF only after buffered bytes are consumed, so departure is
 concluded from the hangup flags rather than from a read this design refuses to
-perform. A write-half-close with `POLLRDHUP` and no `POLLHUP` means the peer
-stopped sending but may still read: pending work continues to completion, and
-the connection closes normally afterwards.
+perform.
+
+**Half-close is latched, because `POLLRDHUP` stays set.** Once observed it would
+wake the poll forever, so the write-half-close is recorded once and its wake
+interest removed while ingress is paused. `POLLHUP`, `POLLERR` and the revocation
+notifier remain armed. An independent check confirms the hazard: two consecutive
+zero-timeout polls both returned `POLLRDHUP` while `MSG_PEEK` still showed a
+buffered request.
+
+**Half-close does not discard what the peer already sent.** A peer may send a
+delayed `FakeInput`, then `GetInputFocus`, then `shutdown(SHUT_WR)`. Finishing
+only the `FakeInput` and closing would drop a valid request the peer is entitled
+to have answered. So after the delayed request is processed, ingress resumes and
+parses the buffered requests in order, bounded as ordinarily, until a read
+actually returns EOF. Delays encountered among them are honoured, and errors are
+reported normally. Full departure -- `POLLHUP` or `POLLERR` -- still cancels
+immediately.
 
 **States, owner, and what each waits on.**
 
@@ -175,27 +203,53 @@ calling it.
 
 A connection's next request waits for **processed**, not queued or committed.
 
-**The serializing operation.** A single Session-held lock covers, as one
-indivisible step: execution-time revalidation, ledger mutation, focus and grab
-resolution, and revocation application. Anything that changes grant validity
-takes the same lock. This is the mechanism the previous revision gestured at and
-did not name.
+**The serializing operation is the runtime mutex that already exists.** A new
+Session lock would invert lock order against `state.runtime` and deadlock the
+first time a connection held one and wanted the other. So there is no new lock:
 
-**Epoch is carried, never re-stamped.** A queued request keeps the generation
-and epoch it was bound to at acceptance. Validation compares those against
-current state under the lock. A later enqueue must not promote it: without this,
-a request queued before an epoch advance would be validated as though it arrived
-after, which is precisely the race the sender's then-current stamping invites.
+| Participant | Entry point | Role |
+| --- | --- | --- |
+| Connection dispatch | `lock_x11_request_runtime` (`writers.rs:762`) | grabs, input authority, and now grant validity and the ledger |
+| Grab writers | `dispatch/core/grabs.rs` | already take that lock |
+| Session control | `control_runtime_pending` priority path | already preempts request work; revocation uses it |
+| Broker routing | `route_pending(&mut self)` (`broker.rs:496`) | **not** a lock participant -- single-threaded consumer |
 
-**Two race orders, both defined.**
+Grant validity, the ledger and revocation become state guarded by that same
+mutex. Lock order is unchanged because there is one lock, and revocation reaches
+it through the existing control-priority path rather than racing request work
+for it.
 
-- *Revocation wins:* revocation takes the lock first, the grant's generation is
-  invalidated, the queued request fails revalidation and is refused without
-  side effect, and its contributions -- if any earlier press committed -- enter
+**The enqueue gap is closed by carrying the epoch, not by holding the lock.**
+The review is right that releasing the mutex after enqueue leaves a gap, and
+that holding it while waiting for the broker -- which needs its own `&mut self`
+turn -- deadlocks. Neither is chosen. Instead:
+
+- under the lock: revalidate, mutate the ledger, resolve focus and grabs, and
+  enqueue the routed input **stamped with the grant's bound epoch**;
+- release the lock;
+- `route_pending` already compares `input_control_epoch` against
+  `applied_input_control_epoch` and applies an advance before routing
+  (`broker.rs:497-501`). A request enqueued before a revocation is therefore
+  validated against the epoch it carries, at the consumer, and is dropped there
+  if the epoch moved.
+
+So the gap is safe because the consumer re-checks, which is the mechanism the
+broker already implements for leases. Nothing waits on a worker while holding a
+lock that worker needs.
+
+**Revised race traces.**
+
+- *Revocation first:* revocation takes the mutex via the control path,
+  invalidates the generation and advances the control epoch. A request still
+  queued at the connection fails revalidation and is refused with no side
+  effect. A request already enqueued to the broker carries the old epoch and is
+  dropped at `route_pending`. Contributions committed before revocation enter
   reconciliation debt.
-- *Request wins:* the request takes the lock first, commits, and is processed;
-  revocation then applies and retires the now-committed contributions through
-  the ordinary settlement path. A committed effect is not undone.
+- *Request first:* the request takes the mutex, commits, and is enqueued with
+  the current epoch. Revocation then applies; the enqueued item still routes,
+  because it was committed under the epoch in force, and its contributions are
+  retired afterwards through settlement. **"Processed" is the broker reporting
+  `RoutedInputOutcome` for that item**, not the enqueue.
 
 **Per-client cancellation does not advance the seat epoch.** Disconnect or
 single-grant revocation is its own ingress into the serializing operation,
@@ -250,42 +304,56 @@ because the previous revision removed them and left nothing to verify.
   reached first.
 - **Round-robin cursor persists across stops**, so a source that missed an
   interval is served first in the next.
-- **Progress expectation: N = 16 intervals.** Every ready source is serviced
-  within 16 intervals under the 16-injector bound, which is the property to
-  test. It is not a latency promise: a single non-preemptible operation may
-  overrun its budget, and no seat is guaranteed to drain in any interval.
+- **Progress expectation: N = 16 intervals, conditional.** Given service
+  opportunities actually occurring and runnable work, every ready source is
+  serviced within 16 intervals under the 16-slot bound. It is not a bound under
+  arbitrary owner-loop stalls, a held server grab, or a non-preemptible
+  operation overrunning its budget. That conditional form is what the tests
+  assert.
 
 ## Capacity accounting
 
+**One slot policy, chosen.** Sixteen grant slots per seat, **total**, counting
+grants still carrying unsettled debt. A slot is reusable only once its debt is
+settled. The previous revision offered two alternatives; the alternative is
+removed, and the formulas below follow from this one.
+
 | Population | Bound |
 | --- | --- |
-| Active grants | 16 per seat |
-| **Retiring grants with unsettled debt** | 16 per seat, independently bounded |
-| Pending requests | 1 per active grant; seat total 16 is *derived* |
+| Grant slots per seat | 16 total, active plus retiring-with-debt |
+| Pending requests | 1 per active grant; seat total is *derived*, never more than 16 |
 | Ledger entries | ≤ keycodes + buttons per seat, fixed by the input domain |
-| Sources per entry | ≤ physical devices + 16 |
-| Debt entries | ≤ ledger entries × (devices + 16), storage reserved before a press is accepted |
+| Sources per entry | ≤ physical devices + 16, matching the slot total |
+| Debt entries | ≤ ledger entries × (devices + 16); storage reserved before a press is accepted |
 | Connection buffer, FDs | existing bounded receive and arity caps, unchanged |
-| Seats | per-seat bounds × seats, with a Session-wide ceiling when >1 seat exists |
+| Seats | **this design covers the single exposed seat only** |
 
-**Retiring grants are bounded separately, and this is the gap the review
-found.** Releasing a slot at revocation while settlement continues lets
-repeated grant/revoke cycles accumulate old grant identities and debt behind the
-16 live slots. So a slot is **occupied until settlement completes**, or -- if
-that proves too coarse -- a separately bounded retiring population applies
-admission backpressure. Either way the total is bounded; the previous revision's
-accounting was not.
+Multi-seat is out of scope rather than hand-waved: a Session-wide ceiling would
+need a seat inventory this design does not specify, so a second exposed seat
+requires a revision.
 
-**Cleanup is sized against accumulated held state**, not pending requests: a
-retiring injector may hold many inputs and no pending request. The sweep is
-resumable across intervals and draws on reserved capacity.
+**Cleanup has a reserved service allowance**, not merely reserved storage: a
+fixed share of each service interval is spent on settlement before ordinary
+synthetic work, so debt drains even while injectors are saturating the path.
+That is what makes the resumable sweep terminate.
 
-**The seventeenth connection stays healthy.** It is an ordinary X client: it
-connects, is admitted, and works. Discovery reports XTEST **absent** to it,
-because it holds no grant, and absence is consistent with every other
-unauthorized caller. `BadAccess` is the answer to a guessed opcode from a caller
-with no grant; `BadAlloc` is the answer to a caller that *would* qualify but for
-which no slot is free. The two are distinguishable and mean different things.
+### Decision order for a grant-requiring request
+
+Evaluated at the **first grant-requiring request** on a connection, in this
+order, first match deciding:
+
+| Condition | Answer |
+| --- | --- |
+| Option disabled | XTEST absent; guessed opcode gets `BadRequest` |
+| Caller ineligible | XTEST absent; guessed opcode gets `BadAccess` |
+| Grant revoked | `BadAccess` |
+| Eligible, no free slot | `BadAlloc` |
+| Eligible, slot available | grant issued, request proceeds |
+
+Discovery reports XTEST only in the last row. An eligible seventeenth client is
+therefore an ordinary, healthy X client that sees XTEST absent and receives
+`BadAlloc` only if it guesses the opcode. It may retry: a later request
+re-evaluates, and a slot freed by settlement is available to it.
 
 ## Discovery and refusal, restored
 
@@ -311,7 +379,9 @@ design implements -- wherever XTEST is advertised. A client asking for more is
 answered with what is supported, not refused.
 
 **CompareCursor** takes a window and a cursor. The **window is namespace-checked
-in every case**, including `None` and `CurrentCursor`; the previous revision
+in every case**, including `None` and `CurrentCursor`, and an **explicit cursor
+argument is itself resolved through the caller's namespace** like any other
+resource lookup; the previous revision
 checked it only for an explicit cursor, which would have let an unauthorized
 window be named so long as the cursor argument was special. `None` compares
 against no cursor. `CurrentCursor` reads what the seat displays and is the
@@ -334,10 +404,13 @@ returning the client to ordinary waiting.
 - Keycodes convert through the server's keycode range; buttons through the
   current pointer mapping, so a remapped pointer injects what the user's mapping
   means.
-- Motion is absolute against the named root by default, relative when requested;
-  a root that does not exist is an error, not a silent substitution.
-- Sequence completion follows the delayed lifecycle: the reply or error belongs
-  to the connection thread and is emitted when the request is processed.
+- Motion is absolute against the named root by default, relative when requested.
+  **Root `None` is valid** and selects the pointer's current screen -- the
+  previous revision called it an error. A root that is neither `None` nor an
+  existing root is an error.
+- **FakeInput produces no wire reply on success.** Its completion is internal:
+  it releases the connection to read again, and later requests keep ordinary
+  sequencing. The previous revision implied a reply.
 - A guessed opcode from an unauthorized caller is refused exactly as an
   authorized-but-denied one, since hiding is not a boundary.
 
@@ -392,7 +465,20 @@ Rust, which the ClassicShared socket host cannot establish:
 - revocation landing on a delayed request at the boundary;
 - cleanup of many held inputs while the ordinary path is saturated;
 - duplicate press and stale release;
-- EOF observed during a delay behind unread pipelined bytes.
+- EOF observed during a delay behind unread pipelined bytes;
+- half-close with a pipelined request behind the delayed one: the buffered
+  request is parsed and answered after processing, not discarded;
+- half-close does not spin: repeated polls do not rewake on a latched
+  `POLLRDHUP`;
+- revocation, and a peer grab or focus change, landing exactly in the gap
+  between enqueue and `route_pending`;
+- a late debt completion carrying an old hold identity does not erase a newer
+  hold on the same input;
+- an unresponsive recipient escalates to termination within its bound rather
+  than holding debt open;
+- a slot is not reusable until its debt settles, and becomes reusable after;
+- the ordered decision table: disabled, ineligible, revoked, capacity and
+  granted each produce their own answer.
 
 ## Out of scope
 

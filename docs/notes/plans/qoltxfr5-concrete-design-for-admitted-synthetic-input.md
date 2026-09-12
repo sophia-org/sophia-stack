@@ -6,8 +6,9 @@ tags: [plan, milestone]
 ---
 # Concrete design for admitted synthetic input
 
-Status: proposed, revised after review of `c2b6e262`. No implementation or
-deployment authorized.
+Status: **design approved** at `1bc946d5`. Implementation and deployment are
+not authorized; that is the operator's separate decision, and default XTEST
+absence remains in effect meanwhile.
 
 Authority, principles and the operator's chosen constraints live in
 [htm85gg0](../decisions/htm85gg0-admission-ingress-and-provenance-for-synthetic-input.md).
@@ -648,3 +649,40 @@ Rust, which the ClassicShared socket host cannot establish:
 
 Virtual seat, selective delegation, configurable permission subsets, and any
 route by which synthetic input could close a physical acceptance obligation.
+
+## Design-review approval
+
+Approved 2026-09-12 on Codex review of `1bc946d5`, after eight prior revisions.
+The approval covers the **design only**. It authorizes no implementation and no
+deployment.
+
+What the review found closed: the publication protocol shuts the stale
+focus and seat window, because the transition disables synthetic routing under
+the shared guard before installing the matching publication, with grant
+generation distinct from publication revision and epoch changes participating in
+the same ordering. Cleanup separates preallocated debt from the 64 scheduled or
+in-flight attempts, conditional scheduler progress from transport completion,
+recipient-scoped hold incarnations from a global input identity, and
+server-owned reconciliation from recipient transport. A refusal or a
+disappearing route does not silently settle a hold that was already applied, and
+physical emergency input stays usable despite synthetic overlap.
+
+**The acceptance matrix is a list of obligations, not evidence obtained.**
+Nothing in it has been run. Implementation carries these specific verification
+duties, which the review named because they are the places a correct-looking
+implementation could still be wrong:
+
+- every relevant **writer** genuinely participates in the guard and publication
+  protocol, rather than some path bypassing it;
+- **internal stalls are not classified as recipient nonresponse**, so Sophia's
+  own writer waits, control preemption and frozen input never terminate a
+  healthy client;
+- the **same-recipient clearing barrier orders actual wire delivery**, not only
+  bookkeeping;
+- concrete **timeout constants and progress instrumentation are explicit** in
+  the implementation and its tests.
+
+No measured latency claim is made by the design or by the review. The provisional
+scheduling values are starting points to instrument.
+
+The five gates chosen by the operator stand unchanged.

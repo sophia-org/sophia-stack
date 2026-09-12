@@ -283,14 +283,21 @@ inspection commands; neither grants admission nor starts a process. Component
 and startup changes apply at the next login. WM reload retains the current
 process selections and never replays login applications.
 
-`shell { panel N; }` reserves an exclusive strip of work area, `N` pixels deep,
-along the bottom edge of the output the shell presents on. The session and not
-the shell decides the depth, so a shell cannot take more of the desktop than
-its configuration allows. Absent or zero means no reservation, which is what
-every profile written before the key existed says. A depth beyond the
+`shell { panel N; }` tells the shell to request an exclusive strip of work area,
+`N` pixels deep, along the bottom edge of the output it presents on. The intended
+authority contract requires Session to enforce the configured depth. Absent or
+zero means no reservation, which is what every profile written before the key
+existed requests. A depth beyond the
 `sophia_shell_v1` reservation maximum is refused when the profile is read
 rather than when the shell first claims, and a panel with no enabled shell is
 refused outright rather than ignored. The compiled profile makes no reservation.
+
+**Known enforcement defect:** Session currently passes this value only through
+`SOPHIA_SHELL_BAR_THICKNESS`; admission does not compare the shell's claim with
+the configured allowance. A shell can exceed it, including requesting a
+reservation when the setting is absent or zero, subject to the wire's 512-pixel
+maximum and output geometry checks. [The admission investigation](notes/investigations/gl2ooa99-shell-reservation-admission-ignores-the-configured-panel-depth.md)
+records the source evidence and tracks repair in `t083`.
 
 The claim rides on the shell's candidate rather than a request of its own:
 Engine admits it against the realized output topology, and it reduces the work

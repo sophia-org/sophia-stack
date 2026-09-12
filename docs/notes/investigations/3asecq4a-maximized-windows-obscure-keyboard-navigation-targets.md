@@ -480,3 +480,23 @@ whole backend suite with only the two focused-test features exposed existing
 feature-gating assumptions, so broader coverage used all backend features.
 The source-layout audit still reports existing violations in unchanged files.
 Installed acceptance remains pending; t004, t007, and t011 remain open.
+
+## Fresh-session retest of c9ff05d8
+
+The operator installed the candidate and reported that Super+Enter did not
+show Kitty. The live Sophia executable matches the packaged SHA256
+`aa536d7e5e1ecc25531da4d3239ae93bd5aff21cdcd44f2c27fe8acd11180e0e`;
+Hagia still matches `acb94e0`, independently of concurrent source work in that
+repository. The launcher started thirteen Kitty processes. The first received
+an admission acknowledgement and a centered 1266×1390 client allocation, but
+no visual candidate was recorded before two four-second admission attempts
+expired. X11 inspection subsequently found it unmapped. The checkpoint still
+contains no managed windows, unlike the earlier seven-window scrolling case.
+The session later switched away and its seat became suspended.
+
+This failure occurs before the first-buffer evidence seen in the earlier case;
+it does not establish which startup operation stopped Kitty drawing. The
+session records and checkpoint are retained privately under
+`.artifacts/todo-acceptance-20260911/new-session-kitty-missing/`. The numbered
+fixture now writes rendering diagnostics to a private file for the next launch;
+it does not record keyboard input. Physical acceptance remains unresolved.

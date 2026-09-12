@@ -84,8 +84,10 @@ impl LiveMetadataShell {
     /// screen the session was.
     pub(in crate::live_session) fn take_indicator_activation(
         &mut self,
-    ) -> Result<Option<(sophia_protocol::OutputId, sophia_protocol::WmActionId)>, Box<dyn std::error::Error>>
-    {
+    ) -> Result<
+        Option<(sophia_protocol::OutputId, sophia_protocol::WmActionId)>,
+        Box<dyn std::error::Error>,
+    > {
         if !self.connected || !self.transport.supports_indicator_activation() {
             return Ok(None);
         }

@@ -141,8 +141,8 @@ fn switcher_admits_only_presented_policy_managed_surfaces() {
 mod indicator_activation {
     use crate::live_session::metadata_shell::indicators::classify_indicator_activation;
     use sophia_protocol::{
-        OutputId, ShellIndicator, ShellIndicatorActivation, ShellIndicatorActivationStatus as Status,
-        ShellIndicatorSnapshot,
+        OutputId, ShellIndicator, ShellIndicatorActivation,
+        ShellIndicatorActivationStatus as Status, ShellIndicatorSnapshot,
     };
 
     fn published() -> ShellIndicatorSnapshot {

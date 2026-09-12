@@ -178,6 +178,12 @@ impl ContentCandidateStore {
         self.submitted.len()
     }
 
+    pub fn assembling_output(&self, candidate_generation: u64) -> Option<ContentOutputId> {
+        self.assemblies.iter().find_map(|(output, assembly)| {
+            (assembly.begin.candidate_generation == candidate_generation).then_some(*output)
+        })
+    }
+
     pub fn quiescent(&self) -> bool {
         self.permits.is_empty()
             && self.assemblies.is_empty()
@@ -329,22 +335,41 @@ impl ContentCandidateStore {
             .permits
             .get(&begin.output)
             .ok_or(ContentCandidateError::Stale)?;
-        if !transaction.is_valid()
-            || begin.facts_generation == 0
+        if !transaction.is_valid() || permit.permit_id != begin.pacing_permit {
+            return Err(ContentCandidateError::Stale);
+        }
+        let invalid = if now >= permit.deadline
+            || begin.candidate_generation <= self.last_candidate_generation
+        {
+            Some(ContentCandidateError::Stale)
+        } else if begin.facts_generation == 0
             || begin.interaction_generation == 0
             || begin.surface_count > self.limits.max_candidate_surfaces
             || begin.placement_count > self.limits.max_candidate_placements
             || begin.target_count > self.limits.max_candidate_targets
-            || permit.permit_id != begin.pacing_permit
-            || now >= permit.deadline
-            || begin.candidate_generation <= self.last_candidate_generation
         {
-            return Err(ContentCandidateError::Stale);
+            Some(ContentCandidateError::Malformed)
+        } else {
+            None
+        };
+        self.permits.remove(&begin.output);
+        if let Some(error) = invalid {
+            self.response_credits -= 2;
+            self.outcome(
+                transaction,
+                begin.candidate_generation,
+                begin.output,
+                3,
+                error.reason(),
+                0,
+                0,
+                0,
+            );
+            return Err(error);
         }
         let deadline = now
             .checked_add(u64::from(self.limits.candidate_timeout_ms))
             .ok_or(ContentCandidateError::Malformed)?;
-        self.permits.remove(&begin.output);
         self.last_candidate_generation = begin.candidate_generation;
         self.assemblies.insert(
             begin.output,

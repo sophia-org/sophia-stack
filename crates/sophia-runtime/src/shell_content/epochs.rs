@@ -77,6 +77,9 @@ impl ContentEpochPool {
     pub fn active_candidates_mut(&mut self) -> Option<&mut ContentCandidateStore> {
         self.active.as_mut().map(|epoch| &mut epoch.candidates)
     }
+    pub fn active_candidates(&self) -> Option<&ContentCandidateStore> {
+        self.active.as_ref().map(|epoch| &epoch.candidates)
+    }
     pub fn active_parts_mut(
         &mut self,
     ) -> Option<(&ContentResourceStore, &mut ContentCandidateStore)> {

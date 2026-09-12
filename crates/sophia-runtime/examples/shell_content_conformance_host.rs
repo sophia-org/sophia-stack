@@ -1,11 +1,15 @@
 use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use sophia_protocol::{ContentResourceId, TransactionId};
+use sophia_protocol::{
+    ContentAllocationId, ContentMargins, ContentOutputId, ContentPixelRect, ContentReason,
+    ContentResourceId, TransactionId,
+};
 use sophia_runtime::{
-    ProcessLaunchSpec, ProcessSupervisor, ProtectionDomainRole, ProtectionDomainSpec,
-    ProtectionPath, ShellContentAdmissionPolicy, ShellSessionTransport, SupervisedProcessKind,
-    SupervisorCommand, SupervisorEvent,
+    ContentAllocationSnapshot, ContentCandidateContext, ContentRenderBundle, ProcessLaunchSpec,
+    ProcessSupervisor, ProtectionDomainRole, ProtectionDomainSpec, ProtectionPath,
+    ShellContentAdmissionPolicy, ShellSessionTransport, SupervisedProcessKind, SupervisorCommand,
+    SupervisorEvent,
 };
 
 fn main() {
@@ -64,9 +68,45 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         id: 1,
         generation: 1,
     };
+    let output = ContentOutputId {
+        id: 2,
+        generation: 1,
+    };
+    let allocation = ContentAllocationId {
+        id: 1,
+        generation: 1,
+    };
+    let allocations = [ContentAllocationSnapshot {
+        output,
+        allocation,
+        scale_generation: 1,
+        scale_numerator: 1,
+        scale_denominator: 1,
+        role: 1,
+        edge: 1,
+        margins: ContentMargins::default(),
+        pixel: ContentPixelRect {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 32,
+        },
+        parent: ContentAllocationId::default(),
+        anchor_parent_rect: ContentPixelRect::default(),
+        allowed_reservation_extent: 32,
+    }];
+    let context = ContentCandidateContext {
+        output,
+        facts_generation: 1,
+        interaction_generation: 1,
+        allocations: &allocations,
+    };
     let deadline = Instant::now() + Duration::from_secs(5);
     let started = Instant::now();
-    let mut lease = None;
+    let mut render: Option<ContentRenderBundle> = None;
+    let mut permit_sent = false;
+    let mut candidate_records = 0;
+    let mut candidate_settled = false;
     let mut verified = false;
     loop {
         if Instant::now() >= deadline {
@@ -81,24 +121,56 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .is_some_and(|usage| usage == Default::default()) => {}
             Err(error) => return Err(error.into()),
         }
-        if lease.is_none()
-            && let Ok(candidate) = transport.lease_content_resource(grant, resource)
-        {
-            if candidate.bytes() != [0, 0, 255, 255, 0, 128, 0, 128] {
+        if !permit_sent && transport.lease_content_resource(grant, resource).is_ok() {
+            transport.grant_content_permit(
+                TransactionId::from_raw(10),
+                output,
+                1,
+                1,
+                started.elapsed().as_millis() as u64,
+            )?;
+            permit_sent = true;
+        }
+        if permit_sent && candidate_records < 3 {
+            candidate_records += transport
+                .service_content_candidates(&[context], started.elapsed().as_millis() as u64)?;
+        }
+        if candidate_records == 3 && render.is_none() && !candidate_settled {
+            let candidate = transport.begin_content_submission(
+                output,
+                1,
+                started.elapsed().as_millis() as u64,
+            )?;
+            let pixels = candidate
+                .resource(resource)
+                .ok_or("candidate omitted its referenced resource")?;
+            if pixels.bytes() != [0, 0, 255, 255, 0, 128, 0, 128] {
                 return Err("independent client uploaded different canonical pixels".into());
             }
-            lease = Some(candidate);
+            if candidate.surfaces.len() != 1
+                || candidate.placements.len() != 1
+                || candidate.targets.len() != 1
+            {
+                return Err("independent client changed the complete candidate tables".into());
+            }
+            render = Some(candidate);
+            // This host has no native output. Exercise the real terminal failure
+            // path instead of manufacturing Prepared or Presented evidence.
+            transport.content_renderer_failed(grant, output, 1)?;
+            candidate_settled = true;
         }
-        if lease.is_some()
+        if render.is_some()
             && transport
                 .content_usage()
                 .is_some_and(|usage| usage.retiring == 8)
         {
-            drop(lease.take());
+            drop(render.take());
+            transport.service_content_resources(started.elapsed().as_millis() as u64)?;
             verified = true;
         }
         if supervisor.poll()? == Some(SupervisorEvent::ProcessExited) {
             if !verified
+                || !candidate_settled
                 || transport
                     .content_usage()
                     .is_none_or(|usage| usage != Default::default())
@@ -111,7 +183,8 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     transport.disconnect()?;
     println!(
-        "sophia_shell_content_transport schema=1 status=complete protected=true bytes=8 accepted=true lease_retained=true released=true native_presentation=false transaction={}",
+        "sophia_shell_content_transport schema=1 status=complete protected=true bytes=8 accepted=true candidate=accepted renderer_outcome={} lease_retained=true released=true native_presentation=false transaction={}",
+        ContentReason::RendererFailed as u16,
         TransactionId::from_raw(1).raw()
     );
     Ok(())

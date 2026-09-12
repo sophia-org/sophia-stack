@@ -53,11 +53,19 @@ Prepared and Presented are separate records, and Presented cannot be emitted
 before Prepared. The epoch pool retains a disconnected candidate owner alongside
 its resource owner, so a renderer lease cannot disappear with the socket.
 
-This reducer is not yet connected to the shell transport or production owner
-loop. Demand coalescing, allocation authority, actions and native renderer
-integration remain absent. Event creation and output queueing are not proof of
-client receipt. Cancellation echoes its request transaction; timeout correlates
-to Begin. Peer loss accounts for undeliverable events without reporting delivery.
+The shell transport now services Begin, Chunk and End through that reducer for
+the exact output context supplied by its Engine caller. It exposes distinct
+methods for entering the non-cancellable submission phase and for reporting
+Prepared, Presented or renderer failure. A protected conformance host grants one
+permit, receives a complete candidate from Lom, verifies its immutable pixels
+and tables, and deliberately reports renderer failure because the host has no
+native output. That is a real terminal path and explicitly not presentation.
+
+This service is not yet called by the production owner loop. Demand coalescing,
+allocation authority, actions and native renderer integration remain absent.
+Event creation and output queueing are not proof of client receipt. Cancellation
+echoes its request transaction; timeout correlates to Begin. Peer loss accounts
+for undeliverable events without reporting delivery.
 
 Lom converts Vello's straight-alpha RGBA readback into premultiplied B,G,R,A in
 place, using rounded integer arithmetic in sRGB channel space and transparent
@@ -90,7 +98,10 @@ remain in the shell gate.
 Resource tests cover consumer retention, exact release, timeout settlement,
 replay, foreign grants, response pressure and partial reconnect retirement. A
 real private Unix-socket test covers negotiation, limits, upload admission,
-immutable acceptance, retire and release through the independent client crate.
+immutable acceptance, permit and candidate transfer, ordered outcomes, retire
+and release through the display-independent client crate. The separate protected
+host runs Lom's own client and therefore checks the same candidate bytes without
+using Sophia's client implementation.
 Candidate tests cover permit and assembly deadlines, exact End validation,
 malformed direct calls, resource retirement during assembly, pending-only
 supersession, Prepared-before-Presented ordering, renderer failure boundaries and
@@ -130,7 +141,7 @@ No render-node bind, GPU permission, installed profile or shell replacement was
 added. The CPU pool does not claim to count renderer/upload copies that are not
 yet integrated with it.
 
-Still required: demand and action lifecycle, candidate transport service,
+Still required: demand and action lifecycle, production candidate service,
 allocation and work-area integration, native upload/composition/retirement,
 production operator-policy configuration, GPU admission, Lom connection
 and exact presented-target adapter, and attended acceptance. The first live

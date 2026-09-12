@@ -137,6 +137,37 @@ fn x11_core_socket_recreated_xid_receives_a_fresh_surface_generation() {
         ))
         .unwrap();
 
+    // The authority reads one request at a time, so a successful write says
+    // nothing about whether the replacement create has been dispatched yet.
+    // Dropping here raced that: the assertions below describe work the server
+    // may not have reached. A round trip is the only barrier, and GetGeometry
+    // is the cheapest one that names the window -- its reply cannot arrive
+    // before the create queued ahead of it was handled. Real clients get this
+    // for free because XCloseDisplay performs a final XSync.
+    stream
+        .write_all(&resource_request(XByteOrder::LittleEndian, 14, xid))
+        .unwrap();
+    // Skip any events that arrive ahead of the reply. A record's first byte is
+    // 0 for an error, 1 for a reply, and anything higher for an event.
+    let geometry = loop {
+        let record = read_x_record(&mut stream);
+        if record[0] >= 2 {
+            continue;
+        }
+        break record;
+    };
+    assert_eq!(geometry[0], 1, "expected a GetGeometry reply");
+    assert_eq!(
+        read_u16(XByteOrder::LittleEndian, &geometry[16..18]),
+        320,
+        "the replacement window answers with its own geometry"
+    );
+    assert_eq!(
+        read_u16(XByteOrder::LittleEndian, &geometry[18..20]),
+        240,
+        "the replacement window answers with its own geometry"
+    );
+
     drop(stream);
     let _ = std::fs::remove_file(&socket_path);
     let (created, removed) = server.join().unwrap();

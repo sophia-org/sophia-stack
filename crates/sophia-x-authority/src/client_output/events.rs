@@ -228,6 +228,15 @@ pub fn encode_x_client_event(byte_order: XByteOrder, event: XClientEvent) -> Vec
             put_resource(byte_order, &mut out[8..12], window);
             out[12] = u8::from(override_redirect);
         }
+        XClientEvent::DestroyNotify {
+            sequence,
+            event,
+            window,
+        } => {
+            write_event_header(byte_order, &mut out, X_DESTROY_NOTIFY, 0, sequence);
+            put_resource(byte_order, &mut out[4..8], event);
+            put_resource(byte_order, &mut out[8..12], window);
+        }
         XClientEvent::UnmapNotify {
             sequence,
             event,

@@ -258,7 +258,14 @@ fn x11_dispatch_accepts_destroy_window_for_known_namespace_window() {
         &mut properties,
     );
 
-    assert!(destroy.outputs.is_empty());
+    // A destroy now tells its selectors. The handler emits the record
+    // addressed to the window; the router adds the parent-addressed copy for
+    // SubstructureNotify selectors, as it does for map and unmap.
+    assert!(matches!(
+        destroy.outputs.as_slice(),
+        [XClientOutput::Event(XClientEvent::DestroyNotify { event, window, .. })]
+            if event == window
+    ));
     assert_eq!(
         destroy.response.as_ref().unwrap().removed_surfaces,
         vec![surface]

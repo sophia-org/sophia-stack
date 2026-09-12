@@ -41,6 +41,25 @@ fn route_core_lifecycle_events(
             } => {
                 Some((index, target, STRUCTURE_NOTIFY_MASK, *event))
             }
+            // A destroy addressed to its own window is a StructureNotify
+            // record; one addressed elsewhere is the parent-addressed form the
+            // handler produced, and belongs to SubstructureNotify selectors on
+            // that parent. Both may exist for one destroy, and a client holding
+            // both masks is entitled to both.
+            XClientEvent::DestroyNotify {
+                event: target,
+                window,
+                ..
+            } => Some((
+                index,
+                target,
+                if target == window {
+                    STRUCTURE_NOTIFY_MASK
+                } else {
+                    SUBSTRUCTURE_NOTIFY_MASK
+                },
+                *event,
+            )),
             XClientEvent::VisibilityNotify { window, .. } => {
                 Some((index, window, VISIBILITY_CHANGE_MASK, *event))
             }
@@ -58,7 +77,8 @@ fn route_core_lifecycle_events(
         .iter()
         .filter_map(|(_, _, _, event)| match event {
             event @ (XClientEvent::MapNotify { window, .. }
-            | XClientEvent::UnmapNotify { window, .. }) => Some((*window, *event)),
+            | XClientEvent::UnmapNotify { window, .. }
+            | XClientEvent::DestroyNotify { window, .. }) => Some((*window, *event)),
             event @ XClientEvent::ConfigureNotify {
                 synthetic: false,
                 window,
@@ -205,6 +225,13 @@ fn lifecycle_event_for_parent(event: XClientEvent, parent: XResourceId) -> XClie
             event: parent,
             window,
             override_redirect,
+        },
+        XClientEvent::DestroyNotify {
+            sequence, window, ..
+        } => XClientEvent::DestroyNotify {
+            sequence,
+            event: parent,
+            window,
         },
         XClientEvent::UnmapNotify {
             sequence,

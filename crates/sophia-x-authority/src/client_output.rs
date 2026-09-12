@@ -33,6 +33,7 @@ const X_FOCUS_OUT: u8 = 10;
 const X_EXPOSE: u8 = 12;
 const X_NO_EXPOSE: u8 = 14;
 const X_VISIBILITY_NOTIFY: u8 = 15;
+const X_DESTROY_NOTIFY: u8 = 17;
 const X_UNMAP_NOTIFY: u8 = 18;
 const X_MAP_NOTIFY: u8 = 19;
 const X_CONFIGURE_NOTIFY: u8 = 22;
@@ -142,6 +143,16 @@ pub enum XClientEvent {
         event: XResourceId,
         window: XResourceId,
         override_redirect: bool,
+    },
+    /// A window was destroyed.
+    ///
+    /// `event` is the window the record is addressed to and `window` is the one
+    /// destroyed. They differ for a `SubstructureNotify` selector on the
+    /// parent, which is why both are carried rather than one being derived.
+    DestroyNotify {
+        sequence: u16,
+        event: XResourceId,
+        window: XResourceId,
     },
     UnmapNotify {
         sequence: u16,

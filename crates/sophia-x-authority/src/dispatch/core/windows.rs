@@ -255,7 +255,17 @@ fn dispatch_core_window_request(
                         Ok(surface) => {
                             properties.remove_window(context.namespace, window);
                             response.removed_surfaces.push(surface);
-                            Vec::new()
+                            // Addressed to the window itself. The router adds
+                            // the parent-addressed copy for SubstructureNotify
+                            // selectors, the same way it does for map and
+                            // unmap, so both forms come from one path.
+                            vec![XClientOutput::Event(
+                                crate::XClientEvent::DestroyNotify {
+                                    sequence: context.sequence,
+                                    event: window,
+                                    window,
+                                },
+                            )]
                         }
                         Err(error) => {
                             response = XAuthorityResponsePacket::rejected(transaction, error);

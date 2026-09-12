@@ -34,6 +34,10 @@ Executable and configuration paths must be absolute. Sophia does not expand
 `window-manager` accepts additional string arguments. Native shell clients use
 the existing `--serve` entry point. `shell-config` selects a file the session
 makes readable inside the shell's protection domain; the shell interprets it.
+
+The native shell starts in a protection domain without an X11 or Wayland display
+connection; selecting a GTK panel as `shell-client` does not provide a toolkit
+presentation backend.
 An explicitly selected file must exist.
 
 The inherited Narthex setup keeps its usual `~/.config/narthex/config.kdl`.

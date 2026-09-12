@@ -306,8 +306,12 @@ that clear it commit together. Withdrawal is a later candidate that reserves
 nothing, through the same path. Losing the shell connection retains the
 presented claim beside the retained pixels — the work area does not grow while
 nothing can present into the strip — and a reconnected shell re-claims at its
-fresh epoch. Today the claim lives for as long as the switcher is visible; a
-panel that persists independently of it needs a second shell role.
+fresh epoch. Today the claim lives for as long as the switcher is visible. The
+current descriptor reservation path is tied to the switcher lifecycle;
+independent persistent panels are specified by the unimplemented content
+capability within the same admitted native shell, and the delivery gap is
+recorded in
+[indicator delivery does not yet provide native panel presentation](notes/investigations/wjctvtsk-indicator-delivery-does-not-yet-provide-native-panel-presentation.md).
 The desktop-profile form of `config check` runs the same typed shortcut,
 session, input, and output preparation used by graphical startup; it performs
 no device discovery or activation.

@@ -294,3 +294,51 @@ credential prompt) at submission, result-channel delivery, viewport close,
 changing rendering or event-loop code. Separately test dialog/transient hints
 and intended floating placement, plus byte-correct UTF-8 Assuan encoding. The
 observed ASCII `test` failure is not explained by the UTF-8 encoding defect.
+
+## t082 diagnostic delivery
+
+The first t082 delivery prepares a controlled dummy reproduction; it does not
+change Sophia, installed pinentry, GPG configuration, dialog placement or UTF-8
+encoding. The completion/native-loop cause remains unproved. Instructions and
+source are in [the probe README](../../../tools/probes/t082_pinentry/README.md).
+
+The private baseline and instrumented pinentry-egui 0.1.1 builds use the same
+archived registry dependency versions, including eframe/egui/egui-winit 0.33.3,
+winit 0.30.12 and glutin 0.32.3. The builder verifies archive hashes and fails on
+dependency-version drift. Instrumentation covers submission, channel send,
+Close enqueue/processing/observation, paint/swap, event-loop exit and return,
+`run_native` return and the Assuan response. The actual X11 handle comes from the
+created window; surface ordering is not identity evidence.
+
+A separate nonblocking pipe carries fixed stage names and numeric metadata.
+Sequence/drop accounting and an independent heartbeat distinguish an observed
+unfinished call from missing diagnostics. Direct `SETDESC/GETPIN/BYE` requests
+use only public dummy input. The harness validates `test` in memory, discards
+arbitrary child stderr and never saves the entered value. It bounds each child
+to 60 seconds, with a further 15-second deadline after instrumented submission,
+and records exact-child timeout termination separately from normal GUI closure.
+The uninstrumented baseline has only the total lifetime deadline.
+
+Eleven hardware-free harness tests pass, including real trace-pipe writes,
+concurrent writers, overflow, timeout isolation from a healthy process, response
+redaction, full marker whitelist coverage, analysis boundaries and wrapper
+preparation. All six upstream in-memory UI tests pass against the instrumented
+source. These do not prove native closure, X routing, client progress or input
+recovery on the installed compositor.
+
+Prepared host artifacts are `.artifacts/t082-probe-v4/identity.json` (archive,
+generator, generated-source and binary identities) and
+`.artifacts/t082-validation/` (test logs and wrapper preflight). The fixed command
+is `/tmp/sophia-pinentry-trace/capture.sh`. Its launcher and three generated shell
+files pass `bash -n`; preparation was checked against the packaged t077 release.
+It refuses to run without installed commit
+`2f38ac757f8ea70f001bba664e8c8acc4984ef4b`. Installation and the attended VT run
+remain operator steps. No physical reproduction was performed for this delivery.
+
+The matrix starts with baseline Enter, then instrumented Enter, OK, Cancel,
+Escape and WM close in fresh processes. A failed instrumented specimen stops
+automatic progression. Keep the same VT during each specimen, then separately
+verify healthy terminal input, focus, VT round trip and clean logout. Correlate
+the explicit PID/XID with session records and identify the first absent native
+transition before proposing a repair. A non-reproduction or lost trace leaves
+t082 open rather than establishing success.

@@ -414,8 +414,9 @@ cooperation.
 
 ### 9. Lifecycle and authority invariants
 
-To be modelled as `validation/tla/ShellContentLifecycle.tla`. Three existing
-models are **reusable patterns, not automatic inheritance**: the model evidence
+Modelled in `validation/tla/ShellContentLifecycle.tla`, registered in
+`tools/check_tla.sh`. Three existing models are **reusable patterns, not
+automatic inheritance**: the model evidence
 must name each mapping and assumption explicitly, especially the cross-model
 work-area and native-retirement boundary.
 
@@ -494,6 +495,31 @@ Presented requires real applicable-output retirement.
 transfer deadline reclaims staging bytes only; a watchdog cannot manufacture a
 GPU completion. Refusing new work is preferable to exceeding the process budget
 while a stalled renderer holds memory.
+
+### What the model checks, and what it does not
+
+TLC checks invariants 1, 3, 4, 5 (safety half), 6 in part, 7 and 11, over
+47,979 distinct states to depth 30. Two negative controls prove the invariants
+bite rather than merely holding: disabling the retire-during-assembly rejection
+violates `CandidateReferenceValidity`, and letting an assembly deadline settle
+without an outcome violates `NoAcceptedObligationLost`. Each control encodes a
+defect a design review actually found.
+
+Not covered, and not claimed:
+
+- **ImmutableAcceptedContent** is structural. No update-in-place operation
+  exists, so the model has nothing to violate.
+- **CoherentBundle** is checked only for pixels. Reservation and WM commit are
+  `ShellWorkAreaCoordination`'s, and joining the two models is separate work.
+- **NoClickThrough** is a dispatch property about event routing, not a property
+  of this state machine.
+- **The liveness half of NoOrphanedStorage** needs fairness assumptions about
+  renderer progress. The model treats a stalled renderer as a reference that has
+  not drained, which is the honest encoding; it does not assert release must
+  eventually happen.
+
+Bytes are abstracted to one unit per generation, so the model checks
+conservation across staging, resident and retiring — not the arithmetic in §5.
 
 ### 10. Conformance corpus
 
@@ -733,7 +759,13 @@ discharged, so the peer can safely demand another frame.
 ### B.3 Retire, cancel and their races
 
 `ContentResourceRetire` after acceptance does not cancel accepted candidates;
-they finish and their pins release normally. A duplicate, unknown or
+they finish and their pins release normally. A candidate still **assembling**
+that names the retired generation is **rejected**, because Retire forbids new
+references and an unaccepted candidate has not earned its pins. Model checking
+is what put this sentence here: the rule was stated in §6's kind 170 row but not
+in this section, which is where race resolution is supposed to live, and the
+first model written from this appendix violated `CandidateReferenceValidity`
+within eight states. A duplicate, unknown or
 out-of-order Retire receives an explicit rejected `ContentResourceStatus` and
 creates **no second release obligation**. `ContentResourceCancel` racing a
 successfully validated End is rejected, because the transfer is no longer
@@ -908,8 +940,10 @@ when it is empty**, which is the case that motivated this work.
 
 ## Acceptance and connections
 
-Status is **proposed**. No TLC run and no model-composition check has been
-performed; §9 states the properties to be modelled, not results.
+Status is **proposed**. `ShellContentLifecycle.tla` now exists and passes under
+TLC with two negative controls; §9 records exactly which invariants that covers
+and which it does not. No model *composition* check against the three sibling
+models has been performed.
 
 **Operator acceptance of this record authorizes modelling, not implementation.**
 `content-shell.md` requires the lifecycle and authority invariants to be *modeled
@@ -920,11 +954,14 @@ discharge that. The gate is a sequence, and each step blocks the next:
 2. `ShellContentLifecycle.tla` is written, with its mapping to
    `ShellDescriptorLifecycle`, `StableBackingLease` and
    `ShellWorkAreaCoordination` named explicitly, along with its renderer-progress
-   and scheduling-fairness assumptions.
+   and scheduling-fairness assumptions. **Done**, with the coverage limits in §9.
 3. Model checking runs and its traces are retained under the evidence policy.
+   **Done for the safety invariants named in §9**; the liveness half and the
+   cross-model composition are not.
 4. **Only then** is implementation authorized.
 
-Reaching step 1 is what acceptance of this record means.
+Step 4 is therefore still blocked, on the composition check and on whichever of
+§9's uncovered properties the implementation is expected to rest on.
 
 - [Content shell proposal](../../content-shell.md) — the normative document this
   design admits, and the source of the two amendments above.

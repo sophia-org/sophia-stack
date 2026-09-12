@@ -347,6 +347,30 @@ revokes a saturated recipient epoch rather than replaying ordered input. Its
 bounded configuration explores 23,582,243 generated states and 241,549
 distinct states to depth 20.
 
+`ShellContentLifecycle.tla` adds what a descriptor shell never needed: a content
+shell uploads pixels, so accepted resident bytes must be bounded and composition
+must be coherent. It models transfer admission reserving staging and resident
+credit together, disjoint staging/resident/retiring classes, generation
+freshness separated from reference validity, pins that survive retirement until
+storage drains, revocation leaving retained pixels inert, and the terminal
+result a consumed pacing permit owes. Bytes are abstracted to one unit per
+generation, so it checks conservation rather than the byte arithmetic in the
+design record. It does not model the liveness half of release, which needs
+renderer-progress fairness, nor the reservation and WM half of a coherent
+bundle, which is `ShellWorkAreaCoordination`'s. Its bounded configuration
+explores 227,724 generated states and 47,979 distinct states to depth 30.
+
+Two controls weaken exactly one rule each, and both encode a defect found while
+reviewing the design record rather than an invented failure.
+`ShellContentLifecycleRetireIgnoresAssembly.cfg` lets a retire proceed against a
+candidate that is still assembling and must violate
+`Invariant CandidateReferenceValidity`.
+`ShellContentLifecycleSilentAssemblyTimeout.cfg` lets an assembly deadline
+adjust bookkeeping without emitting a terminal result, stranding a peer that may
+demand its next frame only after an outcome, and must violate
+`Invariant NoAcceptedObligationLost`. `tools/check_tla.sh` verifies both exact
+failures.
+
 `PixelSilentAdmission.tla` distinguishes presentation intent from complete
 pixels. A first timeout without a safe extent preserves the standing target,
 owner loop, and one bounded retry. Later pixels may complete admission;

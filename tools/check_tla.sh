@@ -39,7 +39,7 @@ fi
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
-for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation XAuthorityShutdown; do
+for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation ShellContentLifecycle XAuthorityShutdown; do
     cp "$MODEL_DIR/$model.tla" "$TEMP_DIR/"
     cp "$MODEL_DIR/$model.cfg" "$TEMP_DIR/"
     (
@@ -306,4 +306,43 @@ for control in PointerGrabAdmissionWithoutPrerequisite PointerGrabAdmissionReviv
         cat "$log" >&2
         exit 1
     }
+done
+
+# The content lifecycle's two controls each disable one rule a design review
+# found missing, so a passing run would mean the model stopped detecting the
+# defect it was written to exclude.
+for control in \
+    ShellContentLifecycleRetireIgnoresAssembly \
+    ShellContentLifecycleSilentAssemblyTimeout; do
+    control_dir="$TEMP_DIR/$control"
+    mkdir "$control_dir"
+    cp "$MODEL_DIR/ShellContentLifecycle.tla" "$control_dir/"
+    cp "$MODEL_DIR/$control.cfg" "$control_dir/"
+    log="$control_dir/control.log"
+    if (
+        cd "$control_dir"
+        java -XX:+UseParallelGC -jar "$JAR_PATH" \
+            -deadlock \
+            -workers 1 \
+            -fp 0 \
+            -config "$control.cfg" \
+            ShellContentLifecycle.tla
+    ) >"$log" 2>&1; then
+        echo "TLA+ negative control unexpectedly passed: $control" >&2
+        exit 1
+    fi
+    case "$control" in
+        ShellContentLifecycleRetireIgnoresAssembly)
+            grep -Fq 'Invariant CandidateReferenceValidity is violated.' "$log" || {
+                echo "TLA+ retire-during-assembly control failed for the wrong reason" >&2
+                exit 1
+            }
+            ;;
+        ShellContentLifecycleSilentAssemblyTimeout)
+            grep -Fq 'Invariant NoAcceptedObligationLost is violated.' "$log" || {
+                echo "TLA+ silent-timeout control failed for the wrong reason" >&2
+                exit 1
+            }
+            ;;
+    esac
 done

@@ -5,21 +5,25 @@ use std::path::Path;
 use std::time::Duration;
 
 use sophia_protocol::{
-    IpcCodecError, SOPHIA_IPC_HEADER_LEN, SOPHIA_IPC_MAX_PAYLOAD_LEN,
-    SOPHIA_SHELL_CAPABILITY_DESCRIPTOR_SWITCHER, SOPHIA_SHELL_INTERFACE_REVISION,
-    SOPHIA_SHELL_MAX_DESCRIPTORS, SOPHIA_SHELL_MAX_PENDING_ACTIVATIONS, ShellV1Activation,
-    ShellV1ActivationAck, ShellV1Candidate, ShellV1CandidateOutcome, ShellV1ClientHello,
-    ShellV1DescriptorSnapshot, ShellV1ServerWelcome, TransactionId,
-    decode_shell_v1_activation_ack_frame, decode_shell_v1_activation_frame,
-    decode_shell_v1_candidate_frame, decode_shell_v1_candidate_outcome_frame,
-    decode_shell_v1_client_hello_frame, decode_shell_v1_descriptor_snapshot_frame,
-    decode_shell_v1_server_welcome_frame, encode_shell_v1_activation_ack_frame,
-    encode_shell_v1_activation_frame, encode_shell_v1_candidate_frame,
-    encode_shell_v1_candidate_outcome_frame, encode_shell_v1_client_hello_frame,
-    encode_shell_v1_descriptor_snapshot_frame, encode_shell_v1_server_welcome_frame,
+    ContentAdmissionRefused, ContentGrant, ContentLimits, IpcCodecError, SOPHIA_IPC_HEADER_LEN,
+    SOPHIA_IPC_MAX_PAYLOAD_LEN, SOPHIA_SHELL_CAPABILITY_DESCRIPTOR_SWITCHER,
+    SOPHIA_SHELL_INTERFACE_REVISION, SOPHIA_SHELL_MAX_DESCRIPTORS,
+    SOPHIA_SHELL_MAX_PENDING_ACTIVATIONS, ShellV1Activation, ShellV1ActivationAck,
+    ShellV1Candidate, ShellV1CandidateOutcome, ShellV1ClientHello, ShellV1DescriptorSnapshot,
+    ShellV1ServerWelcome, TransactionId, decode_shell_v1_activation_ack_frame,
+    decode_shell_v1_activation_frame, decode_shell_v1_candidate_frame,
+    decode_shell_v1_candidate_outcome_frame, decode_shell_v1_client_hello_frame,
+    decode_shell_v1_descriptor_snapshot_frame, decode_shell_v1_server_welcome_frame,
+    encode_shell_v1_activation_ack_frame, encode_shell_v1_activation_frame,
+    encode_shell_v1_candidate_frame, encode_shell_v1_candidate_outcome_frame,
+    encode_shell_v1_client_hello_frame, encode_shell_v1_descriptor_snapshot_frame,
+    encode_shell_v1_server_welcome_frame,
 };
 
 use crate::{PolicyRole, PolicyRoleEndpoint, PolicyRoleEndpointError, ProtectionDomainEvidence};
+
+mod content_admission;
+pub use content_admission::ShellContentAdmissionPolicy;
 
 const SHELL_IO_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -30,6 +34,7 @@ pub enum ShellTransportError {
     Codec(IpcCodecError),
     UnsupportedRevision,
     MissingCapability,
+    ContentAdmissionRefused(ContentAdmissionRefused),
     InvalidConnectionEpoch,
     WrongTransaction,
     WrongCandidate,
@@ -67,6 +72,8 @@ pub struct ShellSessionTransport {
     output: VecDeque<u8>,
     inbox: VecDeque<Vec<u8>>,
     connection_epoch: u64,
+    last_content_grant_epoch: u64,
+    content_grant: Option<ContentGrant>,
     last_candidate_generation: u64,
     requested_candidate: Option<(TransactionId, ShellV1DescriptorSnapshot)>,
     pending_candidate: Option<PendingShellCandidate>,
@@ -100,6 +107,8 @@ impl ShellSessionTransport {
             output: VecDeque::new(),
             inbox: VecDeque::new(),
             connection_epoch: 0,
+            last_content_grant_epoch: 0,
+            content_grant: None,
             last_candidate_generation: 0,
             requested_candidate: None,
             pending_candidate: None,
@@ -128,6 +137,23 @@ impl ShellSessionTransport {
         &mut self,
         connection_epoch: u64,
         timeout: Duration,
+    ) -> Result<ShellV1ServerWelcome, ShellTransportError> {
+        self.accept_and_negotiate_with_content_policy(
+            connection_epoch,
+            timeout,
+            ShellContentAdmissionPolicy::Unavailable,
+        )
+    }
+
+    /// Negotiate one protected shell peer under an explicit content policy.
+    ///
+    /// Codec support does not grant content. Production callers must name the
+    /// operator decision, and the legacy entry point remains unavailable.
+    pub fn accept_and_negotiate_with_content_policy(
+        &mut self,
+        connection_epoch: u64,
+        timeout: Duration,
+        content_policy: ShellContentAdmissionPolicy,
     ) -> Result<ShellV1ServerWelcome, ShellTransportError> {
         if connection_epoch == 0 || connection_epoch <= self.connection_epoch {
             return Err(ShellTransportError::InvalidConnectionEpoch);
@@ -170,11 +196,25 @@ impl ShellSessionTransport {
             } else {
                 0
             };
-        // Revision 5 is reserved for the admitted content capability, which is
-        // not implemented. A client asking for revision 5 or 6 negotiates the
-        // indicator vocabulary and nothing else; no content bit is offered.
+        let content_request = hello.required_capabilities
+            & (sophia_protocol::SOPHIA_SHELL_CAPABILITY_CONTENT_SURFACE
+                | sophia_protocol::SOPHIA_SHELL_CAPABILITY_CONTENT_DISCRETE_INPUT);
+        if content_request & sophia_protocol::SOPHIA_SHELL_CAPABILITY_CONTENT_DISCRETE_INPUT != 0
+            && content_request & sophia_protocol::SOPHIA_SHELL_CAPABILITY_CONTENT_SURFACE == 0
+        {
+            return Err(ShellTransportError::MissingCapability);
+        }
+        let content_decision = content_admission::decide(revision, content_request, content_policy);
+        let content_capabilities = match content_decision {
+            content_admission::ContentAdmissionDecision::NotRequested => 0,
+            content_admission::ContentAdmissionDecision::Granted(capabilities) => capabilities,
+            content_admission::ContentAdmissionDecision::Refused(refusal) => {
+                return self.refuse_content(stream, refusal);
+            }
+        };
         let indicator_mask = sophia_protocol::SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS
             | sophia_protocol::SOPHIA_SHELL_CAPABILITY_INDICATOR_ACTIVATION;
+        let capabilities = capabilities | content_capabilities;
         let capabilities = capabilities
             | if revision >= sophia_protocol::SOPHIA_SHELL_INDICATOR_REVISION {
                 hello.required_capabilities & indicator_mask
@@ -207,13 +247,38 @@ impl ShellSessionTransport {
             max_label_bytes: sophia_protocol::MAX_CHROME_LABEL_LEN as u16,
             max_pending_activations: SOPHIA_SHELL_MAX_PENDING_ACTIVATIONS as u16,
         };
+        let next_content_grant = if content_capabilities != 0 {
+            let content_grant_epoch = self
+                .last_content_grant_epoch
+                .checked_add(1)
+                .ok_or(ShellTransportError::InvalidConnectionEpoch)?;
+            Some(ContentGrant {
+                connection_epoch,
+                content_grant_epoch,
+            })
+        } else {
+            None
+        };
         write_frame(&mut stream, &encode_shell_v1_server_welcome_frame(welcome)?)?;
+        if let Some(grant) = next_content_grant {
+            write_frame(
+                &mut stream,
+                &sophia_protocol::encode_shell_content_frame(
+                    TransactionId::INVALID,
+                    &sophia_protocol::ShellContentRecord::Limits(ContentLimits::prototype(grant)),
+                )?,
+            )?;
+        }
         self.pending_activations.clear();
         self.last_candidate_generation = 0;
         self.requested_candidate = None;
         self.pending_candidate = None;
         self.presented_candidate = None;
         self.connection_epoch = connection_epoch;
+        if let Some(grant) = next_content_grant {
+            self.last_content_grant_epoch = grant.content_grant_epoch;
+        }
+        self.content_grant = next_content_grant;
         stream
             .set_nonblocking(true)
             .map_err(|e| ShellTransportError::Io(e.to_string()))?;
@@ -224,6 +289,27 @@ impl ShellSessionTransport {
         self.capabilities = capabilities;
         self.stream = Some(stream);
         Ok(welcome)
+    }
+
+    fn refuse_content(
+        &mut self,
+        mut stream: UnixStream,
+        refusal: ContentAdmissionRefused,
+    ) -> Result<ShellV1ServerWelcome, ShellTransportError> {
+        let frame = sophia_protocol::encode_shell_content_frame(
+            TransactionId::INVALID,
+            &sophia_protocol::ShellContentRecord::AdmissionRefused(refusal.clone()),
+        )?;
+        let write_result = write_frame(&mut stream, &frame);
+        let _ = stream.shutdown(std::net::Shutdown::Both);
+        let release_result = self
+            .endpoint
+            .active_peer()
+            .map(|peer| self.endpoint.release_peer(peer))
+            .transpose();
+        write_result?;
+        release_result?;
+        Err(ShellTransportError::ContentAdmissionRefused(refusal))
     }
 
     pub fn request_candidate(
@@ -414,6 +500,7 @@ impl ShellSessionTransport {
         self.pending_candidate = None;
         self.presented_candidate = None;
         self.pending_activations.clear();
+        self.content_grant = None;
         if let Some(peer) = self.endpoint.active_peer() {
             self.endpoint.release_peer(peer)?;
         }
@@ -454,6 +541,14 @@ impl ShellSessionTransport {
 
     pub const fn supports_indicator_activation(&self) -> bool {
         self.capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_INDICATOR_ACTIVATION != 0
+    }
+
+    pub const fn supports_content(&self) -> bool {
+        self.content_grant.is_some()
+    }
+
+    pub const fn content_grant(&self) -> Option<ContentGrant> {
+        self.content_grant
     }
 
     /// Bounded, nonblocking I/O shared by persistent tabs and the r1 facade.

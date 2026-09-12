@@ -38,16 +38,13 @@ compile the real trace helper against a stand-in process; they do not open a GUI
 ## Operator capture
 
 The first physical run exposed a session-fatal peer-write classification gap.
-Do not repeat the attended capture until the subsequent peer-write recovery
-repair is installed and this launcher's exact pin is retargeted and verified.
-The historical `18f70f86` pin below contains t077's initial recovery, but does
-not contain that follow-up repair. See the linked incident note.
-
-The capture pins installed release `0.1.0-18f70f862300`, whose commit is a
-verified descendant of the t077 recovery commit `2f38ac75`. Installation on this
-host is complete; no further installation or sudo is needed. An exact pin keeps
-the specimen reproducible. If that release is removed, verify and deliberately
-retarget the launcher instead of accepting an arbitrary newer build.
+The follow-up repair is now installed. The capture pins verified release
+`0.1.0-1a59ab8c1406`, containing that repair and the initial t077 recovery.
+No installation or sudo is needed for this run. The manifest, release checksums
+and generated wrapper syntax have been checked against this installed build.
+An exact pin keeps the specimen reproducible; if that release is removed,
+verify and deliberately retarget rather than accepting an arbitrary newer build.
+Installation is not physical acceptance: the attended dummy run remains needed.
 
 End the old desktop normally. From a local VT, as the ordinary user, run:
 

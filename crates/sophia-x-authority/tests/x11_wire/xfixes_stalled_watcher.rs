@@ -91,6 +91,10 @@ fn a_watcher_that_stops_draining_is_disconnected_and_the_rest_continue() {
 
     // From here the watcher never reads again. Bounded: enough owner changes
     // to fill any reasonable queue, and a stop if the writes start failing.
+    //
+    // Synchronised every batch, so the assertions below cannot run against
+    // requests the server has not reached yet. Without the barrier the reader
+    // races the owner and can observe a queue that never had time to fill.
     for round in 0..4096u32 {
         if owner
             .write_all(&set_selection_owner_request(
@@ -103,15 +107,27 @@ fn a_watcher_that_stops_draining_is_disconnected_and_the_rest_continue() {
         {
             break;
         }
+        if round % 256 == 255 {
+            sync_x_connection(&mut owner, XByteOrder::LittleEndian, owner_window);
+        }
     }
+    sync_x_connection(&mut owner, XByteOrder::LittleEndian, owner_window);
 
     // Its connection is ended rather than left believing it is subscribed.
+    // An absolute deadline, not a per-read timeout: a per-read timeout starts
+    // again on every byte, so a server that dribbled data forever would keep
+    // the test alive instead of failing it.
+    let deadline = std::time::Instant::now() + Duration::from_secs(20);
     stalled
-        .set_read_timeout(Some(Duration::from_secs(10)))
+        .set_read_timeout(Some(Duration::from_secs(2)))
         .unwrap();
     let mut drained = 0usize;
     let mut buffer = [0u8; 8192];
     loop {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stalled watcher was never disconnected: {drained} bytes read              and the connection is still open"
+        );
         match stalled.read(&mut buffer) {
             Ok(0) => break,
             Ok(read) => {
@@ -128,6 +144,14 @@ fn a_watcher_that_stops_draining_is_disconnected_and_the_rest_continue() {
                 ) =>
             {
                 break
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) =>
+            {
+                continue
             }
             Err(error) => panic!("stalled watcher read failed: {error}"),
         }

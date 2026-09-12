@@ -650,9 +650,27 @@ impl XAuthorityRuntime {
          for record in records {
              match record.kind {
                  XResourceKind::Window => {
-                     let surface = self.destroy_window(namespace, record.id)?;
-                     release.destroyed_windows.push(record.id);
-                     release.removed_surfaces.push(surface);
+                     // The subtree, not just the named window. A window
+                     // contains whatever was reparented into it, including
+                     // another client's, and those inferiors cannot outlive
+                     // the container that held them: destroying only the named
+                     // window would leave a peer's child parented to something
+                     // that no longer exists.
+                     //
+                     // Already destroyed if a deeper record took it as part of
+                     // its own subtree, which the deepest-first order makes
+                     // ordinary rather than exceptional.
+                     if self
+                         .resources
+                         .lookup(namespace, record.id, XResourceKind::Window)
+                         .is_err()
+                     {
+                         continue;
+                     }
+                     for destroyed in self.destroy_window_subtree(namespace, record.id)? {
+                         release.destroyed_windows.push(destroyed.window);
+                         release.removed_surfaces.push(destroyed.surface);
+                     }
                  }
                  XResourceKind::Pixmap => {
                      if let Some(handle) = self.free_pixmap(namespace, record.id)? {
@@ -708,6 +726,16 @@ impl XAuthorityRuntime {
                  }
              }
          }
+         // Destroying this client's windows can end selections held by peer
+         // windows further down the tree, which are outside the range being
+         // released and are reported as destroyed rather than closed. Those
+         // reach the shared queue through the ordinary destroy path, so they
+         // are taken into the release here, still under the lock that produced
+         // them: left behind, they would be drained by whichever request
+         // arrived next and routed after the teardown that caused them.
+         release
+             .retired_selection_ownerships
+             .extend(core::mem::take(&mut self.retired_selection_ownerships));
          Ok(release)
      }
  

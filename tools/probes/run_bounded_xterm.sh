@@ -85,6 +85,18 @@ COUNT_FILE="$(mktemp)"
 INNER_SCRIPT="$(mktemp)"
 trap 'rm -f "$COUNT_FILE" "$INNER_SCRIPT"' EXIT
 
+# Bind the watchdog to this invocation before xterm can orphan its child. PPID
+# sampled inside the child may already name a reaper; kill -0 also accepts a
+# zombie or a later process that reuses the PID. Linux stat field 22 identifies
+# this process incarnation. Strip through the final ')' because comm may itself
+# contain spaces or parentheses.
+read -r probe_owner_stat <"/proc/$$/stat" || fail "cannot identify probe owner"
+probe_owner_fields="${probe_owner_stat##*) }"
+read -r -a probe_owner_fields <<<"$probe_owner_fields"
+((${#probe_owner_fields[@]} >= 20)) || fail "incomplete probe owner identity"
+PROBE_OWNER_STARTTIME="${probe_owner_fields[19]}"
+[[ "$PROBE_OWNER_STARTTIME" =~ ^[0-9]+$ ]] || fail "invalid probe owner identity"
+
 # The inner workload uses its own process-external timer and records every
 # completed scrollback burst to $3. A wall-clock test inside the producer is
 # insufficient: when xterm applies backpressure, the shell can remain blocked
@@ -98,6 +110,30 @@ duration_seconds="$1"
 lines_per_iteration="$2"
 count_file="$3"
 interval_seconds="$4"
+probe_owner_pid="$5"
+probe_owner_starttime="$6"
+
+probe_owner_stat_matches() {
+    # Arguments: one complete /proc/PID/stat record, expected starttime.
+    # Fields after comm are whitespace-separated numeric values except state.
+    # Disable glob expansion while splitting; do not split the comm field.
+    owner_stat_tail="${1##*) }"
+    [ "$owner_stat_tail" != "$1" ] || return 1
+    expected_starttime="$2"
+    set -f
+    set -- $owner_stat_tail
+    [ "$#" -ge 20 ] || return 1
+    case "$1" in
+        Z|X|x) return 1 ;;
+    esac
+    shift 19
+    [ "$1" = "$expected_starttime" ]
+}
+
+probe_owner_is_current() {
+    IFS= read -r owner_stat <"/proc/$probe_owner_pid/stat" 2>/dev/null || return 1
+    probe_owner_stat_matches "$owner_stat" "$probe_owner_starttime"
+}
 : >"$count_file"
 set +e
 workload_pid=
@@ -152,13 +188,11 @@ timeout --signal=TERM --kill-after=1 "$duration_seconds" sh -c '
 ' sh "$lines_per_iteration" "$count_file" "$interval_seconds" &
 workload_pid="$!"
 
-# xterm normally owns this shell until the bounded workload exits. If xterm or
-# its X server dies first, detect the vanished parent and stop the independently
-# timed producer immediately instead of holding an inherited log descriptor for
-# the remainder of the workload window.
-xterm_parent_pid="$PPID"
+# This probe exits when xterm fails. Watch its pre-launch identity, including
+# zombie state, so an already-adopted child cannot mistake a surviving reaper
+# for xterm and retain the caller's log pipe for the full workload window.
 (
-    while kill -0 "$xterm_parent_pid" 2>/dev/null; do
+    while probe_owner_is_current; do
         sleep 0.05
     done
     kill -TERM "$workload_pid" 2>/dev/null || true
@@ -200,7 +234,8 @@ timeout --signal=TERM "$safety_deadline" \
     -b "$XTERM_INTERNAL_BORDER" \
     -geometry "${XTERM_COLS}x${XTERM_ROWS}" \
     -e sh "$INNER_SCRIPT" \
-    "$DURATION_SECONDS" "$LINES_PER_ITERATION" "$COUNT_FILE" "$INTERVAL_SECONDS"
+    "$DURATION_SECONDS" "$LINES_PER_ITERATION" "$COUNT_FILE" "$INTERVAL_SECONDS" \
+    "$$" "$PROBE_OWNER_STARTTIME"
 client_status="${PIPESTATUS[0]}"
 set -e
 

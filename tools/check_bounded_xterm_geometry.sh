@@ -19,16 +19,13 @@ PROBE="$ROOT_DIR/tools/probes/run_bounded_xterm.sh"
 # Must stay strictly under X_AUTHORITY_SOFTWARE_BUFFER_MAX_BYTES (64 MiB).
 CAP_BYTES=$((64 * 1024 * 1024))
 FAKE_XTERM="$(mktemp)"
-trap 'rm -f "$FAKE_XTERM"' EXIT
+FAKE_ORPHAN_XTERM="$(mktemp)"
+trap 'rm -f "$FAKE_XTERM" "$FAKE_ORPHAN_XTERM"' EXIT
 printf '%s\n' \
     '#!/usr/bin/env sh' \
     'while [ "$#" -gt 0 ]; do' \
     '    if [ "$1" = -e ]; then' \
     '        shift' \
-    '        if [ -n "${SOPHIA_FAKE_XTERM_ORPHAN:-}" ]; then' \
-    '            "$@" >/dev/null &' \
-    '            exit 1' \
-    '        fi' \
     '        if [ -n "${SOPHIA_FAKE_XTERM_STALL:-}" ]; then' \
     '            fifo="${TMPDIR:-/tmp}/sophia-fake-xterm-$$.fifo"' \
     '            mkfifo "$fifo" || exit 3' \
@@ -48,10 +45,65 @@ printf '%s\n' \
     'exit 2' >"$FAKE_XTERM"
 chmod 700 "$FAKE_XTERM"
 
+# Guarantee adoption before starting the inner shell. Copy its script before
+# the probe can unlink it on EXIT, so a missing script cannot vacuously pass the
+# orphan regression. No X connection, display, or terminal is used.
+cat >"$FAKE_ORPHAN_XTERM" <<'PYTHON'
+#!/usr/bin/env python3
+import os
+from pathlib import Path
+import sys
+import time
+
+command = sys.argv[sys.argv.index('-e') + 1:]
+script = Path(command[1]).read_text()
+original_parent = os.getpid()
+if os.fork():
+    os._exit(1)
+deadline = time.monotonic() + 2
+while os.getppid() == original_parent:
+    if time.monotonic() >= deadline:
+        os._exit(3)
+    time.sleep(0.001)
+print('sophia_orphan_fixture status=adopted-before-exec', file=sys.stderr, flush=True)
+with open(os.devnull, 'wb') as sink:
+    os.dup2(sink.fileno(), 1)
+os.execvp(command[0], [command[0], '-c', script, command[1], *command[2:]])
+PYTHON
+chmod 700 "$FAKE_ORPHAN_XTERM"
+
 fail() {
     echo "bounded xterm geometry regression failed: $*" >&2
     exit 1
 }
+
+# Exercise the production stat parser with stable records. A zombie remains
+# visible to kill -0, and a reused PID may be live; neither is this invocation.
+owner_identity_function="$(sed -n '/^probe_owner_stat_matches() {$/,/^}$/p' "$PROBE")"
+[[ -n "$owner_identity_function" ]] || fail "missing owner identity parser"
+owner_stat_record() {
+    printf '123 (%s) %s 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 %s 99\n' \
+        "$1" "$2" "$3"
+}
+owner_stat_matches() {
+    sh -c "$owner_identity_function
+probe_owner_stat_matches \"\$1\" \"\$2\"" sh "$1" "$2"
+}
+for comm in bash 'name with spaces' 'name ) nested (parts)'; do
+    owner_stat_matches "$(owner_stat_record "$comm" S 777)" 777 ||
+        fail "owner identity parser rejected a live matching record"
+done
+for state in Z X; do
+    if owner_stat_matches "$(owner_stat_record bash "$state" 777)" 777; then
+        fail "owner identity parser accepted an exited process"
+    fi
+done
+if owner_stat_matches "$(owner_stat_record bash S 778)" 777; then
+    fail "owner identity parser accepted a reused PID"
+fi
+if owner_stat_matches '123 (truncated) S 1' 777; then
+    fail "owner identity parser accepted a truncated record"
+fi
 
 field() {
     # field <line> <key> -> value
@@ -211,8 +263,7 @@ stalled_iterations="$(field "$stalled_line" iterations)" ||
 SECONDS=0
 set +e
 orphaned_output="$(
-    SOPHIA_FAKE_XTERM_ORPHAN=1 \
-    SOPHIA_XTERM_BIN="$FAKE_XTERM" \
+    SOPHIA_XTERM_BIN="$FAKE_ORPHAN_XTERM" \
     SOPHIA_XTERM_DURATION_SECONDS=20 \
         "$PROBE" 2>&1
 )"
@@ -222,6 +273,8 @@ set -e
     fail "probe accepted an xterm that orphaned its command child"
 ((SECONDS < 5)) ||
     fail "orphaned producer retained the caller pipe until its workload deadline"
+[[ "$orphaned_output" == *"sophia_orphan_fixture status=adopted-before-exec"* ]] ||
+    fail "orphan fixture did not establish adoption before inner startup"
 [[ "$orphaned_output" == *"xterm exited with status 1"* ]] ||
     fail "orphaned xterm failure was not reported: '$orphaned_output'"
 

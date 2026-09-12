@@ -1544,3 +1544,71 @@ fn over_capacity_damage_coalesces_to_a_batch_equivalent_to_replacement() {
         "a pixel outside the damage must not have been repainted"
     );
 }
+
+#[test]
+fn departing_client_destroys_its_windows_deepest_first() {
+    // The X11 DestroyNotify specification requires a window's inferiors to be
+    // reported before the window itself, whatever caused the destruction. A
+    // client going away destroys its whole set at once, and resource records
+    // arrive in XID allocation order, which is ordinarily the exact reverse:
+    // parents are allocated before the children they contain.
+    let namespace = NamespaceId::from_raw(29);
+    let parent = XResourceId::new(0x0020_0001, 1);
+    let child = XResourceId::new(0x0020_0002, 1);
+    let grandchild = XResourceId::new(0x0020_0003, 1);
+    let mut runtime = XAuthorityRuntime::new();
+
+    for (index, window) in [parent, child, grandchild].into_iter().enumerate() {
+        let surface = 300 + index as u64;
+        assert_eq!(
+            runtime
+                .apply(XAuthorityRequestPacket {
+                    transaction: TransactionId::from_raw(surface),
+                    namespace,
+                    kind: XAuthorityRequestKind::CreateWindow {
+                        window,
+                        surface: SurfaceId::new(surface as u32, 1),
+                        geometry: Rect {
+                            x: 0,
+                            y: 0,
+                            width: 40,
+                            height: 30,
+                        },
+                        constraints: SurfaceConstraints {
+                            min_size: None,
+                            max_size: None,
+                        },
+                        generation: 1,
+                    },
+                })
+                .outcome,
+            XAuthorityResponseOutcome::Accepted
+        );
+    }
+    // Ascending XIDs nest downward, so allocation order and destruction order
+    // disagree. Were they the same, this test would pass without the ordering.
+    runtime
+        .set_window_parent(namespace, child, parent)
+        .unwrap();
+    runtime
+        .set_window_parent(namespace, grandchild, child)
+        .unwrap();
+
+    let release = runtime
+        .release_client_resource_range(
+            namespace,
+            XWireClientResourceRange {
+                base: 0x0020_0000,
+                mask: X_SETUP_DEFAULT_RESOURCE_ID_MASK,
+            },
+        )
+        .unwrap();
+
+    assert_eq!(
+        release.destroyed_windows,
+        vec![grandchild, child, parent],
+        "a departing client's windows must be destroyed deepest-first, so the \
+         notifications driven from this order report inferiors before their \
+         ancestors"
+    );
+}

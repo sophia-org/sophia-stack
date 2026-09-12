@@ -24,7 +24,7 @@ separate endpoints, capabilities, disclosure budgets, and protection domains.
 | Interface | Authorized role | Current status | Role specification |
 | --- | --- | --- | --- |
 | `sophia_wm_v1` major 1 revision 3 | metadata-blind spatial policy | stable | [Sophia Window Manager API](sophia-wm-api.md) |
-| `sophia_shell_v1` major 1 revision 3 | metadata-bearing shell | experimental switcher, reservations, persistent tabs and read-only reference sheets; revisions 1–2 supported | [Sophia Shell Interface Direction](sophia-shell-v1-direction.md) |
+| `sophia_shell_v1` major 1 revision 6 | metadata-bearing shell | experimental descriptor, tab, reference, launcher and indicator workflows; revision-5 content vocabulary is specified but not granted by production | [Sophia Shell Interface Direction](sophia-shell-v1-direction.md) |
 | `sophia_output_v1` | exclusive output policy | experimental handwritten codec and authenticated transport; no public schema or stability promise | [Output Authority Interface](#output-authority-interface) |
 | `sophia_control_v1` major 1 revision 1 | explicitly admitted host administration; no role authority | experimental Linux endpoint; policy actions and confirmed restart | [Sophia Control v1](sophia-control-v1.md) |
 | later broker, portal, and session families | separately authorized services | not specified | future role specifications |
@@ -163,7 +163,7 @@ The current public role schemas are:
 
 - `protocol/sophia-wm-v1.kdl` for stable `sophia_wm_v1` revision 3; and
 - `protocol/sophia-shell-v1.kdl` for experimental `sophia_shell_v1`
-revision 2, retaining revision-1 support.
+revision 6, retaining revisions 1–5 under their capability gates.
 
 The separate scripting service uses `protocol/sophia-control-v1.kdl` for
 experimental control major 1 revision 1. It shares this family's envelope but
@@ -437,11 +437,14 @@ required before the interface revision can be called stable.
 The protocol family reserves a distinct shell role and endpoint, not placeholder
 shell messages in the WM interface. Experimental `sophia_shell_v1` revision 1
 provides the title-only descriptor switcher and bounded reservations; revision
-2 adds persistent tab descriptors, revision 3 adds reference sheets, and revision
-4 adds the application catalog and launcher. These are experimental descriptor
-contracts. The [content-shell proposal](content-shell.md) describes a separately
-admitted future capability within this family; it assigns no wire records or
-revision. Arbitrary content and broader service vocabulary remain unimplemented.
+2 adds persistent tab descriptors, revision 3 adds reference sheets, revision
+4 adds the application catalog and launcher, revision 5 assigns the separately
+admitted content vocabulary, and revision 6 adds view indicators and their
+activations. Production currently grants the descriptor and indicator workflows,
+not content. Wire support is not a runtime grant, a rendering path or GPU access.
+The [content design](notes/decisions/6ndjwffd-content-capability-design-for-sophia_shell_v1.md)
+and [implementation record](lom-content-implementation.md) name the remaining
+content lifecycle and admission gates.
 
 The [Sophia Shell Interface Direction](sophia-shell-v1-direction.md) specializes
 the common negotiation, complete-fact-set, bounded-candidate, explicit-outcome,

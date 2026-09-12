@@ -1081,6 +1081,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "sophia-shell-client"
+version = "0.1.0"
+dependencies = [
+ "sophia-protocol",
+]
+
+[[package]]
 name = "sophia-sysv-shm"
 version = "0.1.0"
 dependencies = [

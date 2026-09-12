@@ -100,37 +100,73 @@ insufficient, what is needed is a **server-state reconciliation acknowledgement*
 the component owning that state -- named here as proposed new work. No X
 application acknowledgement is introduced.
 
-**Cleanup scheduling, with consistent units.** The service period is **16ms**,
-carrying a 2ms synthetic budget of which **0.5ms and 4 of the 32 events** are
-reserved for settlement, spent before ordinary synthetic work.
+### Two debt layers, kept apart
 
-The previous revision's arithmetic was wrong: 4 events per period over 8 periods
-is 32 attempts, while one retiring injector can hold more than 32 inputs, so a
-per-debt deadline of 8 periods could expire **before that debt's release was
-ever attempted**. Terminating a healthy recipient for our own backlog is not
-acceptable, so:
+A hold owes two different things, and one receipt does not discharge both:
 
-- a **fair bounded cleanup queue** in arrival order, at most **one outstanding
-  attempt per hold**, and no new attempt while an earlier writer attempt could
-  still produce an outcome;
-- **nonresponse timing starts at admitted delivery**, not when the debt entered
-  our queue. Time spent waiting for our own scheduler never counts against the
-  recipient;
-- **scheduler backlog is bounded separately** at 4 × 16 = 64 outstanding
-  attempts, with its own conditional progress statement: given service periods
-  occurring, the queue drains at 4 per period, so a backlog of *n* holds clears
-  in ceil(n/4) periods;
-- **termination follows proved recipient nonresponse** -- no outcome within 8
-  periods measured from admitted delivery -- or an explicitly documented
-  unrecoverable settlement condition. Never ordinary internal backlog.
+| Layer | Obligation | Discharged by |
+| --- | --- | --- |
+| **Server-owned** | shared modifier, grab and ledger state reconciled | the reconciling transition completing under the inner guard |
+| **Recipient** | the release reaching the recorded recipient | `Flushed`, or that recipient's `ClientDisconnected` |
 
-**Hold identity suppresses a stale release on the wire**, not merely in
-bookkeeping: a delayed release whose hold identity no longer matches the current
-hold for that input is not delivered at all, so it cannot clear a newer hold in
-the recipient.
+A `Flushed` release or a disconnected recipient settles the **recipient**
+obligation only. It is not evidence that server-owned state was reconciled, and
+the reverse holds too. Server-owned state is reconciled synchronously under the
+guard, so it needs no acknowledgement; an acknowledgement becomes necessary only
+if that state is later owned asynchronously, and would then be produced by its
+owner rather than by an application.
 
-Debt carries the recorded target and a hold identity, so a late completion for
-an old debt cannot erase a newer hold on the same input.
+### Debt storage and attempt scheduling are different populations
+
+Revocation must never fail for want of queue space, and a mass revocation across
+16 grants can owe more releases than any attempt queue should hold.
+
+- **Debt lives in the ledger, preallocated per hold**, sized by the capacity
+  table. Every owed release is represented the moment it is owed, including the
+  sixty-fifth and beyond.
+- **At most 64 attempt records are scheduled or in flight.** The attempt queue
+  is a working set, not the record of what is owed.
+- **A persistent sweep admits the rest in fair arrival order** as attempts
+  complete, so no debt is starved and none is dropped for lack of a slot.
+
+### Progress, stated conditionally
+
+Four events and 0.5ms per 16ms period are **ceilings on what may be started**,
+not a guarantee that four holds settle. Delayed outcomes, retries and the time
+cap all defeat a simple division, so the previous `ceil(n/4)` claim is withdrawn.
+
+What can be stated: given **runnable service opportunities actually occurring**,
+every owed release is eventually attempted, because admission is fair and no
+debt is dropped. Transport settlement is separate and is not bounded by this
+scheduler at all.
+
+### Nonresponse is the recipient's, not ours
+
+Measurement starts at the **defined delivery stage** -- the point the release is
+admitted to the recipient's writer -- and **excludes time held by Sophia's own
+machinery**: the writer's internal waits, control preemption, and frozen input.
+Absence of `Flushed` is therefore not by itself recipient nonresponse.
+Termination follows proved nonresponse from that stage, or an explicitly
+documented unrecoverable condition. **Debt age alone never terminates anything.**
+
+### Stale releases are scoped to their recipient
+
+A global `(seat, input)` identity is wrong in both directions. If recipient A
+still owes release H1 and a new press H2 reaches recipient **B**, a global
+mismatch would suppress A's release -- but B's new hold is no evidence that A
+was cleared. Conversely an old release to the **same** recipient must not follow
+a newer press and clear it.
+
+So a delivery incarnation is keyed by **recorded recipient and connection
+generation, plus input and hold identity**. Then:
+
+- a stale attempt for a *different* recipient is delivered normally: it is not
+  stale for that recipient;
+- for the *same* recipient, a new hold on that input is not deliverable until
+  the earlier release has been **proved cleared or superseded** -- a clearing
+  barrier, not a race;
+- discarding a stale attempt never settles it. It resolves to proved clearing,
+  proved supersession, or **retained debt**.
 
 **`DeliveredTo` is invalidated when something else already cleared that
 delivery.** A global focus transition that released A's input clears the record,
@@ -255,10 +291,32 @@ Under that inner guard, as one step: grant generation is read, the **security
 epoch is read there too** rather than passed in as a previously loaded value,
 the ledger transitions to applied, and grabs are resolved.
 
-**Session publishes committed focus and seat state to this boundary.** Broker
-X-grab resolution does not establish current Engine focus, so the guard reads a
-generation-stamped snapshot published by Session, refusing one older than the
-grant's bound generation rather than using it.
+### Session publication is part of the ordering, not a version check
+
+Broker X-grab resolution does not establish current Engine focus, and a
+minimum-revision check does not either. Grant generation and publication
+revision are **different identities**: a grant issued under focus A still
+satisfies an issuance-time minimum after Session commits focus B, so execution
+could route against A while B's snapshot is still in flight. Lock and
+inactive-seat transitions make that worse, not better.
+
+So a **routing publication revision** is defined separately from grant
+generation, and the transition -- not the reader -- carries the obligation:
+
+1. A Session focus, seat, or security transition, **under the inner guard**,
+   marks synthetic routing **unavailable** and records the revision it is moving
+   to.
+2. Synthetic execution attempted while unavailable **waits or is refused**. It
+   never falls back to the previous snapshot.
+3. When the matching snapshot is installed, the transition marks synthetic
+   routing available again at the new revision.
+
+Every security-epoch mutation participates in this ordering. Reading an atomic
+epoch under the guard is not sufficient if another writer can change it outside
+the guard, so the mutations move inside it; the epoch is state, not a hint.
+
+This is fail-closed by construction: the window between commit and publication
+refuses injection rather than serving stale focus.
 
 **The commit point is authoritative execution, not enqueue.**
 `route_engine_input` (`registry/delivery.rs:65-83`) rejects an epoch mismatch
@@ -552,8 +610,17 @@ Rust, which the ClassicShared socket host cannot establish:
 - revocation after authority application but before writer completion: debt is
   owed, not dropped;
 - revocation on either side of the final guard;
+- more than 64 simultaneous debts: every one stays represented in the ledger
+  while at most 64 attempts are in flight, and all settle;
 - more than 32 held inputs with a healthy draining recipient: all settle, and
   the recipient is **not** terminated for our backlog;
+- A owes H1 while a new press H2 reaches B: A's release is still delivered,
+  because B's hold says nothing about A;
+- same recipient, H1 owed and H2 pressed, with an old writer attempt delayed
+  across the new press: the barrier holds H2 until H1 is proved cleared or
+  superseded, and the stale attempt does not clear H2;
+- a Session focus or seat transition paused after commit and before publication:
+  injection waits or is refused, never routed against the old snapshot;
 - a genuinely stalled recipient, timed from admitted delivery, does terminate;
 - a stale release is suppressed on the wire, not merely in bookkeeping, so a
   newer hold survives it;
@@ -561,8 +628,9 @@ Rust, which the ClassicShared socket host cannot establish:
   authorization decision;
 - `Flushed` settles transport only, and is not recorded as application
   processing;
-- debt unsettled after 8 intervals escalates to termination, settling by
-  `ClientDisconnected`;
+- a recipient proved nonresponsive from the delivery stage terminates; **debt
+  age alone never terminates**, and time held by Sophia's writer, control
+  preemption or frozen input is excluded from the measurement;
 - ordinary discovery flow with no guessed opcode: setup, QueryExtension,
   GetVersion, FakeInput;
 - disabled capability answers `BadAccess` to a guessed opcode, not

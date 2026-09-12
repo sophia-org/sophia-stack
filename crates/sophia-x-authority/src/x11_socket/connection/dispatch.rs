@@ -25,6 +25,22 @@ enum X11ExplicitPointerGrabPreparation {
 }
 
 #[cfg(unix)]
+/// Which XFixes subtype reports a selection change of this cause.
+fn selection_change_subtype(kind: crate::XSelectionChangeKind) -> u8 {
+    match kind {
+        crate::XSelectionChangeKind::SelectionWindowDestroyed => {
+            crate::X_XFIXES_SELECTION_WINDOW_DESTROY_SUBTYPE
+        }
+        crate::XSelectionChangeKind::SelectionClientClosed => {
+            crate::X_XFIXES_SELECTION_CLIENT_CLOSE_SUBTYPE
+        }
+        // Setting an owner and clearing one are the same cause: the selection
+        // was assigned, to a window or to nobody.
+        _ => crate::X_XFIXES_SET_SELECTION_OWNER_SUBTYPE,
+    }
+}
+
+#[cfg(unix)]
 /// Whether a routing failure belongs to the recipient rather than to the
 /// service.
 ///
@@ -1217,6 +1233,72 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                             .collect()
                     };
 
+                    // Selection changes are told here, where this client's own
+                    // outputs are still open. A watcher that is also the client
+                    // that caused the change must receive the event against
+                    // this request's sequence, and appending to its outputs is
+                    // what orders it correctly; routing it asynchronously would
+                    // stamp whatever sequence had last been written.
+                    if let Some(routing) = protocol_routing.as_ref() {
+                        let mut changes = Vec::new();
+                        if let Some((selection, owner, time, selection_time, kind)) =
+                            selection_owner_change
+                            && output
+                                .outputs
+                                .iter()
+                                .all(|out| !matches!(out, crate::XClientOutput::Error(_)))
+                        {
+                            changes.push((
+                                selection_change_subtype(kind),
+                                selection,
+                                owner.unwrap_or(crate::XResourceId::NONE),
+                                time,
+                                selection_time,
+                            ));
+                        }
+                        // Ownerships ended because a window or a client went
+                        // away. The event time is now; the selection time stays
+                        // the one the ownership began with, which is what the
+                        // watcher is being told about.
+                        for retired in runtime.take_retired_selection_ownerships() {
+                            changes.push((
+                                selection_change_subtype(retired.kind),
+                                retired.current.selection,
+                                crate::XResourceId::NONE,
+                                x11_server_time_msec(),
+                                retired.current.selection_timestamp,
+                            ));
+                        }
+                        for (subtype, selection, owner, time, selection_time) in changes {
+                            for (recipient, window) in routing
+                                .xfixes_selection_subscribers(namespace, selection, subtype)
+                                .map_err(|error| {
+                                    X11SetupSocketError::new(format!(
+                                        "failed to inspect XFixes selection subscriptions: {error}"
+                                    ))
+                                })?
+                            {
+                                let event = crate::XClientEvent::XfixesSelectionNotify {
+                                    sequence,
+                                    subtype,
+                                    window,
+                                    owner,
+                                    selection,
+                                    time,
+                                    selection_time,
+                                };
+                                if recipient == client {
+                                    output.outputs.push(crate::XClientOutput::Event(event));
+                                } else if let Err(error) = routing.route_protocol(recipient, event)
+                                    && !x11_recipient_is_gone(&error)
+                                {
+                                    return Err(X11SetupSocketError::new(format!(
+                                        "failed to route an XFixes selection change: {error}"
+                                    )));
+                                }
+                            }
+                        }
+                    }
                     trace_selection_property_read_result(selection_property_read, &output);
                     // DRI3 presence depends on a render-device provider, which
                     // the pure dispatch cannot see. Both the query and the
@@ -1437,49 +1519,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                                         "failed to update XFixes selection subscription: {error}"
                                     ))
                                 })?;
-                        }
-                        if let Some((selection, owner, time, selection_time, kind)) =
-                            selection_owner_change
-                            && let Some(routing) = protocol_routing.as_ref()
-                        {
-                            let subtype = match kind {
-                                crate::XSelectionChangeKind::SelectionWindowDestroyed => {
-                                    crate::X_XFIXES_SELECTION_WINDOW_DESTROY_SUBTYPE
-                                }
-                                crate::XSelectionChangeKind::SelectionClientClosed => {
-                                    crate::X_XFIXES_SELECTION_CLIENT_CLOSE_SUBTYPE
-                                }
-                                // Setting an owner and clearing one are the
-                                // same cause: the selection was assigned, to a
-                                // window or to nobody.
-                                _ => crate::X_XFIXES_SET_SELECTION_OWNER_SUBTYPE,
-                            };
-                            for (recipient, window) in routing
-                                .xfixes_selection_subscribers(namespace, selection, subtype)
-                                .map_err(|error| {
-                                    X11SetupSocketError::new(format!(
-                                        "failed to inspect XFixes selection subscriptions: {error}"
-                                    ))
-                                })?
-                            {
-                                if let Err(error) = routing.route_protocol(
-                                    recipient,
-                                    crate::XClientEvent::XfixesSelectionNotify {
-                                        sequence: 0,
-                                        subtype,
-                                        window,
-                                        owner: owner.unwrap_or(crate::XResourceId::NONE),
-                                        selection,
-                                        time,
-                                        selection_time,
-                                    },
-                                ) && !x11_recipient_is_gone(&error)
-                                {
-                                    return Err(X11SetupSocketError::new(format!(
-                                        "failed to route an XFixes selection change: {error}"
-                                    )));
-                                }
-                            }
                         }
                         if let Some((window, mask)) = randr_selection
                             && let Some(routing) = protocol_routing.as_ref()
@@ -2341,6 +2380,58 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
         .take_retired_pixmap_registrations(namespace));
     release.released_dma_bufs.sort_unstable();
     release.released_dma_bufs.dedup();
+    // The selections this client owned ended with it, and its watchers are
+    // owed that. Drained before the subscriptions are retired below, because
+    // those are what name the recipients.
+    let retired_selections = state
+        .runtime
+        .lock()
+        .map_err(|_| X11SetupSocketError::new("X11 authority runtime lock poisoned"))?
+        .take_retired_selection_ownerships();
+    if let Some(routing) = protocol_routing.as_ref() {
+        for retired in retired_selections {
+            let subtype = selection_change_subtype(retired.kind);
+            for (recipient, window) in routing
+                .xfixes_selection_subscribers(namespace, retired.current.selection, subtype)
+                .map_err(|error| {
+                    X11SetupSocketError::new(format!(
+                        "failed to inspect XFixes selection subscriptions: {error}"
+                    ))
+                })?
+            {
+                // The departed client is not told its own departure.
+                if recipient == client {
+                    continue;
+                }
+                if let Err(error) = routing.route_protocol(
+                    recipient,
+                    crate::XClientEvent::XfixesSelectionNotify {
+                        sequence: 0,
+                        subtype,
+                        window,
+                        owner: crate::XResourceId::NONE,
+                        selection: retired.current.selection,
+                        time: x11_server_time_msec(),
+                        selection_time: retired.current.selection_timestamp,
+                    },
+                ) && !x11_recipient_is_gone(&error)
+                {
+                    return Err(X11SetupSocketError::new(format!(
+                        "failed to route a departed peer's selection change: {error}"
+                    )));
+                }
+            }
+        }
+        // The departing client's own subscriptions go with it, so a reissued
+        // client id cannot inherit what this one was watching.
+        routing
+            .remove_xfixes_selection_client(client)
+            .map_err(|error| {
+                X11SetupSocketError::new(format!(
+                    "failed to retire a departed peer's XFixes subscriptions: {error}"
+                ))
+            })?;
+    }
     state.notify_pixmap_progress()?;
     state.release_exported_pixmaps()?;
     if let Some(routing) = protocol_routing.as_ref() {

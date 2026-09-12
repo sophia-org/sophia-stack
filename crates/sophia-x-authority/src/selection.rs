@@ -113,20 +113,26 @@ impl XSelectionMonitor {
         }
     }
 
+    /// Drop `window`'s selection ownerships, returning what changed.
+    ///
+    /// The returned updates are what watchers are owed. Each keeps the
+    /// timestamps of the ownership being ended, because an event reporting
+    /// that an owner went away still reports when that ownership began.
     pub fn clear_window_owner(
         &mut self,
         window: XResourceId,
         windows: &XWindowTable,
         kind: XSelectionChangeKind,
-    ) {
+    ) -> Vec<XSelectionOwnerUpdate> {
         let owners = self
             .owners
             .values()
             .filter(|record| record.owner == Some(window))
             .copied()
             .collect::<Vec<_>>();
+        let mut cleared = Vec::with_capacity(owners.len());
         for owner in owners {
-            self.apply_event_in_namespace(
+            cleared.push(self.apply_event_in_namespace(
                 XSelectionEvent {
                     selection: owner.selection,
                     owner: None,
@@ -136,8 +142,9 @@ impl XSelectionMonitor {
                 },
                 windows,
                 owner.namespace,
-            );
+            ));
         }
+        cleared
     }
 
     fn namespace_for_existing_selection(&self, selection: XAtom) -> Option<NamespaceId> {

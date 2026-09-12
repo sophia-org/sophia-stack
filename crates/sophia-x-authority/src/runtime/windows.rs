@@ -519,11 +519,12 @@ impl XAuthorityRuntime {
              .get(window)
              .ok_or(XAuthorityRuntimeError::UnknownResource)?
              .surface;
-         self.selections.clear_window_owner(
+         let cleared = self.selections.clear_window_owner(
              window,
              &self.windows,
              crate::XSelectionChangeKind::SelectionWindowDestroyed,
          );
+         self.retired_selection_ownerships.extend(cleared);
          self.retire_pixmap_export_drawable(window);
          self.windows
              .apply(XWindowLifecycleEvent::Destroyed { id: window })?;
@@ -608,6 +609,26 @@ impl XAuthorityRuntime {
              release.released_shm_segments = release.released_shm_segments.saturating_add(1);
          }
  
+         // A departing client's selections end because the client went away,
+         // not because someone destroyed a window. Ending them here, before
+         // the windows are destroyed, is what makes that the reported cause:
+         // the destroy below then finds nothing left to clear.
+         let closing_windows: Vec<_> = self
+             .resources
+             .records_for_namespace_in_client_range(namespace, range)
+             .into_iter()
+             .filter(|record| record.kind == XResourceKind::Window)
+             .map(|record| record.id)
+             .collect();
+         for window in closing_windows {
+             let cleared = self.selections.clear_window_owner(
+                 window,
+                 &self.windows,
+                 crate::XSelectionChangeKind::SelectionClientClosed,
+             );
+             self.retired_selection_ownerships.extend(cleared);
+         }
+
          // Resource records come back in XID allocation order, which is
          // ordinarily parent-before-child: the exact reverse of what a window
          // vanishing owes its watchers. Order the client's windows deepest-first

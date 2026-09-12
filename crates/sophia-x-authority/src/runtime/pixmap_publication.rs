@@ -407,6 +407,14 @@ impl XAuthorityRuntime {
             .unwrap_or_default()
     }
 
+    /// Take the selection ownerships ended since the last drain.
+    ///
+    /// Drained rather than inspected so each ownership is reported once: a
+    /// second reader would either re-notify watchers or race the first.
+    pub fn take_retired_selection_ownerships(&mut self) -> Vec<crate::XSelectionOwnerUpdate> {
+        core::mem::take(&mut self.retired_selection_ownerships)
+    }
+
     pub(crate) fn retire_pixmap_export_drawable(&mut self, drawable: crate::XResourceId) {
         if let Some(handle) = self.pixmap_export_handles.get(&drawable).copied() {
             let Some(state) = self.pixmap_publications.get_mut(&handle) else {

@@ -194,6 +194,13 @@ pub struct XAuthorityRuntime {
     pixmap_publication_targets: BTreeMap<u64, XPixmapPublicationTarget>,
     next_pixmap_publication_target: u64,
     retired_pixmap_registrations: BTreeMap<NamespaceId, Vec<sophia_protocol::BufferHandle>>,
+    /// Selection ownerships ended by a window or client going away, waiting to
+    /// be told to the watchers that asked about them.
+    ///
+    /// These transitions happen inside the runtime rather than through a
+    /// request of their own, so they are collected here and drained by the
+    /// layer that knows who subscribed.
+    retired_selection_ownerships: Vec<crate::XSelectionOwnerUpdate>,
     /// Glyph-set resource ids, each naming a shared store. Two ids name one
     /// store after `ReferenceGlyphSet`.
     render_glyphsets: BTreeMap<crate::XResourceId, u64>,
@@ -264,6 +271,7 @@ impl Default for XAuthorityRuntime {
             pixmap_publication_targets: Default::default(),
             next_pixmap_publication_target: 1,
             retired_pixmap_registrations: Default::default(),
+            retired_selection_ownerships: Default::default(),
             next_render_backing: u64::from(u32::MAX) + 1,
             render_glyphsets: Default::default(),
             render_glyph_stores: Default::default(),

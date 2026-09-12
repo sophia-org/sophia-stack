@@ -538,6 +538,21 @@ impl XServerFrontendRouteRegistry {
     ///
     /// A destroyed window cannot receive anything, and its id may be handed to
     /// the next client that asks for one.
+    /// Retire every selection subscription belonging to `client`.
+    ///
+    /// A client id may be reissued, and an inherited subscription would
+    /// deliver another client's selections to whoever takes the id next.
+    fn remove_xfixes_selection_client(
+        &self,
+        client: XServerFrontendClientId,
+    ) -> Result<(), XServerFrontendRouteError> {
+        self.xfixes_selection_subscriptions
+            .lock()
+            .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+            .retain(|(candidate, _, _), _| *candidate != client);
+        Ok(())
+    }
+
     fn remove_xfixes_selection_window(
         &self,
         window: XResourceId,

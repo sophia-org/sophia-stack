@@ -149,6 +149,32 @@ exactly (54 PASS, 16 FAIL/TIMEOUT, exit 1). Its host SHA256 is
 comparison independently of its earlier build cache; it does not resolve p5's
 separate historical/repaired arboard comparison.
 
+## Independent acceptance of the enumeration and disconnect repairs
+
+The next clean merged candidate **5b4d3b02** includes **18cc2488** (ListExtensions)
+and **9afce409** (deepest-first disconnect cleanup and recipient retirement).
+It was built in another fresh target, `/tmp/sophia-x11-fresh-9afce409`.
+**70 executions: 60 PASS, 10 FAIL/TIMEOUT; gate exit 1.** Host SHA256:
+
+`035f6569fceedf668d75d8631d0ac6b66de7fad27ab515a1acc3ddb58cbfd731`
+
+Evidence is retained at `.artifacts/x11-conformance/baseline-5b4d3b02/`.
+Exactly three cases changed to PASS in both byte orders: `extensions`,
+`destroy_peer_close`, and `destroy_peer_close_subscribers`. All other verdicts
+match the prior expanded profile. Enumeration now lists the fifteen expected
+software-frontend extensions, agrees with their independent QueryExtension
+checks, and excludes DRI3 without a provider. Claude's dispatch/frontend tests
+also cover the declared set and provider-absence filtering. This satisfies t086's
+enumeration repair exit; no GPU-provider or physical acceptance is claimed.
+
+Disconnect now delivers descendants before ancestors, preserves both subscribed
+event addresses until routing completes, suppresses events for an unsubscribed
+peer, retires the resources, and permits a healthy watcher to continue. The
+mapped-destroy UnmapNotify case remains failing, so t087's remaining selected
+acceptance is tied to t084. The other failures remain NoOperation (t085), XFIXES
+selection notification (t063), and unknown extension minor errors (t088).
+Twenty reporting regressions pass. Actual XTS remains unrun.
+
 ## UnmapNotify
 
 The `unmap` case receives MapNotify and confirms the window is Viewable, issues
@@ -177,7 +203,11 @@ from the test would conceal the omission.
 
 ## ListExtensions
 
-The `extensions` case receives an empty ListExtensions response, while the
+Repaired by **18cc2488** and independently verified on **5b4d3b02**; see the
+acceptance baseline above. The following is the original defect evidence.
+
+At the original baseline the `extensions` case received an empty ListExtensions
+response, while the
 separate `extension_discovery` case confirms fifteen advertised names and their
 distinct opcodes. `client_output/replies/core_early.rs` hardcodes zero names.
 t086 must enumerate the actual frontend's advertised surface and keep it

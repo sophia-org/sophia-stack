@@ -202,6 +202,10 @@ authority, not about implementation, and they authorize neither.
   injection into a locked or inactive seat are denied. Synthetic tests do not
   replace physical acceptance.
 
+The concrete design answering these lives in
+[qoltxfr5](../plans/qoltxfr5-concrete-design-for-admitted-synthetic-input.md),
+proposed and separate, so this note stays the principles and authority record.
+
 **What the concrete design still owes.** Choosing the gates did not settle how
 to satisfy them, and a design returns for review before any code:
 

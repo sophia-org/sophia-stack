@@ -599,6 +599,11 @@
             if layout.pending.is_none() {
                 runtime.release_layout_deferred_presentations();
             }
+            // Deliberately outside the guard above. A first candidate is
+            // parked while admission waits for it, and admission is what
+            // makes a layout pending, so servicing parked candidates only
+            // when nothing is pending cannot release the ones that matter.
+            runtime.service_first_visibility_presentations(Instant::now());
             let service = match runtime.service_native(native_scanout, &scene) {
                 Ok(service) => Some(service),
                 Err(error) => {

@@ -12,6 +12,10 @@ use std::collections::{BTreeMap, VecDeque};
 use std::error::Error;
 use std::time::{Duration, Instant};
 
+mod first_visibility;
+
+pub use first_visibility::LiveProductionFirstVisibilityReason;
+
 const LAYOUT_EPOCH_HISTORY_CAPACITY: usize = SURFACE_CONTENT_STREAM_CAPACITY;
 
 #[derive(Clone, Debug)]
@@ -26,14 +30,27 @@ pub struct LiveProductionQueuedPresent {
     y_offset: i32,
     deadline: Instant,
     not_before: Instant,
+    /// Set once this candidate has spent its first-visibility budget. The
+    /// sites that park a first candidate consult it so the second pass takes
+    /// the ordinary rejection instead of parking again, which is what stops
+    /// the wait being unbounded without inventing a second way to settle a
+    /// candidate's content and admission debt.
+    first_visibility_exhausted: bool,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum LiveProductionPresentLayoutState {
     Runnable,
-    Staged { epoch: TransactionId },
-    AwaitingVisibility { epoch: TransactionId },
-    AwaitingFirstVisibility,
+    Staged {
+        epoch: TransactionId,
+    },
+    AwaitingVisibility {
+        epoch: TransactionId,
+    },
+    AwaitingFirstVisibility {
+        reason: LiveProductionFirstVisibilityReason,
+        deadline: Instant,
+    },
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -312,6 +329,7 @@ impl LiveProductionPresentScheduler {
                 y_offset,
                 deadline: not_before + Duration::from_millis(u64::from(timeout_msec)),
                 not_before,
+                first_visibility_exhausted: false,
             });
             self.observe_queue_depth();
         }
@@ -438,41 +456,6 @@ impl LiveProductionPresentScheduler {
 
     pub fn pop_front(&mut self) -> Option<LiveProductionQueuedPresent> {
         self.queued.pop_front()
-    }
-
-    /// Keep an unpresented surface's exact first candidate until it can enter
-    /// a physical frame. Skipping it would strand admission waiting for that
-    /// candidate's retirement, with every successor still quarantined.
-    pub fn defer_first_visibility(&mut self, candidate: SurfaceTransactionKey) -> bool {
-        let Some(queued) = self.queued.front_mut() else {
-            return false;
-        };
-        if queued.candidate.key() != candidate || !queued.runnable() {
-            return false;
-        }
-        queued.layout_state = LiveProductionPresentLayoutState::AwaitingFirstVisibility;
-        true
-    }
-
-    pub fn awaiting_first_visibility(&self) -> impl Iterator<Item = (SurfaceId, Rect)> + '_ {
-        self.queued.iter().filter_map(|queued| {
-            (queued.layout_state == LiveProductionPresentLayoutState::AwaitingFirstVisibility)
-                .then_some((queued.surface, queued.candidate.target_geometry))
-        })
-    }
-
-    pub fn release_first_visibility(&mut self, visible: &[SurfaceId]) -> usize {
-        let mut released = 0;
-        for queued in &mut self.queued {
-            if queued.layout_state == LiveProductionPresentLayoutState::AwaitingFirstVisibility
-                && visible.contains(&queued.surface)
-            {
-                queued.layout_state = LiveProductionPresentLayoutState::Runnable;
-                released += 1;
-            }
-        }
-        self.observe_queue_depth();
-        released
     }
 
     pub fn mark_submitted(&mut self, mut submitted: LiveProductionSubmittedPresent) {

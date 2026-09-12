@@ -34,15 +34,22 @@ impl LiveProductionVisualRuntime {
             .ok_or("ready Present gate has no queued presentation")?;
         let queued_surface = queued.surface;
         let queued_candidate = queued.candidate.key();
+        // A candidate that has already spent its first-visibility budget is
+        // not parked again; it takes the ordinary rejection below, which is
+        // what bounds the wait.
         let first_presentation = !self
             .production
             .committed_surfaces()
             .iter()
-            .any(|state| state.surface == queued_surface);
+            .any(|state| state.surface == queued_surface)
+            && !self.present_scheduler.front_first_visibility_exhausted();
         if !self.presentation_order.contains(&queued_surface) {
             if first_presentation {
-                self.present_scheduler
-                    .defer_first_visibility(queued_candidate);
+                self.present_scheduler.defer_first_visibility(
+                    queued_candidate,
+                    crate::LiveProductionFirstVisibilityReason::OutsidePresentationOrder,
+                    std::time::Instant::now(),
+                );
                 return self.run_observation_tick();
             }
             self.present_scheduler.pop_front();
@@ -95,8 +102,11 @@ impl LiveProductionVisualRuntime {
         });
         if applicable_outputs.is_empty() {
             if first_presentation {
-                self.present_scheduler
-                    .defer_first_visibility(queued_candidate);
+                self.present_scheduler.defer_first_visibility(
+                    queued_candidate,
+                    crate::LiveProductionFirstVisibilityReason::NoApplicableOutput,
+                    std::time::Instant::now(),
+                );
                 return self.run_observation_tick();
             }
             self.present_scheduler.pop_front();
@@ -280,8 +290,11 @@ impl LiveProductionVisualRuntime {
                 // The settled column can be onscreen while its animated
                 // position is still outside the head. Keep its first buffer
                 // and admission debt; other surfaces may run while it waits.
-                self.present_scheduler
-                    .defer_first_visibility(queued_candidate);
+                self.present_scheduler.defer_first_visibility(
+                    queued_candidate,
+                    crate::LiveProductionFirstVisibilityReason::OutsideHeadFrames,
+                    std::time::Instant::now(),
+                );
                 return self.run_observation_tick();
             }
             tracing::debug!(

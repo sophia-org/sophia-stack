@@ -6,7 +6,8 @@ use std::time::{Duration, Instant};
 
 use sophia_backend_live::{
     LIVE_RENDERER_SCANOUT_FORMAT_XRGB8888, LivePresentationResourceSession,
-    LiveProductionAuthorityBatch, LiveProductionAuthorityGroup, LiveProductionNativeFrameId,
+    LiveProductionAuthorityBatch, LiveProductionAuthorityGroup,
+    LiveProductionFirstVisibilityReason, LiveProductionNativeFrameId,
     LiveProductionPageFlipRetirement, LiveProductionPresentDisposition, LiveProductionPresentGate,
     LiveProductionPresentScheduler, LiveProductionPresentSubmission,
     LiveProductionSubmittedPresent, LiveRetainedRendererImageLayer,

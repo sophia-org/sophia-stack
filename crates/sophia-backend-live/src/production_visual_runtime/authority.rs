@@ -339,28 +339,59 @@ impl LiveProductionVisualRuntime {
         for transaction in report.superseded {
             self.reject_gpu_presentation(transaction);
         }
+    }
+
+    /// Service the first candidates parked by the Present path.
+    ///
+    /// Separate from the layout-deferred release above because that one only
+    /// runs while no layout is pending, and admission is exactly what is
+    /// pending while a first frame is waited on. Releasing parked first
+    /// candidates only when nothing is pending cannot end a wait an admission
+    /// attempt began.
+    pub fn service_first_visibility_presentations(&mut self, now: std::time::Instant) {
         let time = self.translation_time();
         let visible = self
             .present_scheduler
             .awaiting_first_visibility()
-            .filter_map(|(surface, geometry)| {
-                (self.presentation_order.contains(&surface)
-                    && self.outputs.logical_viewports().any(|(output, viewport)| {
-                        live_surface_routes_to_output(
-                            surface,
-                            &self.surface_outputs,
-                            &self.geometry_routed_surfaces,
-                            output,
-                        ) && !crate::presentation::intersect_rects(
-                            self.translations.geometry(surface, output, geometry, time),
-                            viewport,
-                        )
-                        .is_empty()
-                    }))
-                .then_some(surface)
+            .filter_map(|(surface, geometry, reason)| {
+                // Each candidate is released on the condition that parked it.
+                // Testing every one against visibility would leave a candidate
+                // parked for absence from the presentation order waiting on a
+                // stricter condition than the one it failed.
+                let released = match reason {
+                    crate::LiveProductionFirstVisibilityReason::OutsidePresentationOrder => {
+                        self.presentation_order.contains(&surface)
+                    }
+                    crate::LiveProductionFirstVisibilityReason::NoApplicableOutput
+                    | crate::LiveProductionFirstVisibilityReason::OutsideHeadFrames => {
+                        self.outputs.logical_viewports().any(|(output, viewport)| {
+                            live_surface_routes_to_output(
+                                surface,
+                                &self.surface_outputs,
+                                &self.geometry_routed_surfaces,
+                                output,
+                            ) && !crate::presentation::intersect_rects(
+                                self.translations.geometry(surface, output, geometry, time),
+                                viewport,
+                            )
+                            .is_empty()
+                        })
+                    }
+                };
+                released.then_some(surface)
             })
             .collect::<Vec<_>>();
         self.present_scheduler.release_first_visibility(&visible);
+        for (surface, reason) in self.present_scheduler.expire_first_visibility(now) {
+            // A first candidate that waits silently is indistinguishable from
+            // one that is merely slow, which is what made this expensive to
+            // find the first time.
+            tracing::warn!(
+                surface = surface.index(),
+                ?reason,
+                "first-visibility budget expired; candidate returned for ordinary rejection"
+            );
+        }
     }
 
     pub fn commit_layout_epoch(&mut self, epoch: TransactionId) -> usize {

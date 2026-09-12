@@ -26,15 +26,19 @@ The explicit manifest names mandatory behaviors, their core request numbers,
 extension obligations, intentional policy exclusions and fixture limitations.
 Missing/unexecuted mandatory results, NORESULT, unsupported/untested verdicts,
 duplicates and deadlines fail. A decoder-declaration inventory prevents new
-requests from disappearing from the coverage ledger. It currently inventories
-76 decoded core requests: 27 have named cases, 49 have explicit coverage debt.
-The missing but mandatory DestroySubwindows and NoOperation requests are also
-named. This is a substantial selected behavioral gate, not full X11 certification.
+requests from disappearing from the coverage ledger. At the integrated baseline it inventories
+77 decoded core requests: 28 have named cases, 49 have explicit coverage debt.
+DestroySubwindows and the still missing mandatory NoOperation are both named. This is a substantial selected behavioral gate, not full X11 certification.
 Query/version coverage does not certify every operation of an extension.
 
-## Candidate and evidence
+The request-family dispatch matches have wildcard fallbacks; declaring a wire
+variant does not make the compiler require its dispatch implementation. The
+inventory checks coverage accounting, while independent mandatory cases must
+exercise accepted requests through dispatch and observe their completion.
 
-The first meaningful baseline used c629cf7f. The final retained baseline used
+## Historical candidate and evidence
+
+The first meaningful baseline used c629cf7f. The first retained baseline used
 the production source at acaa8453, including Claude's DestroyNotify repairs
 fa23b570 and b3941c04, plus the uncommitted conformance host/harness. The report
 records the dirty-source flag, harness/manifest hashes and host SHA256:
@@ -62,6 +66,28 @@ both event addresses for StructureNotify/SubstructureNotify on a second client,
 neither-mask suppression, invalid/repeated destroy without a phantom event,
 and XID reuse without inheriting a retired subscriber. Those results do not
 close the destruction family.
+
+## Integrated baseline after the destroy repairs
+
+The coordinated rerun used clean committed source **75b9e167**, merging the gate
+with master **34413a16**, including descendant repair **4ede41bd** and
+DestroySubwindows repair **cc9f2f7b**. Host SHA256:
+
+`f507d8109858312d0198c8abf510abf4a569768c95413a094a013b753bf3a80d`
+
+Evidence is retained separately at
+`.artifacts/x11-conformance/baseline-75b9e167/`; the acaa8453 evidence remains
+historical and was not overwritten. **62 executions: 50 PASS, 12 FAIL/TIMEOUT;
+gate exit 1.** Twenty reporting regressions also pass.
+
+Only `destroy_descendants` and `destroy_subwindows` changed verdict, both from
+FAIL to PASS in both byte orders. The six remaining failing behaviors are
+UnmapNotify (t084), NoOperation (t085), ListExtensions (t086), peer-close
+DestroyNotify (t087), XFIXES selection notification (t063), and unknown extension
+minor error classification (t088). No other verdict changed. The selected
+explicit-destroy, subscription, invalid-ID and XID-reuse cases remain passing.
+The gate and remaining coverage work stay first under t057; all six repairs
+remain open at the highest priority in todo.md.
 
 ## UnmapNotify
 
@@ -104,7 +130,7 @@ limitation. No DRI3 runtime defect is filed from that observation.
 
 ## Destruction family
 
-Three independent cases still fail after b3941c04:
+Three independent cases failed at acaa8453 after b3941c04:
 
 - `destroy_descendants`: GetWindowAttributes on a child still returns a valid
   reply after its parent is destroyed; the child lifecycle has not ended.
@@ -113,7 +139,9 @@ Three independent cases still fail after b3941c04:
   DestroyNotify after the owner connection closes.
 
 The [destruction-family investigation](ksbt5d8f-the-window-destroy-family-is-incomplete-beyond-destroynotify.md)
-owns the source analysis and t087's residual exit. Descendant destruction must
+owns the source analysis. Its two source findings are now repaired and the note
+is closed; **t087 remains open for peer-close notification and remaining family
+acceptance**, with current wire evidence above. Descendant destruction must
 precede truthful descendant notifications; adding only events would announce
 destructions that never happened. Keep nested ordering, peer-close parent
 subscriptions and resource/subscription retirement in that same lifecycle repair.

@@ -646,3 +646,42 @@ xwininfo/xprop, matched by `_NET_WM_PID` to its own child. Overall acceptance
 requires `_NET_WM_WINDOW_TYPE_DIALOG` and absent `WM_TRANSIENT_FOR` for each
 dialog, independently of the operator's floating-layout observation. This is an
 unparented standalone prompt; transient-parent support is not claimed.
+
+The attended request was clarified to use the **existing healthy desktop**.
+`accept-production.sh` therefore runs only the foreground matrix. Read-only
+preflight identified the actual X server through local socket peer credentials
+and verified its executable path/hash against installed 702efef161dd, saving
+identity-only output in `production-desktop.5rn_5si6`. No GUI was launched by
+that preflight. The earlier `capture-production.sh` starts a separate session
+and remains an alternative only; it is not the current operator instruction.
+
+
+### Acceptance suspended after a separate authority exit
+
+The identity preflight was followed by an authority failure before any production
+candidate GUI launch. See [the separate investigation](kwhei4x4-preflight-setup-disconnect-precedes-an-authority-exit.md)
+for preserved hashes, timestamp limits and the setup-EOF containment hypothesis.
+This is not pinentry application failure or production acceptance. The operator
+has authorized offline confirmation/repair coordinated with the runtime owner;
+all live preflight, GUI, VT, installation and restart work remains suspended.
+
+
+### Application deployed; native acceptance pending — 2026-09-12 18:14:42 UTC
+
+Per explicit operator authorization, the application owner deployed uninstrumented
+pinentry-egui 0.2.0 from combined commit
+`c9c1eda9068a588ee1b8d1b46aab94d3bce7d557` at the unchanged
+`~/.cargo/bin/pinentry-egui` path. Retained deployment record:
+`.artifacts/t082-upstream/deployment-20260912T181442Z.json`.
+Installed SHA-256 is
+`ed0ff94a32c844a70aaf3adbe33cfa41760c77fb2b641fd99d177523a7b4f1e3`.
+Backup: `~/.cargo/bin/pinentry-egui.before-t082-20260912T181442Z`, SHA-256
+`5c8f3c898b0401036f198de1419d6b73243f3ed152f5598dadf1fe8d90f5484e`.
+The record reports an exact-installed, no-display Assuan smoke PASS with exit 0.
+No GUI/X/native launch, Sophia restart or gpg-agent restart was performed.
+
+This is deployment evidence, not native acceptance. t082 remains open. The
+separate authority containment incident is tracked as t089/kwhei4x4; attended
+acceptance remains suspended pending containment and a new operator decision.
+The foreground identity implementation is now passive, with isolated regression
+coverage; its former connecting launcher is disabled and preserved separately.

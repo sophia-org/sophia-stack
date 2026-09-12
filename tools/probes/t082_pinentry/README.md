@@ -256,3 +256,26 @@ replace t077 recovery acceptance or real signing acceptance.
 
 Offline verification: `python3 -B -m unittest discover -s tools/probes/t082_pinentry`.
 Fake clients establish harness behavior only, never native acceptance.
+
+
+For the currently requested existing-desktop run, use the separately materialized
+`/tmp/sophia-pinentry-trace/accept-production.sh` from an ordinary foreground
+terminal. **Do not log out or start another Sophia session.** This calls
+`foreground.py`, which preserves the operator terminal's DISPLAY/XAUTHORITY,
+passively reads the exact listener inode in `/proc/net/unix`, matches a unique
+owned `/proc/PID/fd` holder, and checks the running executable path/hash
+against the pinned installed release. Listener ownership and process starttime
+are rechecked after hashing. Missing, ambiguous, inaccessible or changed evidence
+fails closed. No socket is constructed or connected in preflight. It records
+`running-server.json` beside
+the copied manifest. It clears inherited opt-ins before executing the matrix.
+It launches no session supervisor and returns to the same shell when finished.
+The similarly named `capture-production.sh` is the separate VT/session capture
+alternative and is not the command for this run.
+
+The previous SO_PEERCRED preflight coincided with a fatal authority exit and is
+retained only as incident evidence. The passive replacement is tested against
+private filesystem fixtures, not the live desktop. Native acceptance remains
+suspended pending containment; the materialized foreground launcher is disabled
+until a newly authorized attended run. Application deployment alone is not
+acceptance.

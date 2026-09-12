@@ -9,6 +9,16 @@ impl LiveWmSession {
             .map(|public| public.reducer.indicator_publication())
     }
 
+    /// The output the user is on, as committed public policy holds it.
+    ///
+    /// Not the startup activation plan's focused output, which records where
+    /// the topology began rather than where focus is now, and not an inference
+    /// from a focused application: an active output holding no window has no
+    /// seat focus to infer from, which is the case a bar most needs to show.
+    fn active_output(&self) -> Option<sophia_protocol::OutputId> {
+        self.public.as_ref().map(|public| public.active_output)
+    }
+
     fn candidate_chrome_style(&self) -> sophia_engine::SurfaceChromeStyle {
         if self.wm_chrome_supported {
             PersistentXtermSessionConfig::wm_surface_chrome_style(self.chrome)

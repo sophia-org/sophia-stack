@@ -1102,6 +1102,11 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
             }
             if let (Some(runtime), Some(broker)) = (runtime.as_mut(), metadata_broker.as_ref()) {
                 let publication=wm_session.as_ref().and_then(LiveWmSession::indicator_publication);
+                let active_output=wm_session.as_ref().and_then(LiveWmSession::active_output);
+                if let Err(error)=shell.service_indicators(publication.as_ref(),active_output) {
+                    crate::session_eprintln!("sophia_shell_indicators status=unavailable error={error}");
+                    shell.recover_transport("indicator_failure")?;revoke_shell_input=true;
+                }
                 match shell.service_tabs(publication,broker,runtime,&scene,native_scanout.as_mut()) {
                     Ok(focus)=>for(surface,output) in focus {
                         if let (Some(wm),Some(output))=(wm_session.as_mut(),outputs.iter().find(|o|o.id==output).copied()) {

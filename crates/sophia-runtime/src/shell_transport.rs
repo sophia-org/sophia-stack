@@ -448,6 +448,14 @@ impl ShellSessionTransport {
         self.capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_TAB_GROUPS != 0
     }
 
+    pub const fn supports_indicators(&self) -> bool {
+        self.capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS != 0
+    }
+
+    pub const fn supports_indicator_activation(&self) -> bool {
+        self.capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_INDICATOR_ACTIVATION != 0
+    }
+
     /// Bounded, nonblocking I/O shared by persistent tabs and the r1 facade.
     pub fn poll_io(&mut self) -> Result<(), ShellTransportError> {
         let stream = self

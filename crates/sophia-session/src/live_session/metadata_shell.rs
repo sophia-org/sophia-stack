@@ -1,4 +1,6 @@
 use super::*;
+mod indicators;
+
 mod launcher;
 mod reference;
 use launcher::LiveLauncherSession;
@@ -69,6 +71,7 @@ struct PendingDescriptorActivation {
 /// activation.
 pub(super) struct LiveMetadataShell {
     tabs: LiveTabSession,
+    indicators: indicators::LiveIndicatorState,
     reference: LiveReferenceSession,
     launcher: LiveLauncherSession,
     supervisor: ProcessSupervisor,
@@ -138,6 +141,7 @@ impl LiveMetadataShell {
         let supervisor = ProcessSupervisor::new(SupervisedProcessKind::Shell, spec);
         let mut shell = Self {
             tabs: LiveTabSession::default(),
+            indicators: indicators::LiveIndicatorState::default(),
             reference: LiveReferenceSession::default(),
             launcher: LiveLauncherSession::default(),
             supervisor,

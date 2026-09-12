@@ -37,3 +37,38 @@ Continue the existing startup and ordinary-use gate in [todo.md](../../../todo.m
 with a matching installed candidate. Record the actual release identity and the
 observed panel-only login and Super+Enter result here. Do not reset unrelated
 completed evidence or treat this pending check as a new comparison campaign.
+
+## 2026-09-12: panel-only login accepted on the installed candidate
+
+The operator reinstalled from HEAD and logged in, then reported both checks
+passing. Release identity, matching across all three at the time of the run:
+
+| | |
+| --- | --- |
+| Installed release | `0.1.0-9807cecf6aee`, `/opt/sophia/current` |
+| Repository | `9807cecf`, clean, signed, matching `origin/master` |
+| Proof preconditions | `status=ready repositories=3`, exit 0 |
+
+This is the matching installed candidate the 2026-09-06 follow-up asked for, so
+the packaging-without-installation gap recorded then is closed.
+
+**t005 — panel-only login: accepted.** The session starts on the active desktop
+profile with `quickshell-panel` only.
+
+**t008 — shell-owned panel startup: accepted**, on the operator's visual
+confirmation that the automatic Tier-0 bar, its fixed top reservation and its
+hit targets are gone.
+
+### What this evidence is, and is not
+
+Operator observation of a live session, which is what a `@physical` acceptance
+is. It is not instrumented capture: no per-item log, screenshot or work-area
+measurement was retained, so the individual sub-checks each task lists --
+Super+Enter's terminal mapping, one bar per output, work-area restoration when
+the panel stops -- are covered by the operator's overall pass rather than
+recorded separately.
+
+A later regression in one of those sub-checks would therefore not be
+distinguishable from this record alone. If that granularity matters for a
+subsequent comparison, it needs its own instrumented run rather than a reread of
+this entry.

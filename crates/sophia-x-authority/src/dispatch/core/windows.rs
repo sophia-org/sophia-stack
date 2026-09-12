@@ -13,6 +13,7 @@ fn dispatch_core_window_request(
             | XWireRequest::GetWindowAttributes { .. }
             | XWireRequest::DestroyWindow { .. }
             | XWireRequest::ReparentWindow { .. }
+            | XWireRequest::DestroySubwindows { .. }
             | XWireRequest::MapSubwindows { .. }
             | XWireRequest::UnmapWindow { .. }
             | XWireRequest::ConfigureWindow { .. }
@@ -251,21 +252,34 @@ fn dispatch_core_window_request(
                 XWireRequest::DestroyWindow { window } => {
                     let transaction = context.transaction;
                     let mut response = XAuthorityResponsePacket::accepted(transaction);
-                    let outputs = match runtime.destroy_window(context.namespace, window) {
-                        Ok(surface) => {
-                            properties.remove_window(context.namespace, window);
-                            response.removed_surfaces.push(surface);
-                            // Addressed to the window itself. The router adds
-                            // the parent-addressed copy for SubstructureNotify
-                            // selectors, the same way it does for map and
-                            // unmap, so both forms come from one path.
-                            vec![XClientOutput::Event(
-                                crate::XClientEvent::DestroyNotify {
-                                    sequence: context.sequence,
-                                    event: window,
-                                    window,
-                                },
-                            )]
+                    let outputs = match runtime
+                        .destroy_window_subtree(context.namespace, window)
+                    {
+                        Ok(destroyed) => {
+                            // Destruction order is descendants first, and the
+                            // notifications follow it: a client watching a
+                            // subtree learns about a child before the parent
+                            // that contained it.
+                            destroyed
+                                .into_iter()
+                                .map(|(destroyed_window, surface)| {
+                                    properties
+                                        .remove_window(context.namespace, destroyed_window);
+                                    response.removed_surfaces.push(surface);
+                                    // Addressed to the window itself. The router
+                                    // adds the parent-addressed copy for
+                                    // SubstructureNotify selectors, the same way
+                                    // it does for map and unmap, so both forms
+                                    // come from one path.
+                                    XClientOutput::Event(
+                                        crate::XClientEvent::DestroyNotify {
+                                            sequence: context.sequence,
+                                            event: destroyed_window,
+                                            window: destroyed_window,
+                                        },
+                                    )
+                                })
+                                .collect()
                         }
                         Err(error) => {
                             response = XAuthorityResponsePacket::rejected(transaction, error);
@@ -319,6 +333,41 @@ fn dispatch_core_window_request(
                                 0,
                                 u32::try_from(window.local.raw()).unwrap_or(0)))],
                         ),
+                    };
+                    XDispatchResult {
+                        response: Some(response),
+                        outputs,
+                        metadata_candidates: Vec::new(),
+                    }
+                }
+                XWireRequest::DestroySubwindows { window } => {
+                    let transaction = context.transaction;
+                    let mut response = XAuthorityResponsePacket::accepted(transaction);
+                    let outputs = match runtime
+                        .destroy_direct_subwindows(context.namespace, window)
+                    {
+                        Ok(destroyed) => destroyed
+                            .into_iter()
+                            .map(|(destroyed_window, surface)| {
+                                properties.remove_window(context.namespace, destroyed_window);
+                                response.removed_surfaces.push(surface);
+                                XClientOutput::Event(crate::XClientEvent::DestroyNotify {
+                                    sequence: context.sequence,
+                                    event: destroyed_window,
+                                    window: destroyed_window,
+                                })
+                            })
+                            .collect(),
+                        Err(error) => {
+                            response = XAuthorityResponsePacket::rejected(transaction, error);
+                            vec![XClientOutput::Error(x_error_from_runtime(
+                                error,
+                                context.sequence,
+                                context.major_opcode,
+                                0,
+                                u32::try_from(window.local.raw()).unwrap_or(0),
+                            ))]
+                        }
                     };
                     XDispatchResult {
                         response: Some(response),

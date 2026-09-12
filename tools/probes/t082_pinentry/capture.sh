@@ -7,7 +7,7 @@ umask 077
 export T082_TOOLS
 T082_TOOLS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 export T082_RELEASE=/opt/sophia/releases/0.1.0-1a59ab8c1406
-export T082_BUNDLE=/home/niltempus/dev/sophia-stack/.artifacts/t082-probe-v4
+export T082_BUNDLE=/home/niltempus/dev/sophia-stack/.artifacts/t082-probe-v6
 export T082_CAPTURE
 mkdir -p /tmp/sophia-pinentry-trace
 T082_CAPTURE=$(mktemp -d /tmp/sophia-pinentry-trace/run.XXXXXX)
@@ -53,7 +53,7 @@ export SOPHIA_X11_AUTHORITY_TRACE=1 SOPHIA_LIVE_VISUAL_PROGRESS=1
 export RUST_LOG=info,sophia_x_authority::x11_socket=debug
 export XDG_STATE_HOME="$T082_CAPTURE/state"
 mkdir -p "$XDG_STATE_HOME"
-printf '%s\n' 'A terminal and dummy prompts start automatically. Follow each prompt; enter only test.' \
+printf '%s\n' 'A terminal and one instrumented dummy prompt start automatically. Type test and press Enter once.' \
     'Stay on this VT during each specimen. Each process is bounded to 60 seconds (15 seconds after traced submission).' \
     'When finished, verify the terminal still accepts input, then Ctrl+Alt+Delete logs out.' \
     'If normal logout is unavailable, Ctrl+Alt+Backspace invokes the existing emergency input guard.'

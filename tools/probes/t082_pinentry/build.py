@@ -12,6 +12,8 @@ import tomllib
 
 HERE = Path(__file__).resolve().parent
 ARCHIVES = {
+    "winit-0.30.12": "c66d4b9ed69c4009f6321f762d6e61ad8a2389cd431b97cb1e146812e9e6c732",
+    "x11rb-0.13.2": "9993aa5be5a26815fe2c3eacfc1fde061fc1a1f094bf1ad2a18bf9c495dd7414",
     "pinentry-egui-0.1.1": "8e94e92457a4f08152a825bb1175bfca805f73af76bdee8d864d37ee7348cf04",
     "eframe-0.33.3": "457481173e6db5ca9fa2be93a58df8f4c7be639587aeb4853b526c6cf87db4e6",
     "egui-winit-0.33.3": "ec6687e5bb551702f4ad10ac428bab12acf9d53047ebb1082d4a0ed8c6251a29",
@@ -92,6 +94,39 @@ def instrument(root):
     winit = root / "egui-winit-0.33.3/src/lib.rs"
     replace(winit, "info.events.push(egui::ViewportEvent::Close);", "info.events.push(egui::ViewportEvent::Close);\n" + mark("close_processed"))
 
+    replace(glow, "fn save_and_destroy(&mut self) {", "fn save_and_destroy(&mut self) {\n" + mark("destroy_enter"))
+    replace(glow, "            running.integration.save(", mark("save_enter") + "\n            running.integration.save(")
+    original = "            running.app.on_exit(Some(running.painter.borrow().gl()));"
+    replace(glow, original, mark("save_return") + "\n" + mark("on_exit_enter") + "\n" + original + "\n" + mark("on_exit_return"))
+    original = "            running.painter.borrow_mut().destroy();\n        }\n    }"
+    replace(glow, original, mark("painter_destroy_enter") + "\n            running.painter.borrow_mut().destroy();\n" + mark("painter_destroy_return") + "\n" + mark("running_drop_enter") + "\ndrop(running);\n" + mark("running_drop_return") + "\n        }\n" + mark("destroy_return") + "\n    }")
+    original = "        if let Some(running) = &mut self.running {\n            Ok(running.on_window_event(window_id, &event))"
+    replace(glow, original, 't082_trace::mark("window_event_kind", match &event { winit::event::WindowEvent::Destroyed => 1, winit::event::WindowEvent::CloseRequested => 2, winit::event::WindowEvent::RedrawRequested => 3, _ => 0 });\n' + mark("window_event_running", "u64::from(self.running.is_some())") + "\n" + original)
+    original = "Ok(running.on_window_event(window_id, &event))\n        } else {\n            Ok(EventResult::Exit)"
+    replace(glow, original, "Ok(running.on_window_event(window_id, &event))\n        } else {\n" + mark("window_event_exit") + "\n            Ok(EventResult::Exit)")
+    native = root / "winit-0.30.12/src/platform_impl/linux/x11/mod.rs"
+    original = "        if let Ok(c) = xconn.xcb_connection().destroy_window(window.id().0 as xproto::Window) {\n            c.ignore_error();\n        }"
+    replace(native, original, mark("window_drop_enter", "window.id().0 as u64") + "\n" + mark("destroy_request_enter", "window.id().0 as u64") + "\nlet request = xconn.xcb_connection().destroy_window(window.id().0 as xproto::Window);\n" + mark("destroy_request_return", "u64::from(request.is_ok())") + "\nif let Ok(c) = request { c.ignore_error(); }\n" + mark("window_drop_return", "window.id().0 as u64"))
+    poll = root / "winit-0.30.12/src/platform_impl/linux/x11/event_processor.rs"
+    original = "        let result = unsafe { (window_target.xconn.xlib.XPending)(window_target.xconn.display) };"
+    replace(poll, original, mark("xpending_enter") + "\n" + original + "\n" + mark("xpending_return", "u64::from(result != 0)"))
+    xcb = root / "x11rb-0.13.2/src/xcb_ffi/mod.rs"
+    original = "            let reply = raw_ffi::xcb_wait_for_reply64(self.as_ptr(), sequence, &mut error);"
+    replace(xcb, original, 't082_trace::connection(self.as_ptr() as usize);\n' + mark("reply_wait_enter", "sequence") + "\n" + original + "\n" + mark("reply_wait_return", "sequence"))
+    original = "        let res = unsafe { raw_ffi::xcb_flush(self.conn.as_ptr()) };"
+    replace(xcb, original, 't082_trace::connection(self.conn.as_ptr() as usize);\n' + mark("xcb_flush_enter") + "\n" + original + "\n" + mark("xcb_flush_return", "u64::from(res != 0)"))
+
+
+    original = "        integration.maybe_autosave(app.as_mut(), Some(&window));"
+    replace(glow, original, mark("autosave_enter") + "\n" + original + "\n" + mark("autosave_return"))
+    replace(glow, "        if window.is_minimized() == Some(true) {",
+            mark("minimized_enter") + "\nlet minimized = window.is_minimized();\n" + mark("minimized_return") + "\n        if minimized == Some(true) {")
+    original = "        let error = unsafe { raw_ffi::xcb_request_check(self.as_ptr(), cookie) };"
+    replace(xcb, original, 't082_trace::connection(self.as_ptr() as usize);\n' + mark("request_check_enter", "sequence") + "\n" + original + "\n" + mark("request_check_return", "sequence"))
+    original = "            let event = raw_ffi::xcb_wait_for_event(self.conn.as_ptr());"
+    replace(xcb, original, 't082_trace::connection(self.conn.as_ptr() as usize);\n' + mark("xcb_event_wait_enter") + "\n" + original + "\n" + mark("xcb_event_wait_return"))
+
+
 def build(args):
     dest = args.output.resolve()
     dest.mkdir(parents=True, exist_ok=False)
@@ -124,9 +159,10 @@ def build(args):
     with (pin / "Cargo.toml").open("a") as out:
         out.write('\n[dependencies.raw-window-handle]\nversion="0.6"\n'
                   '\n[patch.crates-io]\neframe={path="../eframe-0.33.3"}\n'
-                  'egui-winit={path="../egui-winit-0.33.3"}\n')
+                  'egui-winit={path="../egui-winit-0.33.3"}\n'
+                  'winit={path="../winit-0.30.12"}\nx11rb={path="../x11rb-0.13.2"}\n')
     instrument(source)
-    env = os.environ.copy()
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("SOPHIA_", "HAGIA_"))}
     env["CARGO_BUILD_JOBS"] = "4"
     target = args.target.resolve() if args.target else dest / "target"
     env["CARGO_TARGET_DIR"] = str(target)

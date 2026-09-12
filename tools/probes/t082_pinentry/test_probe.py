@@ -31,6 +31,9 @@ fn main() {
         for _ in 0..100_000 { t082_trace::mark("app_update", 0); }
         std::thread::sleep(std::time::Duration::from_millis(200));
     }
+    if mode == "connections" {
+        for pointer in 100..117 { t082_trace::connection(pointer); }
+    }
     if mode == "threads" {
         std::thread::scope(|s| {
             for _ in 0..2 { s.spawn(|| { for _ in 0..10 { t082_trace::mark("app_update", 0); } }); }
@@ -72,6 +75,14 @@ class ProbeTests(unittest.TestCase):
         self.assertEqual(result["window_ids"], [1234])
         self.assertIsNone(result["last_observed_open_span"])
         self.assertNotIn("PRIVATE_STDERR_NEVER_LOG", (path / "stages.jsonl").read_text())
+
+    def test_connection_identity_is_opaque_bounded_and_overflow_is_inconclusive(self):
+        result, path = self.run_probe("connections")
+        records = [json.loads(line) for line in (path / "stages.jsonl").read_text().splitlines()]
+        ids = [r["value"] for r in records if r.get("stage") == "xcb_connection"]
+        self.assertEqual(ids, list(range(1, 17)) + [0])
+        self.assertTrue(result["trace_loss"])
+        self.assertEqual(result["result"], "inconclusive")
 
     def test_wrong_value_never_enters_logs_or_counts_as_success(self):
         result, path = self.run_probe("wrong")
@@ -146,13 +157,50 @@ class ProbeTests(unittest.TestCase):
         self.assertIn("including teardown", analyze.boundary(summary, [dict(seq=1, stage="event_loop_return")]))
         self.assertIn("not evidence of a blocked swap", analyze.boundary(summary, [dict(seq=1, stage="run_native_error")]))
 
+    def test_span_correlation_preserves_other_threads_connections_and_sequences(self):
+        def event(seq, stage, value=0, thread="ThreadId(1)"):
+            return dict(seq=seq, stage=stage, value=value, thread=thread)
+        events = [event(0, "destroy_enter"), event(1, "xcb_connection", 1),
+                  event(2, "reply_wait_enter", 872),
+                  event(3, "reply_wait_return", 872, "ThreadId(2)"),
+                  event(4, "xcb_connection", 2), event(5, "reply_wait_return", 872),
+                  event(6, "xcb_connection", 1), event(7, "reply_wait_return", 873)]
+        self.assertEqual([s["stage"] for s in runner.open_spans(events)],
+                         ["destroy_enter", "reply_wait_enter"])
+        events.append(event(8, "reply_wait_return", 872))
+        self.assertEqual(runner.last_open_span(events), "destroy_enter")
+        events.append(event(9, "destroy_return"))
+        self.assertEqual(runner.open_spans(events), [])
+
+    def test_new_metadata_is_bounded_and_case_selection_is_explicit(self):
+        for stage, value in (("window_event_kind", 3), ("xcb_connection", 16),
+                             ("reply_wait_enter", 872), ("window_drop_enter", 8388611)):
+            runner.parse_trace(f"t082 0 123 ThreadId(1) 1 1 {stage} {value} 0".encode(), 123)
+        for stage, value in (("window_event_kind", 4), ("xcb_connection", 17),
+                             ("window_drop_enter", 2**32)):
+            with self.assertRaises(ValueError):
+                runner.parse_trace(f"t082 0 123 ThreadId(1) 1 1 {stage} {value} 0".encode(), 123)
+        self.assertEqual(runner.selected_cases("instrumented-enter"), [("instrumented", "enter")])
+        self.assertEqual(len(runner.selected_cases("full")), 6)
+
+    def test_completed_teardown_does_not_prove_a_destroy_was_flushed(self):
+        summary = dict(trace_loss=False, instrumented=True, result="stalled_or_failed",
+                       trace_complete=False, heartbeat_fresh_at_cleanup=True,
+                       last_observed_open_span="run_native_enter")
+        events = [dict(seq=1, stage="destroy_return")]
+        self.assertIn("buffered destroy", analyze.boundary(summary, events))
+        events.append(dict(seq=2, stage="window_event_kind"))
+        self.assertIn("later window event arrived", analyze.boundary(summary, events))
+        summary["trace_loss"] = True
+        self.assertIn("Inconclusive", analyze.boundary(summary, events))
+
     def test_capture_preparation_checks_every_anchor_and_shell_syntax(self):
         root = Path(__file__).resolve().parents[3]
         dest = self.root / "prepared"
         dest.mkdir()
         prepare.prepare(root, dest)
         self.assertIn('>>"$T082_CAPTURE/session.raw.log"', (dest / "run-session").read_text())
-        self.assertIn("runner.py", (dest / "terminal.rc").read_text())
+        self.assertIn("--case instrumented-enter", (dest / "terminal.rc").read_text())
         bad = self.root / "wrong-release"
         (bad / "tools").mkdir(parents=True)
         (bad / "tools/run_sophia_session.sh").write_text("#!/bin/sh\n")

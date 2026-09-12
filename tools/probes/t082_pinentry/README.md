@@ -18,7 +18,7 @@ From the main Sophia checkout, the reproducible build is:
 ```sh
 python3 -B tools/probes/t082_pinentry/build.py \
   --sources .artifacts/pinentry-egui-20260912/sources \
-  --output .artifacts/t082-probe-v4
+  --output .artifacts/t082-probe-v6
 python3 -B tools/probes/t082_pinentry/test_probe.py
 ```
 
@@ -59,13 +59,12 @@ installed release files, the user's profile, installed pinentry or GPG config.
 The exact packaged Hagia/Narthex binaries are used with the existing desktop
 profile. Source checks in `prepare.py` refuse an unexpected wrapper.
 
-A normal interactive terminal and dummy prompt start automatically. Follow the
-prompt's instruction, using only the public word `test`. Cases are baseline Enter,
-then instrumented Enter, OK, Cancel, Escape and normal WM window-close. Each case
-uses a fresh process and a direct `SETDESC/GETPIN/BYE` exchange. The harness
-removes inherited Wayland endpoints so these are X11 specimens. After a failed
-baseline it runs the instrumented Enter specimen; after an instrumented failure
-it stops instead of automatically multiplying the failure.
+A normal interactive terminal and one instrumented dummy prompt start automatically.
+Type only the public word `test`, then press Enter once. The fixed launcher selects
+`--case instrumented-enter`; `runner.py --case full` retains the six-case baseline
+and instrumented matrix for separately chosen runs. Each case uses a fresh process
+and a direct `SETDESC/GETPIN/BYE` exchange. Inherited Wayland endpoints are removed.
+No real GPG operation is involved.
 
 Stay on the same VT during a specimen. Each process has a 60-second total limit;
 instrumented submission also starts a 15-second limit. The baseline has no submit
@@ -74,9 +73,8 @@ refresh deadlines. Timeout sends TERM, then KILL after one second if necessary,
 only to the exact child created by the harness. Timeout cleanup is explicitly
 recorded and must not be mistaken for normal window closure.
 
-Verify ordinary typing and focus in the terminal. After the cases, perform the
-VT round trip as a separately marked acceptance step, then use Ctrl+Alt+Delete
-for normal logout. Ctrl+Alt+Backspace remains the existing independent emergency
+Verify ordinary typing and focus in the terminal. After this single specimen finishes or its watchdog cleans it up, use
+Ctrl+Alt+Delete for normal logout. Do not switch VTs during the specimen. Ctrl+Alt+Backspace remains the existing independent emergency
 input guard. A controlled capture does not prove that emergency recovery works
 unless the operator actually exercises and records it.
 
@@ -117,3 +115,39 @@ After a physical run, retain its release identity and ordered timeline in the
 linked investigation, identify the first missing transition and propose the
 repair against that evidence. No live capture or GUI repair is claimed by the
 offline tests in this directory.
+
+### Shutdown trace (v6)
+
+The private patches additionally cover locked winit 0.30.12 and x11rb 0.13.2;
+their archives are copied into the source archive directory from Cargo's cache
+and verified against the checksums in the original pinentry lockfile. No cache
+source is modified. The earlier v5 build remains immutable and is not selected.
+
+Markers bracket autosave, the minimized-state query, save_and_destroy, saving,
+app on_exit, painter destruction and explicit drop of the taken running state.
+The explicit drop occurs where that local previously left scope. Winit markers
+bracket the existing Window::drop body and destroy_window call. The body-return
+marker is **before automatic field destruction**, not proof that the entire
+Window value has finished dropping. The outer running-drop marker covers that
+larger interval.
+
+Existing XPending, XCB flush, reply wait, checked-request wait and event wait
+calls are bracketed. No flush, sync, event injection or exit is added. A request
+call returning does not prove bytes reached the server; a flush returning does
+not prove the server processed DestroyWindow. Correlate the actual XID with the
+authority's dispatch trace. A wait marker describes an observed call interval,
+not proof that its underlying call blocked for the entire interval.
+
+Window-event kinds are fixed numeric categories: 0 other, 1 Destroyed,
+2 CloseRequested, 3 RedrawRequested. A separate boolean records whether running
+state still exists; the Exit-producing branch has its own marker. No event
+payload is logged.
+
+Connection IDs are bounded per-thread opaque ordinals (1..16), not addresses or
+globally stable X client identities. Pointer reuse can reuse an ordinal; correlate
+within an observed connection lifetime, not across reconnects. Zero means overflow
+and makes the capture inconclusive. Reply and checked-request markers carry the
+request sequence; analysis matches thread, connection and sequence independently.
+All open spans remain in the summary rather than hiding outer teardown behind
+a nested reply wait. Unmatched spans and absence of later events remain
+observations, not automatic diagnoses.

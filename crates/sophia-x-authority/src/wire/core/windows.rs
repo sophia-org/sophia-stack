@@ -127,6 +127,20 @@ fn decode_destroy_window(
     })
 }
 
+fn decode_destroy_subwindows(
+    context: XWireClientContext,
+    bytes: &[u8],
+) -> Result<XWireRequest, XWireParseError> {
+    require_exact_len(
+        X_DESTROY_SUBWINDOWS,
+        X_DESTROY_SUBWINDOWS_REQ_LEN,
+        bytes.len(),
+    )?;
+    Ok(XWireRequest::DestroySubwindows {
+        window: XResourceId::new(u64::from(context.byte_order.u32(&bytes[4..8])), 1),
+    })
+}
+
 fn decode_change_window_attributes(
     context: XWireClientContext,
     bytes: &[u8],

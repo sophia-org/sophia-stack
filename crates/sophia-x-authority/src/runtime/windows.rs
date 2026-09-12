@@ -468,6 +468,35 @@ impl XAuthorityRuntime {
  
      /// Ends an X11 window's lifetime and returns the Sophia surface that the
      /// Engine must remove from its committed snapshot.
+     /// Destroy a window and everything below it, descendants first.
+     ///
+     /// The protocol destroys the whole subtree, and a subtree outliving its
+     /// parent is both a lifecycle defect and the reason no descendant
+     /// notification could be emitted: nothing was being destroyed to report.
+     /// Returned in destruction order so the caller's notifications follow it.
+     pub fn destroy_window_subtree(
+         &mut self,
+         namespace: NamespaceId,
+         window: crate::XResourceId,
+     ) -> Result<Vec<(crate::XResourceId, sophia_protocol::SurfaceId)>, XAuthorityRuntimeError> {
+         // Resolve the whole subtree before destroying any of it. Walking and
+         // destroying together would read a tree the destruction is mutating.
+         let mut order = Vec::new();
+         let mut pending = vec![window];
+         while let Some(next) = pending.pop() {
+             order.push(next);
+             pending.extend(self.windows.direct_children(namespace, next));
+         }
+         // Deepest first: a parent is destroyed only after its children.
+         order.reverse();
+
+         let mut destroyed = Vec::with_capacity(order.len());
+         for id in order {
+             destroyed.push((id, self.destroy_window(namespace, id)?));
+         }
+         Ok(destroyed)
+     }
+
      pub fn destroy_window(
          &mut self,
          namespace: NamespaceId,
@@ -735,6 +764,31 @@ impl XAuthorityRuntime {
          }).map_err(Into::into)
      }
  
+     /// Destroy every child of `parent`, each with its own subtree, bottom to
+     /// top. The named window itself survives.
+     ///
+     /// Returned in destruction order so the caller's notifications follow it:
+     /// within each child, descendants precede the child, and children follow
+     /// stacking order.
+     pub fn destroy_direct_subwindows(
+         &mut self,
+         namespace: NamespaceId,
+         parent: crate::XResourceId,
+     ) -> Result<Vec<(crate::XResourceId, sophia_protocol::SurfaceId)>, XAuthorityRuntimeError> {
+         if parent.local.raw() != u64::from(crate::X_SETUP_DEFAULT_ROOT) {
+             self.resources
+                 .lookup(namespace, parent, XResourceKind::Window)?;
+         }
+         let mut destroyed = Vec::new();
+         for child in self
+             .windows
+             .direct_children_bottom_to_top(namespace, parent)
+         {
+             destroyed.extend(self.destroy_window_subtree(namespace, child)?);
+         }
+         Ok(destroyed)
+     }
+
      pub fn map_direct_subwindows(
          &mut self,
          namespace: NamespaceId,

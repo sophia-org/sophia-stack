@@ -12,6 +12,9 @@ import subprocess
 import time
 
 STAGES = frozenset("process_start process_exit heartbeat app_update submit_enter submit_ok submit_cancel submit_escape result_send_enter result_sent close_request_enter close_enqueued run_native_enter run_native_return run_native_error window_created getpin_enter result_received assuan_data_enter assuan_data_return assuan_terminal_return paint_enter paint_return swap_enter swap_return viewport_output_enter viewport_output_return native_close_requested close_processed close_observed close_accepted event_loop_exit_requested event_loop_return".split())
+STAGES |= frozenset("autosave_enter autosave_return minimized_enter minimized_return request_check_enter request_check_return xcb_event_wait_enter xcb_event_wait_return destroy_enter destroy_return save_enter save_return on_exit_enter on_exit_return painter_destroy_enter painter_destroy_return running_drop_enter running_drop_return window_drop_enter window_drop_return destroy_request_enter destroy_request_return window_event_kind window_event_running window_event_exit xpending_enter xpending_return reply_wait_enter reply_wait_return xcb_flush_enter xcb_flush_return xcb_connection".split())
+XIDS = frozenset("window_created window_drop_enter window_drop_return destroy_request_enter".split())
+SEQUENCES = frozenset("reply_wait_enter reply_wait_return request_check_enter request_check_return".split())
 SUBMIT = frozenset("submit_enter submit_ok submit_cancel submit_escape native_close_requested".split())
 INSTRUCTIONS = {
     "enter": "Type the dummy word test, then press Enter.",
@@ -30,10 +33,9 @@ def parse_trace(line, pid):
         raise ValueError("invalid trace identity or stage")
     if max(seq, mono, value, dropped) > 2**64 - 1 or wall > 2**127 - 1:
         raise ValueError("trace number out of bounds")
-    if parts[6] != "window_created" and value not in (0, 1):
+    limit = 2**32 - 1 if parts[6] in XIDS else 2**64 - 1 if parts[6] in SEQUENCES else 16 if parts[6] == "xcb_connection" else 3 if parts[6] == "window_event_kind" else 1
+    if value > limit:
         raise ValueError("invalid stage metadata")
-    if parts[6] == "window_created" and value > 2**32 - 1:
-        raise ValueError("invalid XID")
     return dict(event="trace", seq=seq, pid=pid, thread=parts[3], monotonic_ns=mono,
                 unix_ns=wall, stage=parts[6], value=value, dropped=dropped)
 
@@ -63,19 +65,43 @@ class Protocol:
         else:
             self.invalid = True
 
-def last_open_span(events):
-    opened = []
-    pairs = {"paint_return": "paint_enter", "result_sent": "result_send_enter", "close_enqueued": "close_request_enter", "swap_return": "swap_enter", "viewport_output_return": "viewport_output_enter",
-             "run_native_return": "run_native_enter", "assuan_data_return": "assuan_data_enter"}
+def open_spans(events):
+    # Correlate each thread independently. XCB sequence numbers are meaningful
+    # only within a connection; identities here are per-thread opaque ordinals.
+    opened, connections = [], {}
+    pairs = {"result_sent": "result_send_enter", "close_enqueued": "close_request_enter"}
+    for name in ("paint", "swap", "viewport_output", "run_native", "assuan_data",
+                 "destroy", "save", "on_exit", "painter_destroy", "running_drop",
+                 "window_drop", "destroy_request", "xpending", "reply_wait", "xcb_flush",
+                 "autosave", "minimized", "request_check", "xcb_event_wait"):
+        pairs[name + "_return"] = name + "_enter"
     for event in sorted(events, key=lambda e: e["seq"]):
-        stage = event["stage"]
+        stage, thread = event["stage"], event.get("thread", "legacy")
+        if stage == "xcb_connection":
+            connections[thread] = event["value"]
+        connection = connections.get(thread) if stage.startswith(("reply_wait", "xcb_flush", "request_check", "xcb_event_wait")) else None
         if stage in pairs.values():
-            opened.append(stage)
-        elif stage in pairs and pairs[stage] in opened:
-            opened.reverse()
-            opened.remove(pairs[stage])
-            opened.reverse()
-    return opened[-1] if opened else None
+            opened.append(dict(stage=stage, thread=thread, connection=connection,
+                               value=event.get("value", 0), seq=event["seq"]))
+        elif stage in pairs:
+            for index in range(len(opened) - 1, -1, -1):
+                span = opened[index]
+                if (span["stage"] == pairs[stage] and span["thread"] == thread
+                        and span["connection"] == connection
+                        and (stage not in SEQUENCES and stage != "window_drop_return"
+                             or span["value"] == event.get("value", 0))):
+                    opened.pop(index)
+                    break
+    return opened
+
+def last_open_span(events):
+    opened = open_spans(events)
+    return opened[-1]["stage"] if opened else None
+
+def selected_cases(selection):
+    if selection == "instrumented-enter":
+        return [("instrumented", "enter")]
+    return [("baseline", "enter")] + [("instrumented", case) for case in INSTRUCTIONS]
 
 def run_case(command, output, case, instrumented, lifetime=60.0, submitted_timeout=15.0):
     output = Path(output)
@@ -199,7 +225,7 @@ def run_case(command, output, case, instrumented, lifetime=60.0, submitted_timeo
             pass
         trace_log.close()
     stages = [event["stage"] for event in events]
-    loss = invalid or any(e["dropped"] for e in events) or bool(seen and (min(seen) != 0 or len(seen) != max(seen) + 1)) or any(buffers.values())
+    loss = invalid or any(e["dropped"] or (e["stage"] == "xcb_connection" and e["value"] == 0) for e in events) or bool(seen and (min(seen) != 0 or len(seen) != max(seen) + 1)) or any(buffers.values())
     trace_complete = instrumented and not loss and "process_exit" in stages
     fresh_heartbeat = heartbeat_at is not None and time.monotonic() - heartbeat_at < 1.5
     summary = dict(case=case, pid=process.pid, instrumented=instrumented, process_exit=process.returncode,
@@ -209,6 +235,7 @@ def run_case(command, output, case, instrumented, lifetime=60.0, submitted_timeo
                    trace_complete=trace_complete, trace_loss=bool(loss),
                    heartbeat_fresh_at_cleanup=fresh_heartbeat,
                    last_observed_open_span=last_open_span(events),
+                   open_spans=open_spans(events),
                    last_application_stage=next((e["stage"] for e in reversed(events) if e["stage"] != "heartbeat"), None),
                    window_ids=sorted({e["value"] for e in events if e["stage"] == "window_created"}),
                    response_after_submit_ms=None if submitted_at is None or terminal_at is None else round((terminal_at-submitted_at)*1000, 3))
@@ -223,6 +250,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--bundle", type=Path, required=True)
     parser.add_argument("--capture", type=Path, required=True)
+    parser.add_argument("--case", choices=("full", "instrumented-enter"), default="full")
     args = parser.parse_args()
     identity = json.loads((args.bundle / "identity.json").read_text())
     for name, digest in identity["binaries"].items():
@@ -230,7 +258,7 @@ def main():
             raise SystemExit("Probe binary identity mismatch")
     # The installed pinentry is never launched. This baseline is the unchanged
     # archived source built with exactly the same locked dependency versions.
-    cases = [("baseline", "enter")] + [("instrumented", case) for case in INSTRUCTIONS]
+    cases = selected_cases(args.case)
     for index, (variant, case) in enumerate(cases, 1):
         print(f"T082 {index}/{len(cases)} {variant}/{case}: {INSTRUCTIONS[case]}", flush=True)
         result = run_case([str(args.bundle / ("pinentry-" + variant))], args.capture / f"{index}-{variant}-{case}", case, variant == "instrumented")

@@ -11,6 +11,26 @@
       "mandatory": true
     },
     {
+      "id": "setup_empty",
+      "mandatory": true
+    },
+    {
+      "id": "setup_truncated_prefix",
+      "mandatory": true
+    },
+    {
+      "id": "setup_truncated_auth",
+      "mandatory": true
+    },
+    {
+      "id": "setup_invalid_order",
+      "mandatory": true
+    },
+    {
+      "id": "setup_version_containment",
+      "mandatory": true
+    },
+    {
       "id": "window_tree",
       "mandatory": true
     },
@@ -153,6 +173,17 @@
       "accepted_core_opcodes": [],
       "cases": [
         "setup"
+      ]
+    },
+    {
+      "name": "Setup EOF, malformed input and unsupported-version refusal remain client-local; established state and fresh admission survive",
+      "accepted_core_opcodes": [],
+      "cases": [
+        "setup_empty",
+        "setup_truncated_prefix",
+        "setup_truncated_auth",
+        "setup_invalid_order",
+        "setup_version_containment"
       ]
     },
     {

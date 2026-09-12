@@ -12,12 +12,15 @@ tags: [investigation, x11, authority, session, containment]
 This is a separate Sophia authority-exit investigation, discovered during t082
 acceptance preparation. It is not a pinentry application failure, an accepted
 production pinentry result, or a revival of the historical GUI destructor theory.
-No real pinentry candidate GUI was launched or installed by either agent.
+At the time of the incident no real pinentry candidate GUI had been launched or
+installed by either agent. The operator later authorized application deployment
+with no-display verification; native acceptance remains pending.
 
-The observed desktop exit and its timing are confirmed. Installed source supports
-an uncontained setup-prefix EOF explanation. The retained structured events do
-not contain the original error text, and no isolated confirmation is claimed
-here. Runtime owner w9:p4 is independently checking that explanation offline.
+The observed desktop exit and its timing are confirmed. The setup-prefix EOF
+containment defect has now been reproduced and its repair independently verified
+on private software-only frontends. The retained incident events do not contain
+the original error text; the offline proof does not establish that missing text
+or exclude every other possible contributor to the physical exit.
 
 ## Immutable evidence
 
@@ -65,7 +68,7 @@ timestamps. Fatal detection followed the saved preflight identity by approximate
 message. The separate command/output audit is preserved at
 `/tmp/sophia-pinentry-trace/preflight-audit-20260912T180245.json`.
 
-## Installed-source explanation awaiting isolated confirmation
+## Installed-source explanation
 
 At installed commit 702efef161dd:
 
@@ -93,8 +96,8 @@ appropriate to the verified scope. A helper-only classification assertion is not
 proof of frontend continuation. No repetition against the operator display is
 authorized.
 
-All live preflight, GUI acceptance, installation and restart work remains
-suspended. The existing foreground launcher is not approved for another run.
+All live preflight, GUI acceptance and Sophia installation/restart work remains
+suspended. The original foreground launcher is not approved for another run.
 Pinentry PRs #16 (UTF-8) and #17 (Dialog) remain published. Candidate
 `c9c1eda9068a588ee1b8d1b46aab94d3bce7d557` is unchanged, with no new native
 acceptance; t082 remains open. Resume decisions must use this separate incident's
@@ -132,8 +135,8 @@ EOF from a departed peer reached the reaper indistinguishable from the server
 breaking.
 
 A frontend on a temporary socket reproduces it. Before the repair, a peer that
-connected and closed without sending anything produced exactly the shape the
-incident recorded:
+connected and closed without sending anything produced this diagnostic, which
+was not retained in the physical incident:
 
 ```
 X11SetupSocketError { message: "failed to read X11 setup prefix: failed to fill
@@ -171,3 +174,44 @@ excluded.
 and drives the GPU on this host, and it is held until the operator decides the
 host is safe to exercise. The change is covered by the crate suite: 349 tests in
 `x11_wire`, 22 suites green.
+
+## Independent containment gate acceptance
+
+The independent Python wire client reproduced five setup failures in both byte
+orders against runtime source b52fff29: empty input, every partial prefix,
+truncation across authorization fields and padding, an invalid byte-order marker,
+and an unsupported major version. Every one terminated the private host with
+exit 1. The existing truncated-request case also terminated it.
+
+The fixture now uses nonblocking acceptance and regular worker reaping. Its old
+blocking accept could leave a fatal worker result unobserved until another client
+arrived, hiding the request-payload failure. This is a test-fixture correction;
+the live frontend already polls workers.
+
+With repair 5cb58d3a (source tip 528803aa), those twelve executions pass. Each
+new setup case checks the existing client's window and a newly admitted client's
+reply after rejection; observing only the failed peer is insufficient. The
+unsupported-version case proves containment, not full refusal-reply semantics.
+
+Both full runs executed 80 cases: before, 64 PASS and 16 nonpassing; after,
+76 PASS and 4 nonpassing. The remaining failures are extension-minor error
+classification and XFixes selection notification, each in both byte orders. The
+full gate correctly exits 1. Twenty strict runner/reporting regressions pass;
+XTS5 remains unrun.
+
+Evidence in the main checkout:
+- `.artifacts/x11-setup-containment-before/report.json` and `harness.patch`
+- `.artifacts/x11-setup-containment-after/report.json`
+
+Fresh, separate Cargo targets were used for before and after. Reports record
+the actual host and harness hashes and mark the edited test checkouts dirty.
+No operator display, VT, GPU, live session or installation was used in these
+checks. t089 remains open for deployment/acceptance of the Sophia repair;
+independent offline containment is now verified.
+
+A final fresh-target run on cb07cafc also includes the Generic Event Extension
+correction: **80 executions, 78 PASS, 2 TIMEOUT**. Only XFixes selection
+notification (t063) remains nonpassing, in both byte orders. Evidence:
+`.artifacts/x11-setup-containment-final/report.json`. This supersedes the
+intermediate overall count above, without changing its retained evidence or
+the limits on attribution of the physical incident.

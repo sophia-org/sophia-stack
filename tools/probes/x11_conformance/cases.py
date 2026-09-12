@@ -1,4 +1,5 @@
 """Externally observed obligations, independent of Sophia dispatch internals."""
+import socket
 import time
 from wire import Client
 
@@ -18,6 +19,49 @@ def setup(context):
         assert a.root == b.root
         a.sync()
         b.sync()
+
+
+def setup_containment(context):
+    with client(context) as healthy:
+        marker = healthy.window()
+        prefix = bytes([ord('l' if context['order'] == '<' else 'B'), 0])
+        valid = prefix + healthy.pack('HHHHH', 11, 0, 0, 0, 0)
+        auth = prefix + healthy.pack('HHHHH', 11, 0, 3, 5, 0)
+        auth_body = b'abc' + bytes(1) + b'12345' + bytes(3)
+        payloads = {
+            'setup_empty': [b''],
+            'setup_truncated_prefix': [valid[:n] for n in range(1, 12)],
+            # Include truncation in the name, its padding, data and its padding.
+            'setup_truncated_auth': [auth + auth_body[:n] for n in range(12)],
+            'setup_invalid_order': [b'?' + valid[1:]],
+            'setup_version_containment': [prefix + healthy.pack('HHHHH', 12, 0, 0, 0, 0)],
+        }[context['case']]
+        for payload in payloads:
+            with socket.socket(socket.AF_UNIX) as peer:
+                peer.settimeout(healthy.remaining())
+                peer.connect(str(context['socket']))
+                peer.sendall(payload)
+                # EOF at the server, while retaining the read half to observe
+                # its close. A successful send alone is not an ordering barrier.
+                peer.shutdown(socket.SHUT_WR)
+                response = bytearray()
+                while True:
+                    peer.settimeout(healthy.remaining())
+                    try:
+                        part = peer.recv(4096)
+                    except ConnectionResetError:
+                        break
+                    if not part:
+                        break
+                    response.extend(part)
+                    assert len(response) <= 4096, 'unbounded setup refusal'
+                assert not response or response[0] == 0, 'invalid setup was accepted'
+            # Existing state survives; a fresh client must also be admitted.
+            assert healthy.u16(healthy.reply(14, healthy.pack('I', marker)), 16) == 80
+            with peer_client(context) as newcomer:
+                newcomer.sync()
+                assert newcomer.u16(newcomer.reply(14, newcomer.pack('I', marker)), 16) == 80
+            healthy.sync()
 
 
 def window_tree(context):
@@ -498,7 +542,10 @@ def destroy_xid_reuse(context):
         assert not any(e[0] & 127 == 17 for e in old_watcher.events), 'old subscription survived XID reuse'
 
 
-CASES = {'setup': setup, 'window_tree': window_tree, 'map': window_transition,
+CASES = {'setup': setup,
+         **{name: setup_containment for name in ('setup_empty', 'setup_truncated_prefix',
+             'setup_truncated_auth', 'setup_invalid_order', 'setup_version_containment')},
+         'window_tree': window_tree, 'map': window_transition,
          'configure': window_transition, 'unmap': window_transition, 'destroy': window_transition,
          'reply_errors': reply_errors, 'property_values': property_values,
          'selection_owner': selection_owner, 'selection_transfer': selection_transfer,

@@ -7,6 +7,35 @@ tags: [investigation, x11, conformance]
 ---
 # Independent X11 socket conformance exposes missing client completions
 
+## Current independent result
+
+The final 2026-09-12 setup-containment expansion executes **80 cases: 78 PASS
+and 2 TIMEOUT** on runtime tip cb07cafc, including containment repair 5cb58d3a
+and the Generic Event Extension correction. Only `xfixes_selection` times out,
+in both byte orders (t063). The full gate correctly remains red. The complete
+`extension_errors` case now passes every advertised extension in both orders.
+
+Five new mandatory setup obligations and an actively reaped host expose
+client-local failures that the prior fixture could hide while blocked in accept.
+The prior runtime baseline terminates the host on all ten new executions and
+on both truncated-request executions. All twelve pass with the repair, while
+existing window state and fresh-client admission survive.
+
+Evidence in the main checkout:
+- `.artifacts/x11-setup-containment-before/`: 64 PASS, 16 nonpassing, b52fff29
+- `.artifacts/x11-setup-containment-after/`: 76 PASS, 4 nonpassing, 528803aa
+- `.artifacts/x11-setup-containment-final/`: 78 PASS, 2 TIMEOUT, cb07cafc
+
+Each runtime was built in a separate fresh Cargo target. Twenty strict reporting
+regressions pass. Reports retain host/harness hashes and the dirty test-checkout
+state; the final source patch is retained beside the report. These are private
+software-only socket results, not physical acceptance or XTS5 results. See the
+[separate containment incident](kwhei4x4-preflight-setup-disconnect-precedes-an-authority-exit.md).
+
+UnmapNotify and mapped destruction (t084/t087) now independently pass, as do
+NoOperation (t085), extension discovery (t086) and extension refusal classification
+(t088). Those task closures do not claim complete coverage of every operation.
+
 ## Gate and coverage
 
 On 2026-09-12 the operator assigned Codex the broader independent X11 protocol
@@ -28,7 +57,7 @@ Missing/unexecuted mandatory results, NORESULT, unsupported/untested verdicts,
 duplicates and deadlines fail. A decoder-declaration inventory prevents new
 requests from disappearing from the coverage ledger. At the integrated baseline it inventories
 77 decoded core requests: 28 have named cases, 49 have explicit coverage debt.
-DestroySubwindows and the still missing mandatory NoOperation are both named. This is a substantial selected behavioral gate, not full X11 certification.
+DestroySubwindows and NoOperation are both named; both now independently pass. This is a substantial selected behavioral gate, not full X11 certification.
 Query/version coverage does not certify every operation of an extension.
 
 The request-family dispatch matches have wildcard fallbacks; declaring a wire
@@ -246,7 +275,7 @@ scope owner, with this case supplying external socket evidence.
 
 ## Extension error classification
 
-The first failure in `extension_errors` is Present minor 255. Sophia returns
+At the original baseline, the first failure in `extension_errors` was Present minor 255. Sophia returns
 BadImplementation (17), with the correct major/minor/sequence, instead of
 BadRequest (1). `wire/extensions/present.rs` categorizes every unmatched minor
 as PresentUnimplemented; its dispatcher then returns BadImplementation.
@@ -258,6 +287,13 @@ defines Request for an invalid major/minor opcode; the inspected XLibre
 `Xext/present/present_request.c` also returns BadRequest after its dispatch
 switch. The current grouped case stops at this first refusal mismatch; it does
 not establish that later extensions' error classifications passed.
+
+At runtime tip 528803aa the grouped case passes Present and reaches Generic
+Event Extension opcode 136, minor 255. A complete four-byte request receives
+BadLength (16), in both byte orders. `wire.rs` validates QueryVersion's eight-byte
+length before checking whether the minor is QueryVersion at all. Repair cb07cafc moves the minor check ahead of that request-specific length
+check. The final grouped case passes all advertised extensions in both orders;
+t088 is now independently accepted. The intermediate failure remains retained.
 
 ## XTS and reference-test limits
 

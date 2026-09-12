@@ -43,6 +43,15 @@ Each case has an absolute socket deadline, record/backlog limits and an outer
 client-process deadline. Progress or unrelated events do not reset the deadline.
 Only process groups created by the runner are terminated.
 
+Setup containment cases cover EOF before any bytes, each truncated prefix
+length, truncation throughout padded authorization fields, an invalid byte-order
+marker, and an unsupported major version. After each rejected connection, an
+existing client's window must survive and a new client must complete setup and
+query it. Both byte orders run. These cases certify containment, not complete
+version-negotiation refusal semantics. The host polls and reaps workers without
+waiting for another connection, so an idle blocking accept cannot hide a fatal
+worker result. No preflight ever connects to an existing display.
+
 Lifecycle cases distinguish explicit DestroyWindow from owner disconnect. They
 check descendant event order, both StructureNotify/SubstructureNotify addresses,
 no-mask suppression, stale subscriptions after XID reuse, and automatic unmap

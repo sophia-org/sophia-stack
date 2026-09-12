@@ -23,7 +23,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let broker = XServerFrontendRouteBroker::new(NonZeroUsize::new(64).ok_or("zero queue")?);
     // Production bounded worker admission and shared protocol state. The runner
     // owns the process lifetime and enforces an absolute deadline externally.
+    let observer = std::sync::Arc::new(|_| Ok(None));
     loop {
-        frontend.serve_next_concurrently_routed(&broker)?;
+        frontend.try_serve_next_concurrently_routed_traced(&broker, observer.clone())?;
+        // Reap even while no new client is arriving. A blocking accept can
+        // otherwise hide a completed worker's service-fatal error indefinitely.
+        frontend.poll_client_workers()?;
+        std::thread::sleep(std::time::Duration::from_millis(1));
     }
 }

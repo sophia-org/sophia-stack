@@ -84,6 +84,7 @@ fn all(repo: &Path) -> Result<Vec<String>, String> {
     )?;
     for tool in [
         "tools/check_hagia_profile_preflight.sh",
+        "tools/check_installed_session_type.sh",
         "tools/check_bounded_xterm_geometry.sh",
         "tools/check_live_record_schema_readers.sh",
         "tools/check_retired_milestone_launchers.sh",

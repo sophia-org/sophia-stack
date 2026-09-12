@@ -10,6 +10,18 @@ export SOPHIA_MANAGE_KEYD=false
 export SOPHIA_INSTALLED_SESSION=true
 export SOPHIA_REQUIRE_RUNTIME_DIR=true
 export SOPHIA_REQUIRE_LOCAL_VT=true
+# Clients read these to choose a display backend, and every client here reaches
+# Sophia over X11: the session runs its own X authority and offers no Wayland
+# socket. The session entry is installed under `wayland-sessions/` because a
+# display manager starts those as self-contained servers, which is how Sophia
+# runs, where an `xsessions/` entry would have a display manager start an X
+# server first. That placement is right for launching and wrong for identity:
+# it makes the display manager declare the session Wayland, after which an
+# Ozone client selects a Wayland backend, finds no socket, and refuses to
+# start. Say what a client will actually find, and do not leave a stale promise
+# of a socket that does not exist.
+export XDG_SESSION_TYPE=x11
+unset WAYLAND_DISPLAY
 export SOPHIA_BIN="$RELEASE_DIR/target/release/sophia"
 export SOPHIA_NATIVE_WM_BIN="$RELEASE_DIR/target/release/sophia-wm-demo"
 # The policy client is a blind client: it sees no pixels, holds no

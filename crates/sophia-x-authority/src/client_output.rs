@@ -343,6 +343,7 @@ pub enum XClientReply {
     },
     ListExtensions {
         sequence: u16,
+        names: Vec<String>,
     },
     ListFonts {
         sequence: u16,

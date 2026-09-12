@@ -1149,22 +1149,34 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     };
 
                     trace_selection_property_read_result(selection_property_read, &output);
-                    if dri3_query && !state.has_render_device_provider() {
+                    // DRI3 presence depends on a render-device provider, which
+                    // the pure dispatch cannot see. Both the query and the
+                    // enumeration are corrected here, from the one place that
+                    // knows: a client that enumerates and then queries must not
+                    // be told two different things about the same extension.
+                    if !state.has_render_device_provider() {
                         for client_output in &mut output.outputs {
-                            if let crate::XClientOutput::Reply(
-                                crate::XClientReply::QueryExtension {
-                                    present,
-                                    major_opcode,
-                                    first_event,
-                                    first_error,
-                                    ..
-                                },
-                            ) = client_output
-                            {
-                                *present = false;
-                                *major_opcode = 0;
-                                *first_event = 0;
-                                *first_error = 0;
+                            match client_output {
+                                crate::XClientOutput::Reply(
+                                    crate::XClientReply::QueryExtension {
+                                        present,
+                                        major_opcode,
+                                        first_event,
+                                        first_error,
+                                        ..
+                                    },
+                                ) if dri3_query => {
+                                    *present = false;
+                                    *major_opcode = 0;
+                                    *first_event = 0;
+                                    *first_error = 0;
+                                }
+                                crate::XClientOutput::Reply(
+                                    crate::XClientReply::ListExtensions { names, .. },
+                                ) => {
+                                    names.retain(|name| name != crate::X_DRI3_EXTENSION_NAME);
+                                }
+                                _ => {}
                             }
                         }
                     }

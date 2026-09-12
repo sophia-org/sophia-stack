@@ -32,6 +32,7 @@ include!("x11_wire/admission_frontend.rs");
 include!("x11_wire/extension_enumeration_socket.rs");
 include!("x11_wire/no_operation_socket.rs");
 include!("x11_wire/extension_minor_classification.rs");
+include!("x11_wire/setup_failure_containment.rs");
 include!("x11_wire/clipboard_frontend.rs");
 include!("x11_wire/socket_observation.rs");
 include!("x11_wire/map_hierarchy.rs");

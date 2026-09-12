@@ -1229,12 +1229,15 @@ fn serve_x11_setup_socket_client_with_setup_authorization(
         encode_x11_setup_success(request.byte_order, &setup_success).map_err(|error| {
             X11SetupSocketError::new(format!("failed to encode X11 setup success: {error}"))
         })?;
+    // The client may have gone between sending its setup and reading the
+    // answer. Writing into a closed peer is that client ending, not this
+    // server failing, and must not be reported as a service fault.
     stream
         .write_all(&response)
-        .map_err(|error| X11SetupSocketError::new(format!("failed to write X11 setup: {error}")))?;
+        .map_err(|error| setup_write_failure("setup", &error))?;
     stream
         .flush()
-        .map_err(|error| X11SetupSocketError::new(format!("failed to flush X11 setup: {error}")))?;
+        .map_err(|error| setup_write_failure("setup", &error))?;
     Ok(Some((request, setup_success)))
 }
 
@@ -1248,12 +1251,13 @@ fn write_x11_setup_failure(
         encode_x11_setup_failure(byte_order, &XSetupFailure::new(reason)).map_err(|error| {
             X11SetupSocketError::new(format!("failed to encode X11 setup failure: {error}"))
         })?;
-    stream.write_all(&response).map_err(|error| {
-        X11SetupSocketError::new(format!("failed to write X11 setup failure: {error}"))
-    })?;
-    stream.flush().map_err(|error| {
-        X11SetupSocketError::new(format!("failed to flush X11 setup failure: {error}"))
-    })
+    // A refused client is especially likely to be gone already.
+    stream
+        .write_all(&response)
+        .map_err(|error| setup_write_failure("setup failure", &error))?;
+    stream
+        .flush()
+        .map_err(|error| setup_write_failure("setup failure", &error))
 }
 
 #[cfg(unix)]

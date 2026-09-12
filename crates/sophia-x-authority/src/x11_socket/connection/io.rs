@@ -50,24 +50,70 @@ fn dri3_plane_offset_outside_descriptor(fds: &[OwnedFd], offsets: &[u32]) -> Opt
     })
 }
 
+/// Classify a failed read of a client's setup request.
+///
+/// A peer that closes before finishing the handshake is ordinary: port scans
+/// do it, health checks do it, and a client that gives up mid-connect does it.
+/// Saying so is what lets `reap_client_worker` retire the worker quietly.
+/// Left unclassified, the service reads it as a server fault and propagates it,
+/// ending every other client's session along with this one.
+///
+/// A read that failed for any other reason really is this server's problem and
+/// keeps the unclassified form, so a genuine internal fault is not absorbed.
+#[cfg(unix)]
+fn setup_read_failure(stage: &str, error: &std::io::Error) -> X11SetupSocketError {
+    let message = format!("failed to read X11 setup {stage}: {error}");
+    if matches!(
+        error.kind(),
+        ErrorKind::UnexpectedEof
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::BrokenPipe
+    ) {
+        X11SetupSocketError::client_disconnect(message)
+    } else {
+        X11SetupSocketError::new(message)
+    }
+}
+
+/// The write counterpart of [`setup_read_failure`]: a peer that closed before
+/// reading its answer has ended its own connection, not the service.
+#[cfg(unix)]
+fn setup_write_failure(stage: &str, error: &std::io::Error) -> X11SetupSocketError {
+    let message = format!("failed to write X11 {stage}: {error}");
+    if matches!(
+        error.kind(),
+        ErrorKind::UnexpectedEof
+            | ErrorKind::ConnectionReset
+            | ErrorKind::ConnectionAborted
+            | ErrorKind::BrokenPipe
+    ) {
+        X11SetupSocketError::client_disconnect(message)
+    } else {
+        X11SetupSocketError::new(message)
+    }
+}
+
 #[cfg(unix)]
 pub fn read_x11_setup_request(
     stream: &mut UnixStream,
 ) -> Result<XSetupRequest, X11SetupSocketError> {
     let mut bytes = vec![0; X_SETUP_CLIENT_PREFIX_LEN];
-    stream.read_exact(&mut bytes).map_err(|error| {
-        X11SetupSocketError::new(format!("failed to read X11 setup prefix: {error}"))
+    stream
+        .read_exact(&mut bytes)
+        .map_err(|error| setup_read_failure("prefix", &error))?;
+    // Bytes that arrived and do not parse are the client's error, not a fault
+    // of this server: it must answer for them without taking anyone else down.
+    let total_len = x11_setup_request_total_len(&bytes).map_err(|error| {
+        X11SetupSocketError::client_failure(format!("invalid X11 setup prefix: {error}"))
     })?;
-    let total_len = x11_setup_request_total_len(&bytes)
-        .map_err(|error| X11SetupSocketError::new(format!("invalid X11 setup prefix: {error}")))?;
     bytes.resize(total_len, 0);
     stream
         .read_exact(&mut bytes[X_SETUP_CLIENT_PREFIX_LEN..])
-        .map_err(|error| {
-            X11SetupSocketError::new(format!("failed to read X11 setup auth fields: {error}"))
-        })?;
-    parse_x11_setup_request(&bytes)
-        .map_err(|error| X11SetupSocketError::new(format!("invalid X11 setup request: {error}")))
+        .map_err(|error| setup_read_failure("auth fields", &error))?;
+    parse_x11_setup_request(&bytes).map_err(|error| {
+        X11SetupSocketError::client_failure(format!("invalid X11 setup request: {error}"))
+    })
 }
 
 /// Send one X11 output record while attaching its descriptors exactly once.
@@ -225,9 +271,12 @@ pub fn read_x11_core_request(
     let mut request = Vec::with_capacity(length);
     request.extend_from_slice(&header);
     request.resize(length, 0);
-    stream.read_exact(&mut request[4..]).map_err(|error| {
-        X11SetupSocketError::new(format!("failed to read X11 request payload: {error}"))
-    })?;
+    // The header read above already treats a vanished peer as an ordinary end
+    // of stream. A client that announced a length and then left must be read
+    // the same way, or abandoning a request part way through ends the service.
+    stream
+        .read_exact(&mut request[4..])
+        .map_err(|error| setup_read_failure("request payload", &error))?;
 
     Ok(Some(X11ReceivedCoreRequest {
         major_opcode: header[0],

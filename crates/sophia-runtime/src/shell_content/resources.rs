@@ -99,6 +99,9 @@ impl ContentResourceStore {
     pub fn usage(&self) -> ContentMemoryUsage {
         self.usage
     }
+    pub fn grant(&self) -> ContentGrant {
+        self.limits.grant
+    }
     pub fn quiescent(&self) -> bool {
         self.transfers.is_empty() && self.accepted.is_empty()
     }

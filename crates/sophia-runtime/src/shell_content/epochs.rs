@@ -1,15 +1,40 @@
-use super::{ContentResourceStore, ContentStoreError};
+use super::{ContentCandidateStore, ContentResourceStore, ContentStoreError};
 use sophia_protocol::{ContentGrant, ContentLimits};
 
 /// Session-wide owner: reserve a live grant's maximum footprint before admission
 /// and retain disconnected epochs until all renderer references have drained.
 /// This pool neither exposes a GPU nor negotiates a transport capability.
 pub struct ContentEpochPool {
-    active: Option<ContentResourceStore>,
-    retired: Vec<ContentResourceStore>,
+    active: Option<ContentEpoch>,
+    retired: Vec<ContentEpoch>,
     last_grant: ContentGrant,
     reserved_live: u64,
     max_retiring_bytes: u64,
+}
+
+struct ContentEpoch {
+    resources: ContentResourceStore,
+    candidates: ContentCandidateStore,
+}
+
+impl ContentEpoch {
+    fn new(limits: ContentLimits) -> Result<Self, ContentStoreError> {
+        let candidates =
+            ContentCandidateStore::new(limits.clone()).map_err(|_| ContentStoreError::Malformed)?;
+        Ok(Self {
+            resources: ContentResourceStore::new(limits)?,
+            candidates,
+        })
+    }
+
+    fn quiescent(&self) -> bool {
+        self.resources.quiescent() && self.candidates.quiescent()
+    }
+
+    fn revoke(&mut self) {
+        self.candidates.revoke();
+        self.resources.revoke();
+    }
 }
 
 impl ContentEpochPool {
@@ -33,8 +58,8 @@ impl ContentEpochPool {
     pub fn retired_bytes(&self) -> u64 {
         self.retired
             .iter()
-            .map(|store| {
-                let usage = store.usage();
+            .map(|epoch| {
+                let usage = epoch.resources.usage();
                 usage.staging + usage.resident + usage.retiring
             })
             .sum()
@@ -44,10 +69,33 @@ impl ContentEpochPool {
         self.reserved_live + self.retired_bytes()
     }
     pub fn active_mut(&mut self) -> Option<&mut ContentResourceStore> {
-        self.active.as_mut()
+        self.active.as_mut().map(|epoch| &mut epoch.resources)
     }
     pub fn active(&self) -> Option<&ContentResourceStore> {
-        self.active.as_ref()
+        self.active.as_ref().map(|epoch| &epoch.resources)
+    }
+    pub fn active_candidates_mut(&mut self) -> Option<&mut ContentCandidateStore> {
+        self.active.as_mut().map(|epoch| &mut epoch.candidates)
+    }
+    pub fn active_parts_mut(
+        &mut self,
+    ) -> Option<(&ContentResourceStore, &mut ContentCandidateStore)> {
+        self.active
+            .as_mut()
+            .map(|epoch| (&epoch.resources, &mut epoch.candidates))
+    }
+    pub fn candidates_mut(&mut self, grant: ContentGrant) -> Option<&mut ContentCandidateStore> {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|epoch| epoch.resources.grant() == grant)
+        {
+            return self.active_candidates_mut();
+        }
+        self.retired
+            .iter_mut()
+            .find(|epoch| epoch.resources.grant() == grant)
+            .map(|epoch| &mut epoch.candidates)
     }
 
     /// Permission must already have been established by the admission owner.
@@ -75,18 +123,19 @@ impl ContentEpochPool {
         }
         self.last_grant = limits.grant;
         self.reserved_live = reserve;
-        self.active = Some(ContentResourceStore::new(limits)?);
+        self.active = Some(ContentEpoch::new(limits)?);
         Ok(())
     }
 
     pub fn disconnect(&mut self) {
-        if let Some(mut store) = self.active.take() {
-            store.revoke();
+        if let Some(mut epoch) = self.active.take() {
+            epoch.revoke();
             // Delivery obligations are accounted under peer loss; they are not
             // misreported as delivered, nor transferred to the next connection.
-            while store.take_event().is_some() {}
-            if !store.quiescent() {
-                self.retired.push(store);
+            while epoch.resources.take_event().is_some() {}
+            while epoch.candidates.take_event().is_some() {}
+            if !epoch.quiescent() {
+                self.retired.push(epoch);
             }
         }
         self.reserved_live = 0;
@@ -94,13 +143,14 @@ impl ContentEpochPool {
     }
 
     pub fn collect(&mut self) {
-        if let Some(store) = &mut self.active {
-            store.collect();
+        if let Some(epoch) = &mut self.active {
+            epoch.resources.collect();
         }
-        for store in &mut self.retired {
-            store.collect();
-            while store.take_event().is_some() {}
+        for epoch in &mut self.retired {
+            epoch.resources.collect();
+            while epoch.resources.take_event().is_some() {}
+            while epoch.candidates.take_event().is_some() {}
         }
-        self.retired.retain(|store| !store.quiescent());
+        self.retired.retain(|epoch| !epoch.quiescent());
     }
 }

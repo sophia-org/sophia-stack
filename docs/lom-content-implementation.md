@@ -42,8 +42,20 @@ the same socket. A fixed response slot is checked before consuming each request,
 so backpressure does not discard an owed result. Disconnect revokes the active
 epoch while renderer leases keep retired storage alive.
 
-This owner is not yet a complete candidate assembler, allocation authority or
-native renderer integration. Event creation and output queueing are not proof of
+A display-independent candidate reducer now carries a one-use permit through
+assembly, accepted pending work and the non-cancellable renderer boundary. It
+validates exact output facts, interaction, allocation, scale and resource
+generations at End; pins every distinct resource before acceptance; bounds table
+counts and control outcomes; and emits visible permit, assembly and preparation
+timeouts. Only pending work may be superseded. Submitted work survives peer
+revocation until the caller reports renderer failure or actual native retirement.
+Prepared and Presented are separate records, and Presented cannot be emitted
+before Prepared. The epoch pool retains a disconnected candidate owner alongside
+its resource owner, so a renderer lease cannot disappear with the socket.
+
+This reducer is not yet connected to the shell transport or production owner
+loop. Demand coalescing, allocation authority, actions and native renderer
+integration remain absent. Event creation and output queueing are not proof of
 client receipt. Cancellation echoes its request transaction; timeout correlates
 to Begin. Peer loss accounts for undeliverable events without reporting delivery.
 
@@ -79,6 +91,11 @@ Resource tests cover consumer retention, exact release, timeout settlement,
 replay, foreign grants, response pressure and partial reconnect retirement. A
 real private Unix-socket test covers negotiation, limits, upload admission,
 immutable acceptance, retire and release through the independent client crate.
+Candidate tests cover permit and assembly deadlines, exact End validation,
+malformed direct calls, resource retirement during assembly, pending-only
+supersession, Prepared-before-Presented ordering, renderer failure boundaries and
+disconnect retention through a real epoch owner. They do not constitute a native
+submission or retirement test.
 Lom tests cover pixels, row chunking and the production poll/callback deadline
 function without opening a GPU. The changed Lom readback has not been GPU-tested.
 
@@ -113,9 +130,9 @@ No render-node bind, GPU permission, installed profile or shell replacement was
 added. The CPU pool does not claim to count renderer/upload copies that are not
 yet integrated with it.
 
-Still required: candidate/permit/action lifecycle, allocation and work-area
-integration, native upload/composition/retirement, production operator-policy
-configuration, GPU admission, Lom connection
+Still required: demand and action lifecycle, candidate transport service,
+allocation and work-area integration, native upload/composition/retirement,
+production operator-policy configuration, GPU admission, Lom connection
 and exact presented-target adapter, and attended acceptance. The first live
 configuration is workspaces, clock and calendar. Other Minimal modules remain
 fixtures until authorized live sources exist. Acceptance must prove retirement,

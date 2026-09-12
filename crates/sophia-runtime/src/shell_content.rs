@@ -5,8 +5,10 @@
 //! connection. The session-global admission owner must retain this store until
 //! `quiescent`; dropping a peer is not a renderer completion.
 
+mod candidates;
 mod epochs;
 mod resources;
 
+pub use candidates::*;
 pub use epochs::*;
 pub use resources::*;

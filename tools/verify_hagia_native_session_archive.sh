@@ -94,6 +94,30 @@ identity="$(grep -E "^sophia_hagia_native_identity schema=$record_schema status=
     echo "Hagia native session evidence and manifest have different identities: $run" >&2
     exit 1
 }
+# Schema 1 predates the Narthex split and has no Narthex source identity.
+# Schema 2 must retain all three signature and manifest/evidence bindings on
+# re-verification, not only when the archive is first written.
+if [[ "$record_schema" == 2 ]]; then
+    narthex_root="${SOPHIA_NARTHEX_ROOT:-$ROOT_DIR/../narthex}"
+    narthex_commit="$(sed -n 's/^narthex_commit=//p' "$run/manifest")"
+    [[ "$(sed -n 's/.* narthex_commit=\([0-9a-f]\{40\}\) .*/\1/p' <<<"$identity")" == "$narthex_commit" ]] || {
+        echo "Hagia native session evidence and manifest have different Narthex identities: $run" >&2
+        exit 1
+    }
+    [[ -d "$narthex_root/.git" ]] || {
+        echo "Narthex checkout is unavailable: $narthex_root" >&2
+        exit 1
+    }
+    [[ "$narthex_commit" =~ ^[0-9a-f]{40}$ ]] \
+        && git -C "$narthex_root" cat-file -e "$narthex_commit^{commit}" || {
+        echo "Hagia native session archive has an invalid Narthex source commit: $narthex_root" >&2
+        exit 1
+    }
+    git -C "$narthex_root" verify-commit "$narthex_commit" >/dev/null 2>&1 || {
+        echo "Hagia native session archive Narthex source commit lacks a valid signature: $narthex_root" >&2
+        exit 1
+    }
+fi
 proof_text="$(sed -n 's/^proof_text=//p' "$run/manifest")"
 "$ROOT_DIR/tools/verify_hagia_native_session.sh" \
     "$run/session.log" "$proof_text" >/dev/null

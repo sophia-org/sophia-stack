@@ -703,7 +703,76 @@ archive_output="$(env \
     "$archive_evidence" "$proof_text")"
 run_dir="${archive_output##*: }"
 SOPHIA_HAGIA_ROOT="$hagia_root" \
+    SOPHIA_NARTHEX_ROOT="$narthex_root" \
     "$root_dir/tools/verify_hagia_native_session_archive.sh" "$run_dir" >/dev/null
+
+
+# Recomputed checksums must not hide a changed Narthex identity. The positive
+# archive above binds genuine signed Sophia/Hagia/Narthex commit objects; these
+# copies change only the claim being tested, not the signature verifier.
+archive_fixture_checksums() {
+    candidate="$1"
+    digest="$(sha256sum "$candidate/session.log" | awk '{ print $1 }')"
+    sed -i "s/^evidence_sha256=.*/evidence_sha256=$digest/" "$candidate/manifest"
+    (cd "$candidate" && sha256sum manifest result.kdl session.log >SHA256SUMS)
+}
+refuse_narthex_archive() {
+    candidate="$1"
+    expected="$2"
+    selected_root="$3"
+    if rejection="$(env SOPHIA_HAGIA_ROOT="$hagia_root" \
+        SOPHIA_NARTHEX_ROOT="$selected_root" \
+        "$root_dir/tools/verify_hagia_native_session_archive.sh" "$candidate" 2>&1)"; then
+        echo "the native archive verifier accepted $expected" >&2
+        exit 1
+    fi
+    printf '%s\n' "$rejection" | grep -Fq "$expected" || {
+        echo "the native archive verifier refused a Narthex mutation for the wrong reason: $rejection" >&2
+        exit 1
+    }
+}
+changed_narthex="$temp_dir/changed-narthex-manifest"
+cp -R "$run_dir" "$changed_narthex"
+sed -i 's/^narthex_commit=.*/narthex_commit=ffffffffffffffffffffffffffffffffffffffff/' \
+    "$changed_narthex/manifest"
+archive_fixture_checksums "$changed_narthex"
+refuse_narthex_archive "$changed_narthex" 'different Narthex identities' "$narthex_root"
+
+unknown_narthex="$temp_dir/unknown-narthex"
+cp -R "$changed_narthex" "$unknown_narthex"
+sed -i 's/narthex_commit=[0-9a-f]\{40\}/narthex_commit=ffffffffffffffffffffffffffffffffffffffff/' \
+    "$unknown_narthex/session.log"
+archive_fixture_checksums "$unknown_narthex"
+refuse_narthex_archive "$unknown_narthex" 'invalid Narthex source commit' "$narthex_root"
+refuse_narthex_archive "$run_dir" 'Narthex checkout is unavailable' "$temp_dir/missing-narthex"
+
+# An existing but unsigned object must fail separately from an absent object.
+# This scratch repository is a negative only: no signature is forged or stubbed.
+unsigned_narthex_repo="$temp_dir/unsigned-narthex-repo"
+git -c init.templateDir= init -q "$unsigned_narthex_repo"
+git -C "$unsigned_narthex_repo" -c user.name=fixture -c user.email=fixture@example.invalid \
+    -c commit.gpgsign=false commit -q --allow-empty -m 'unsigned Narthex rejection fixture'
+unsigned_commit="$(git -C "$unsigned_narthex_repo" rev-parse HEAD)"
+unsigned_narthex="$temp_dir/unsigned-narthex-archive"
+cp -R "$run_dir" "$unsigned_narthex"
+sed -i "s/^narthex_commit=.*/narthex_commit=$unsigned_commit/" "$unsigned_narthex/manifest"
+sed -i "s/narthex_commit=[0-9a-f]\{40\}/narthex_commit=$unsigned_commit/" "$unsigned_narthex/session.log"
+archive_fixture_checksums "$unsigned_narthex"
+refuse_narthex_archive "$unsigned_narthex" 'Narthex source commit lacks a valid signature' "$unsigned_narthex_repo"
+
+# Historical schema 1 has no Narthex source binding. A nonexistent Narthex root
+# must not prevent it from verifying against its original Sophia/Hagia inputs.
+legacy="$temp_dir/schema1-archive"
+cp -R "$run_dir" "$legacy"
+sed -i -e 's/^record_schema=2$/record_schema=1/' -e '/^narthex_commit=/d' \
+    -e 's/^narthex_binary_sha256=/hagia_shell_binary_sha256=/' "$legacy/manifest"
+sed -i 's/schema=2/schema=1/' "$legacy/result.kdl"
+sed -i -e 's/^sophia_hagia_native_identity schema=2 /sophia_hagia_native_identity schema=1 /' \
+    -e 's/ narthex_commit=[0-9a-f]\{40\}//' \
+    -e 's/ narthex_sha256=/ hagia_shell_sha256=/' "$legacy/session.log"
+archive_fixture_checksums "$legacy"
+env SOPHIA_HAGIA_ROOT="$hagia_root" SOPHIA_NARTHEX_ROOT="$temp_dir/missing-narthex" \
+    "$root_dir/tools/verify_hagia_native_session_archive.sh" "$legacy" >/dev/null
 
 # The same evidence must not become two proofs.
 if env \
@@ -727,6 +796,7 @@ sed -i \
     sha256sum manifest result.kdl session.log >SHA256SUMS
 )
 if SOPHIA_HAGIA_ROOT="$hagia_root" \
+    SOPHIA_NARTHEX_ROOT="$narthex_root" \
     "$root_dir/tools/verify_hagia_native_session_archive.sh" \
     "$run_dir" >/dev/null 2>&1; then
     echo "the native archive verifier accepted an unknown Hagia commit" >&2

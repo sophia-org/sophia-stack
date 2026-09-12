@@ -13,24 +13,14 @@ Authority, principles and the operator's chosen constraints live in
 [htm85gg0](../decisions/htm85gg0-admission-ingress-and-provenance-for-synthetic-input.md).
 This note says how to satisfy them and does not restate their normative text.
 
-## Corrections to the previous revision
+## Corrections carried
 
-Three claims about this codebase were wrong and are withdrawn:
-
-- **The owner loop does not iterate once per frame.** `primary_frame_pacer`
-  gates repaint and caps waits; `owner_loop/authority.rs:18-90` shows the loop
-  turning on work availability and preemption. "1ms is 6% of a frame" conflated
-  a turn with a frame and is withdrawn along with the derived drain claim.
-- **There is no existing atomic revocation boundary to join.**
-  `physical_input_phase.rs:936` is a local boolean inside an output-topology
-  macro. `input.rs:334` advances leases and the broker control epoch; its
-  callers separately clear captures, repeats and handoffs, and
-  `owner_loop/lifecycle.rs:44` is a second caller for seat release. This is
-  infrastructure to extend, and the extension is specified below rather than
-  assumed.
-- **`client_keys.rs`'s focus check is a repeat guard.** It decides whether a
-  key *repeat* is still deliverable. It is not evidence that dropping a release
-  is safe, and the previous design leaned on it as if it were.
+Earlier revisions made claims about this codebase that were wrong: that the
+owner loop iterates per frame, that an atomic revocation boundary already
+existed, that `client_keys.rs`'s focus check proved a dropped release safe, that
+`RoutedInputOutcome` is emitted by this broker, and that enqueue could be an
+irrevocable commit. Each is withdrawn and the design below reflects the
+correction rather than the history.
 
 ## Owning components and state
 
@@ -75,32 +65,53 @@ whose lease is stale or whose epoch advanced may still be alive and still
 believe the input is held; that is a different case from a recipient that is
 gone.
 
-**Settlement is a server-side fact, never an application acknowledgement.** Core
-key and button events carry no application acknowledgement, and a socket write
-proves only that bytes left, not that a client processed them. So settlement is
-one of these existing receipts, each settling a different layer:
+**Settlement uses the receipts this server actually emits.** The previous
+revision built a table on `RoutedInputOutcome`, which is protocol vocabulary
+that nothing in this broker emits -- it appears only in a framing test. The real
+receipt is `XAuthorityClientInputDelivery` carrying
+`XAuthorityInputDeliveryOutcome` (`routing_types.rs:142`), finished by the
+writer's flush path (`connection/writers/input.rs:722`).
 
-| Receipt | Settles |
-| --- | --- |
-| `RoutedInputOutcome::Accepted` for the release | the release reached the authoritative recipient's route |
-| `RoutedInputOutcome::RejectedStaleTarget` / `RejectedDeniedNamespace` | the recorded target no longer exists as such -- nothing survives to clear |
-| `XAuthorityRouteLeaseRelease` for the recorded lease | that lease's held state is gone with it |
-| client termination or recovery through `input_recovery` | the recipient itself is gone |
+Core key and button events carry no application acknowledgement, so nothing
+below claims one.
 
-Debt therefore persists after a **failed enqueue** (never routed), a **stale
-identity** that did not resolve to one of the rejection outcomes above, and a
-**blocked delivery** that has not yet produced an outcome. It does not persist
-once any row above applies.
+| Outcome for the recorded-target release | Postcondition | Debt |
+| --- | --- | --- |
+| `Flushed` | the release left the server toward the recorded recipient | **settled at the transport layer only** -- not proof the application processed it |
+| `TargetGone` | the recorded target no longer exists | settled |
+| `ClientDisconnected` | the recipient is gone | settled |
+| `EpochRevoked` | refused before routing | **retained** |
+| `RouteRejected` | refused at the route | **retained** |
+| `WriteFailed` | transport failed | **retained** |
+| `TimedOut` | no outcome within the delivery bound | **retained** |
 
-Debt carries the recorded target *and* a hold identity, so a late completion for
-an old debt cannot erase a newer hold on the same input: the identities differ
-and the stale completion is discarded.
+The rule is that **a refusal is not evidence of clearing**. A denied namespace
+or stale route says the release did not happen; it says nothing about whether a
+live client that was previously reached still believes the input is held. Only
+the first three rows retire debt.
 
-**Unresponsive recipients end, they are not waited on forever.** A debt whose
-recipient produces no outcome within a bounded number of service intervals
-escalates to recipient termination through the existing disconnect path, which
-then settles it by the last row. Logging alone is not settlement; neither is
-waiting for an acknowledgement the protocol does not define.
+`XAuthorityRouteLeaseRelease` is **not** a receipt and is not in the table. Its
+handler (`registry/delivery.rs:27-63`) looks up a client, ungrabs its pointer and
+emits a lease update; it is a command, and it does not establish that key or
+button state was released.
+
+**If transport-layer settlement proves insufficient**, the needed addition is a
+delivery acknowledgement from the recipient's writer that the release was
+consumed from its queue -- named here as *proposed new work*, producer being the
+same writer that finishes `Flushed`, rather than assumed to exist.
+
+**Concrete bounds, replacing "a fixed share" and "a bounded number".**
+
+- Cleanup service allowance: **0.5ms of each 2ms interval, and 4 of each 32
+  events**, spent on settlement before ordinary synthetic work.
+- Debt retry: once per interval per debt entry.
+- Escalation: a debt with no settling outcome after **8 intervals** escalates to
+  recipient termination through `input_recovery`, which then settles it by
+  `ClientDisconnected`. A recovery *attempt* is not settlement; the resulting
+  disconnect outcome is.
+
+Debt carries the recorded target and a hold identity, so a late completion for
+an old debt cannot erase a newer hold on the same input.
 
 **`DeliveredTo` is invalidated when something else already cleared that
 delivery.** A global focus transition that released A's input clears the record,
@@ -219,37 +230,47 @@ mutex. Lock order is unchanged because there is one lock, and revocation reaches
 it through the existing control-priority path rather than racing request work
 for it.
 
-**The enqueue gap is closed by carrying the epoch, not by holding the lock.**
-The review is right that releasing the mutex after enqueue leaves a gap, and
-that holding it while waiting for the broker -- which needs its own `&mut self`
-turn -- deadlocks. Neither is chosen. Instead:
+**The effect-commit point is authoritative execution, not enqueue.** The
+previous revision's two traces contradicted each other, and the code settles it:
+`route_engine_input` (`registry/delivery.rs:65-83`) rejects an epoch mismatch
+*regardless of when the item was enqueued*, reporting `EpochRevoked`. So an
+enqueued item is not committed, and the trace claiming it routes anyway was
+wrong.
 
-- under the lock: revalidate, mutate the ledger, resolve focus and grabs, and
-  enqueue the routed input **stamped with the grant's bound epoch**;
-- release the lock;
-- `route_pending` already compares `input_control_epoch` against
-  `applied_input_control_epoch` and applies an advance before routing
-  (`broker.rs:497-501`). A request enqueued before a revocation is therefore
-  validated against the epoch it carries, at the consumer, and is dropped there
-  if the epoch moved.
+Nor is an epoch check sufficient. Per-client cancellation deliberately does not
+advance the seat epoch, so an epoch-only consumer check cannot reject an item
+from a single revoked grant. And `route_pending(&mut self)` being
+single-threaded serializes the consumer with itself, not with producers.
 
-So the gap is safe because the consumer re-checks, which is the mechanism the
-broker already implements for leases. Nothing waits on a worker while holding a
-lock that worker needs.
+Therefore:
 
-**Revised race traces.**
+- **Enqueue produces a pending entry**, carrying the grant's identity and
+  generation alongside the epoch it was bound to.
+- **Authoritative execution validates both**, at the consumer, under the
+  input-authority mutex that already guards grab resolution there. A stale
+  generation is refused exactly as a stale epoch already is.
+- **This is new broker integration**, not an existing behaviour being reused.
+  The grant-generation check must be added beside the epoch check; the lease
+  precedent shows the shape and does not supply these semantics.
 
-- *Revocation first:* revocation takes the mutex via the control path,
-  invalidates the generation and advances the control epoch. A request still
-  queued at the connection fails revalidation and is refused with no side
-  effect. A request already enqueued to the broker carries the old epoch and is
-  dropped at `route_pending`. Contributions committed before revocation enter
-  reconciliation debt.
-- *Request first:* the request takes the mutex, commits, and is enqueued with
-  the current epoch. Revocation then applies; the enqueued item still routes,
-  because it was committed under the epoch in force, and its contributions are
-  retired afterwards through settlement. **"Processed" is the broker reporting
-  `RoutedInputOutcome` for that item**, not the enqueue.
+**The ledger distinguishes queued from applied.** A press that is enqueued but
+not yet executed holds a *reservation*, not a hold. Only an applied press
+becomes a contribution that can require a release. That is what makes
+revocation-before-execution clean: the reservation is dropped and there is
+nothing to settle, because nothing was ever delivered.
+
+**Race traces, corrected.**
+
+- *Single-grant revoke between enqueue and consume:* the pending entry's
+  generation no longer matches; the consumer refuses it and reports the
+  refusal. The reservation is dropped. No debt, because no press was applied.
+- *Seat epoch advance between enqueue and consume:* the existing epoch check
+  rejects it with `EpochRevoked`. Same outcome, different check.
+- *Peer grab or focus change between enqueue and consume:* the consumer
+  resolves grabs after the epoch check under the input-authority mutex, so the
+  request is routed against the state in force at execution, not at enqueue. A
+  press that lands on a different recipient records *that* recipient as its
+  `DeliveredTo`.
 
 **Per-client cancellation does not advance the seat epoch.** Disconnect or
 single-grant revocation is its own ingress into the serializing operation,
@@ -337,23 +358,43 @@ fixed share of each service interval is spent on settlement before ordinary
 synthetic work, so debt drains even while injectors are saturating the path.
 That is what makes the resumable sweep terminate.
 
-### Decision order for a grant-requiring request
+### Admission happens before discovery, not at first use
 
-Evaluated at the **first grant-requiring request** on a connection, in this
-order, first match deciding:
+The previous revision issued a grant at the first grant-requiring request while
+discovery read an already-issued grant. That is a dead end: an eligible client
+sees XTEST absent, and a normal toolkit never sends `GetVersion` or `FakeInput`
+to an absent extension. Guessing an opcode is not a discovery protocol.
 
-| Condition | Answer |
-| --- | --- |
-| Option disabled | XTEST absent; guessed opcode gets `BadRequest` |
-| Caller ineligible | XTEST absent; guessed opcode gets `BadAccess` |
-| Grant revoked | `BadAccess` |
-| Eligible, no free slot | `BadAlloc` |
-| Eligible, slot available | grant issued, request proceeds |
+**Both enumeration paths call one idempotent admission helper before
+answering.** `advertised_extension_names()` and `extension_query_result` invoke
+`admit_synthetic(connection)`, which issues or returns the connection's grant
+and reserves its slot. Calling it twice yields the same grant.
 
-Discovery reports XTEST only in the last row. An eligible seventeenth client is
-therefore an ordinary, healthy X client that sees XTEST absent and receives
-`BadAlloc` only if it guesses the opcode. It may retry: a later request
-re-evaluates, and a slot freed by settlement is available to it.
+The ordinary flow therefore works without guessing:
+
+    setup -> QueryExtension("XTEST") -> present -> GetVersion -> FakeInput
+
+**Decision order**, evaluated inside that helper, first match deciding:
+
+| Condition | Discovery | Guessed opcode |
+| --- | --- | --- |
+| Capability disabled | absent | `BadAccess` |
+| Caller ineligible | absent | `BadAccess` |
+| Grant revoked | absent | `BadAccess` |
+| Eligible, no free slot | absent | `BadAlloc` |
+| Eligible, slot reserved | **present** | proceeds |
+
+`BadAccess` for the disabled row keeps
+[htm85gg0](../decisions/htm85gg0-admission-ingress-and-provenance-for-synthetic-input.md)'s
+accepted rule that a guessed opcode meets authorization denial. The previous
+revision's `BadRequest` there would have changed an accepted contract: a
+disabled-but-implemented entry point is not the same as a build with no
+implementation registered, and only the latter is `BadRequest`.
+
+**Retry.** A client refused for capacity may call discovery again; the helper
+re-evaluates and admits if a slot has since settled. A revoked client may also
+re-admit, receiving a **new** grant generation -- no pending work from the old
+one is replayed, because pending entries validate generation at execution.
 
 ## Discovery and refusal, restored
 
@@ -470,8 +511,22 @@ Rust, which the ClassicShared socket host cannot establish:
   request is parsed and answered after processing, not discarded;
 - half-close does not spin: repeated polls do not rewake on a latched
   `POLLRDHUP`;
-- revocation, and a peer grab or focus change, landing exactly in the gap
-  between enqueue and `route_pending`;
+- enqueue, then single-grant revoke, then consume: refused on generation, no
+  debt, because no press was applied;
+- enqueue, then seat-epoch advance, then consume: refused on epoch;
+- enqueue, then peer grab or focus change, then consume: routed against state at
+  execution, recording the recipient it actually reached;
+- a refusal outcome (`RouteRejected`, `WriteFailed`, `TimedOut`) retains debt
+  rather than settling it;
+- `Flushed` settles transport only, and is not recorded as application
+  processing;
+- debt unsettled after 8 intervals escalates to termination, settling by
+  `ClientDisconnected`;
+- ordinary discovery flow with no guessed opcode: setup, QueryExtension,
+  GetVersion, FakeInput;
+- disabled capability answers `BadAccess` to a guessed opcode, not
+  `BadRequest`;
+- a revoked client re-admitting receives a new generation and replays nothing;
 - a late debt completion carrying an old hold identity does not erase a newer
   hold on the same input;
 - an unresponsive recipient escalates to termination within its bound rather

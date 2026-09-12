@@ -218,7 +218,7 @@ def main():
     missing = [case["id"] for case in MATRIX[len(results):]]
     report = dict(schema=1, candidate=identity, release=release, cases=results, unexecuted_cases=missing,
                   **verdicts(results),
-                  native_scope="operator-attested dummy action, visible placement and protocol completion; WM property identity and t077 remain separate",
+                  native_scope="protocol completion, live PID-matched XID Dialog/no-transient properties, and operator-attested actions/placement; t077 remains separate",
                   harness_sha256={name: digest(Path(__file__).parent / name) for name in ("production.py", "production_protocol.py", "production_hints.py")})
     (args.capture / "production-report.json").write_text(json.dumps(report, indent=2) + "\n")
     return 0 if report["acceptance"] == "PASS" else 1

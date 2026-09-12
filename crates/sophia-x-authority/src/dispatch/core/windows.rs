@@ -262,22 +262,39 @@ fn dispatch_core_window_request(
                             // that contained it.
                             destroyed
                                 .into_iter()
-                                .map(|(destroyed_window, surface)| {
+                                .flat_map(|destroyed| {
                                     properties
-                                        .remove_window(context.namespace, destroyed_window);
-                                    response.removed_surfaces.push(surface);
+                                        .remove_window(context.namespace, destroyed.window);
+                                    response.removed_surfaces.push(destroyed.surface);
+                                    // A mapped window is unmapped as part of
+                                    // being destroyed, and that unmap is
+                                    // reported in its own right, before the
+                                    // destroy. `from_configure` is false: an
+                                    // explicit request caused it.
+                                    let unmap = destroyed.was_mapped.then(|| {
+                                        XClientOutput::Event(
+                                            crate::XClientEvent::UnmapNotify {
+                                                sequence: context.sequence,
+                                                event: destroyed.window,
+                                                window: destroyed.window,
+                                                from_configure: false,
+                                            },
+                                        )
+                                    });
                                     // Addressed to the window itself. The router
                                     // adds the parent-addressed copy for
                                     // SubstructureNotify selectors, the same way
                                     // it does for map and unmap, so both forms
                                     // come from one path.
-                                    XClientOutput::Event(
-                                        crate::XClientEvent::DestroyNotify {
-                                            sequence: context.sequence,
-                                            event: destroyed_window,
-                                            window: destroyed_window,
-                                        },
-                                    )
+                                    unmap.into_iter().chain(std::iter::once(
+                                        XClientOutput::Event(
+                                            crate::XClientEvent::DestroyNotify {
+                                                sequence: context.sequence,
+                                                event: destroyed.window,
+                                                window: destroyed.window,
+                                            },
+                                        ),
+                                    ))
                                 })
                                 .collect()
                         }
@@ -348,14 +365,27 @@ fn dispatch_core_window_request(
                     {
                         Ok(destroyed) => destroyed
                             .into_iter()
-                            .map(|(destroyed_window, surface)| {
-                                properties.remove_window(context.namespace, destroyed_window);
-                                response.removed_surfaces.push(surface);
-                                XClientOutput::Event(crate::XClientEvent::DestroyNotify {
-                                    sequence: context.sequence,
-                                    event: destroyed_window,
-                                    window: destroyed_window,
-                                })
+                            .flat_map(|destroyed| {
+                                properties.remove_window(context.namespace, destroyed.window);
+                                response.removed_surfaces.push(destroyed.surface);
+                                // As for a single destroy: a mapped window is
+                                // unmapped on its way out, and that is reported
+                                // before the destroy.
+                                let unmap = destroyed.was_mapped.then(|| {
+                                    XClientOutput::Event(crate::XClientEvent::UnmapNotify {
+                                        sequence: context.sequence,
+                                        event: destroyed.window,
+                                        window: destroyed.window,
+                                        from_configure: false,
+                                    })
+                                });
+                                unmap.into_iter().chain(std::iter::once(
+                                    XClientOutput::Event(crate::XClientEvent::DestroyNotify {
+                                        sequence: context.sequence,
+                                        event: destroyed.window,
+                                        window: destroyed.window,
+                                    }),
+                                ))
                             })
                             .collect(),
                         Err(error) => {
@@ -456,8 +486,23 @@ fn dispatch_core_window_request(
                     let outputs = match runtime.unmap_window(context.namespace, window) {
                         Ok(Some(surface)) => {
                             response.surfaces.push(surface);
-                            Vec::new()
+                            // Addressed to the window itself; the router adds
+                            // the parent-addressed copy for SubstructureNotify
+                            // selectors, as it does for map and destroy.
+                            //
+                            // `from_configure` is false: this is a client
+                            // asking, not a window falling out of view because
+                            // an ancestor was reconfigured.
+                            vec![XClientOutput::Event(crate::XClientEvent::UnmapNotify {
+                                sequence: context.sequence,
+                                event: window,
+                                window,
+                                from_configure: false,
+                            })]
                         }
+                        // Already unmapped: the request has no effect, and an
+                        // event here would report a transition that never
+                        // happened.
                         Ok(None) => Vec::new(),
                         Err(error) => {
                             response = XAuthorityResponsePacket::rejected(transaction, error);

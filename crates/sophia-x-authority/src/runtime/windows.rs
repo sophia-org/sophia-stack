@@ -478,7 +478,7 @@ impl XAuthorityRuntime {
          &mut self,
          namespace: NamespaceId,
          window: crate::XResourceId,
-     ) -> Result<Vec<(crate::XResourceId, sophia_protocol::SurfaceId)>, XAuthorityRuntimeError> {
+     ) -> Result<Vec<XDestroyedWindow>, XAuthorityRuntimeError> {
          // Resolve the whole subtree before destroying any of it. Walking and
          // destroying together would read a tree the destruction is mutating.
          let mut order = Vec::new();
@@ -492,7 +492,17 @@ impl XAuthorityRuntime {
 
          let mut destroyed = Vec::with_capacity(order.len());
          for id in order {
-             destroyed.push((id, self.destroy_window(namespace, id)?));
+             // Read the map state before destroying: X11 unmaps a mapped
+             // window as part of destroying it, and the caller owes its
+             // watchers that unmap. Afterwards there is nothing left to ask.
+             let was_mapped = self
+                 .window_map_state(namespace, id)
+                 .is_ok_and(|state| state != crate::XMapState::Unmapped);
+             destroyed.push(XDestroyedWindow {
+                 window: id,
+                 surface: self.destroy_window(namespace, id)?,
+                 was_mapped,
+             });
          }
          Ok(destroyed)
      }
@@ -786,7 +796,7 @@ impl XAuthorityRuntime {
          &mut self,
          namespace: NamespaceId,
          parent: crate::XResourceId,
-     ) -> Result<Vec<(crate::XResourceId, sophia_protocol::SurfaceId)>, XAuthorityRuntimeError> {
+     ) -> Result<Vec<XDestroyedWindow>, XAuthorityRuntimeError> {
          if parent.local.raw() != u64::from(crate::X_SETUP_DEFAULT_ROOT) {
              self.resources
                  .lookup(namespace, parent, XResourceKind::Window)?;
@@ -847,4 +857,14 @@ pub struct XWindowGeometryUpdate {
     pub width: Option<u16>,
     pub height: Option<u16>,
     pub generation: u64,
+}
+
+/// One window removed by a destroy, and what its removal owes its watchers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct XDestroyedWindow {
+    pub window: crate::XResourceId,
+    pub surface: sophia_protocol::SurfaceId,
+    /// Whether it was mapped when destroyed. A mapped window is unmapped as
+    /// part of being destroyed, and that unmap is reported before the destroy.
+    pub was_mapped: bool,
 }

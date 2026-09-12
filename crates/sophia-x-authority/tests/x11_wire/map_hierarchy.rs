@@ -465,6 +465,16 @@ fn routed_lifecycle_events_follow_structure_and_substructure_masks() {
         .write_all(&resource_request(XByteOrder::LittleEndian, 4, window))
         .unwrap();
 
+    // The window is mapped, so destroying it unmaps it first, and that unmap
+    // is reported in its own right before the destroy.
+    let unmapped = read_x_record(&mut owner);
+    assert_eq!(
+        unmapped[0], 18,
+        "destroying a mapped window reports the unmap before the destroy"
+    );
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &unmapped[4..8]), window);
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &unmapped[8..12]), window);
+
     let destroyed = read_x_record(&mut owner);
     assert_eq!(destroyed[0], 17, "owner receives DestroyNotify");
     assert_eq!(
@@ -473,6 +483,12 @@ fn routed_lifecycle_events_follow_structure_and_substructure_masks() {
         "the owner's copy is addressed to the window it selected on"
     );
     assert_eq!(read_u32(XByteOrder::LittleEndian, &destroyed[8..12]), window);
+
+    let parent_unmapped = read_x_record(&mut observer);
+    assert_eq!(
+        parent_unmapped[0], 18,
+        "the SubstructureNotify selector sees that unmap too"
+    );
 
     let parent_destroyed = read_x_record(&mut observer);
     assert_eq!(parent_destroyed[0], 17, "observer receives DestroyNotify");

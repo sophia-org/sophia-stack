@@ -86,7 +86,31 @@ fn x11_dispatch_emits_configure_map_property_and_selection_failure_outputs() {
         &mut atoms,
         &mut properties,
     );
-    assert!(unmap.outputs.is_empty());
+    // A successful unmap is a state change the window's watchers are owed.
+    assert_eq!(unmap.outputs.len(), 1, "the unmap transition is reported");
+    let encoded = encode_x_client_output(XByteOrder::LittleEndian, unmap.outputs[0].clone());
+    assert_eq!(encoded[0], 18, "UnmapNotify");
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[4..8]), 0x220101);
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &encoded[8..12]), 0x220101);
+    assert_eq!(encoded[12], 0, "not from a configure");
+
+    // Unmapping again is not a transition, so it owes nobody anything.
+    let repeat = decode_x11_core_request(
+        context(namespace, 603, XByteOrder::LittleEndian),
+        &resource_request(XByteOrder::LittleEndian, 10, 0x220101),
+    )
+    .unwrap();
+    let repeat = dispatch_x11_wire_request(
+        dispatch_context(namespace, 3, XByteOrder::LittleEndian, 10),
+        repeat,
+        &mut runtime,
+        &mut atoms,
+        &mut properties,
+    );
+    assert!(
+        repeat.outputs.is_empty(),
+        "an already-unmapped window reports no second unmap"
+    );
 
     let configure = decode_x11_core_request(
         context(namespace, 604, XByteOrder::LittleEndian),

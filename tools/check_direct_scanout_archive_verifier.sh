@@ -29,7 +29,14 @@ evidence="$temp_dir/session.log"
 } >"$evidence"
 
 commit="$(git -C "$ROOT_DIR" rev-parse HEAD)"
-sophia_bin="$ROOT_DIR/target/release/sophia"
+# This verifier-only fixture hashes a real built executable; it does not run
+# Sophia or assert that the synthesized scanout log came from that executable.
+# Canonical checks build the debug profile, possibly in a dedicated target dir.
+sophia_bin="${SOPHIA_DIRECT_SCANOUT_SOPHIA_BIN-${CARGO_TARGET_DIR:-$ROOT_DIR/target}/debug/sophia}"
+if [[ ! -f "$sophia_bin" || ! -x "$sophia_bin" ]]; then
+    echo "archive verifier fixture needs a built Sophia executable: $sophia_bin" >&2
+    exit 1
+fi
 client_bin="${SOPHIA_DIRECT_SCANOUT_CLIENT_BIN:-$(command -v kitty || command -v true)}"
 printf 'sophia_direct_scanout_identity schema=1 status=bound source_commit=%s sophia_sha256=%s client=%s client_sha256=%s core_sha256=%s desktop_sha256=%s\n' \
     "$commit" "$(sha256sum "$sophia_bin" | awk '{ print $1 }')" \
@@ -40,6 +47,7 @@ printf 'sophia_direct_scanout_identity schema=1 status=bound source_commit=%s so
 
 run_root="$temp_dir/runs"
 SOPHIA_DIRECT_SCANOUT_RUN_ROOT="$run_root" \
+    SOPHIA_DIRECT_SCANOUT_SOPHIA_BIN="$sophia_bin" \
     SOPHIA_DIRECT_SCANOUT_CLIENT_BIN="$client_bin" \
     "$archiver" "$evidence" >/dev/null
 archive="$run_root/0001"
@@ -60,6 +68,31 @@ reject() {
         exit 1
     }
 }
+
+# A wrong executable is a rejection candidate only, never a substitute for the
+# actual Sophia binary used by the positive fixture. Neither binary is run.
+wrong_binary="$temp_dir/wrong-sophia"
+printf '#!/bin/sh\nexit 1\n' >"$wrong_binary"
+chmod 700 "$wrong_binary"
+mismatch_root="$temp_dir/mismatched-binary-runs"
+if mismatch_output="$(
+    SOPHIA_DIRECT_SCANOUT_RUN_ROOT="$mismatch_root" \
+    SOPHIA_DIRECT_SCANOUT_SOPHIA_BIN="$wrong_binary" \
+    SOPHIA_DIRECT_SCANOUT_CLIENT_BIN="$client_bin" \
+        "$archiver" "$evidence" 2>&1
+)"; then
+    echo "the archiver accepted a Sophia binary that differs from the bound hash" >&2
+    exit 1
+fi
+if [[ "$mismatch_output" != *"the Sophia binary no longer matches the verified run"* ]]; then
+    echo "the archiver refused the changed Sophia binary for the wrong reason:" >&2
+    printf '%s\n' "$mismatch_output" >&2
+    exit 1
+fi
+if [[ -e "$mismatch_root" ]]; then
+    echo "the archiver created output for a mismatched Sophia binary" >&2
+    exit 1
+fi
 
 # Evidence edited after the fact. The checksums exist for this.
 tampered="$temp_dir/tampered"

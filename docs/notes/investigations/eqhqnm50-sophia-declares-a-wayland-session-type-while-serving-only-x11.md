@@ -2,7 +2,7 @@
 id: eqhqnm50
 date: 2026-09-11
 kind: investigation
-status: awaiting-physical-acceptance
+status: accepted
 tags: [investigation, session, compatibility]
 ---
 # Sophia declares a Wayland session type while serving only X11
@@ -93,9 +93,14 @@ It is registered in the `cargo xtask check` tool list. Confirmed to fail with
 the fix reverted, reporting the observed `XDG_SESSION_TYPE=wayland`, and to
 pass with it applied.
 
-Physical, still open: start the installed session and launch an Ozone client
-with no platform flag. It must start without `--ozone-platform=x11`. This needs
-a package and install; the running session predates the repair.
+Physical, accepted 2026-09-11 on installed `a23ac9ae`. The session leader now
+carries `XDG_SESSION_TYPE=x11` with `WAYLAND_DISPLAY` unset, and Chromium
+started from the ordinary launcher with no platform flag -- its command line
+carries only the packaged `--enable-gpu-rasterization` option. That closes the
+reported failure: the client that refused to start now starts.
+
+This accepts the session type and nothing beyond it. Whether Chromium then
+renders accelerated video is the separate device split owned by `t068`.
 
 This defect blocked collecting the `chrome://gpu` evidence for `t068` until
 the flag was added by hand. It is unrelated to that report's VA-to-GBM device

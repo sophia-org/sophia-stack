@@ -133,6 +133,100 @@ def destroy_family(context):
                 assert not any(e[0] & 127 == 17 for e in owner.events), 'phantom DestroyNotify after BadWindow'
 
 
+def destroy_subwindows_order(context):
+    with client(context) as owner, peer_client(context) as watcher:
+        parent = owner.window(events=0)
+        first = owner.window(parent, events=0)
+        first_leaf = owner.window(first, events=0)
+        second = owner.window(parent, events=0)
+        second_leaf = owner.window(second, events=0)
+        for wid in (first, first_leaf, second, second_leaf):
+            watcher.send(2, watcher.pack('III', wid, 1 << 11, 1 << 17))
+        watcher.sync()
+        # Move the newer sibling below the older one: allocation order must
+        # disagree with stack order or an id-sorted implementation would pass.
+        owner.send(12, owner.pack('IHHII', second, (1 << 5) | (1 << 6), 0, first, 1))
+        owner.sync()
+        owner.send(5, owner.pack('I', parent))
+        owner.sync()
+        observed = [watcher.u32(watcher.event(17), 8) for _ in range(4)]
+        assert observed == [second_leaf, second, first_leaf, first], observed
+        for wid in (first, first_leaf, second, second_leaf):
+            watcher.completion(watcher.send(3, watcher.pack('I', wid)), error=3, opcode=3, resource=wid)
+        assert owner.u16(owner.reply(15, owner.pack('I', parent)), 16) == 0
+        watcher.sync()
+        assert not any(e[0] & 127 == 17 for e in watcher.events), 'duplicate subtree destruction'
+
+
+def destroy_subwindows_invalid(context):
+    with client(context) as owner:
+        parent = owner.window(events=(1 << 17) | (1 << 19))
+        for _ in range(2):
+            owner.send(5, owner.pack('I', parent))  # Empty subtree is a no-op.
+            owner.sync()
+            assert not any(e[0] & 127 == 17 for e in owner.events), 'empty subtree destroyed its parent'
+        child = owner.window(parent)
+        owner.send(5, owner.pack('I', parent))
+        owner.sync()
+        forms = [owner.event(17), owner.event(17)]
+        assert {(owner.u32(e, 4), owner.u32(e, 8)) for e in forms} == {(parent, child), (child, child)}
+        for wid in (child, owner.xid()):
+            owner.completion(owner.send(5, owner.pack('I', wid)), error=3, opcode=5, resource=wid)
+            owner.sync()
+            assert not any(e[0] & 127 == 17 for e in owner.events), 'phantom event after invalid DestroySubwindows'
+        assert owner.u16(owner.reply(14, owner.pack('I', parent)), 16) == 80
+
+
+def destroy_peer_close_subscribers(context):
+    with client(context) as owner, peer_client(context) as watcher, client(context) as silent:
+        parent = owner.window(events=0)
+        child = owner.window(parent, events=0)
+        # The watcher owns neither resource, and selects both addressed forms.
+        for wid, mask in [(owner.root, 1 << 19),
+                          (parent, (1 << 17) | (1 << 19)), (child, 1 << 17)]:
+            watcher.send(2, watcher.pack('III', wid, 1 << 11, mask))
+        watcher.sync()
+        silent.sync()
+        owner.close()  # No DestroyWindow request: this is solely disconnect cleanup.
+        observed = []
+        try:
+            for _ in range(4):
+                event = watcher.event(17)
+                observed.append((watcher.u32(event, 4), watcher.u32(event, 8)))
+        except TimeoutError as error:
+            raise TimeoutError(f'disconnect DestroyNotify forms before deadline: {observed}') from error
+        expected = {(child, child), (parent, child), (parent, parent), (watcher.root, parent)}
+        assert len(set(observed)) == 4 and set(observed) == expected, observed
+        # Check addressing separately from the existing chain-order case.
+        for wid in (parent, child):
+            watcher.completion(watcher.send(3, watcher.pack('I', wid)), error=3, opcode=3, resource=wid)
+        watcher.sync()
+        assert not any(e[0] & 127 == 17 for e in watcher.events), 'duplicate disconnect destruction'
+        silent.sync()
+        assert not any(e[0] & 127 == 17 for e in silent.events), 'unsubscribed peer notified'
+        live = watcher.window()
+        assert watcher.u16(watcher.reply(14, watcher.pack('I', live)), 16) == 80
+
+
+def destroy_mapped(context):
+    with client(context) as owner:
+        wid = owner.window(events=1 << 17)
+        owner.send(8, owner.pack('I', wid))
+        owner.sync()
+        owner.event(19)
+        assert owner.reply(3, owner.pack('I', wid))[26] == 2
+        owner.events.clear()
+        owner.send(4, owner.pack('I', wid))
+        owner.sync()
+        # Both events precede the barrier reply. Do not filter away a missing
+        # automatic UnmapNotify or permit it to arrive after DestroyNotify.
+        events = [e for e in owner.events if e[0] & 127 in (17, 18)]
+        assert [e[0] & 127 for e in events] == [18, 17], [e.hex() for e in events]
+        assert all(owner.unpack('II', e, 4) == (wid, wid) for e in events)
+        assert events[0][12] == 0  # from-configure = False
+        owner.completion(owner.send(3, owner.pack('I', wid)), error=3, opcode=3, resource=wid)
+
+
 def property_values(context):
     with client(context) as c:
         wid, atom = c.window(), c.atom('SOPHIA_CONFORMANCE_PROPERTY')
@@ -416,4 +510,8 @@ CASES = {'setup': setup, 'window_tree': window_tree, 'map': window_transition,
          'xfixes_selection': xfixes_selection, 'disconnect_grab': disconnect_grab,
          'truncated_peer': truncated_peer, 'destroy_descendants': destroy_family,
          'destroy_subwindows': destroy_family, 'destroy_peer_close': destroy_family,
-         'destroy_invalid': destroy_family, 'destroy_xid_reuse': destroy_xid_reuse}
+         'destroy_invalid': destroy_family, 'destroy_xid_reuse': destroy_xid_reuse,
+         'destroy_subwindows_order': destroy_subwindows_order,
+         'destroy_subwindows_invalid': destroy_subwindows_invalid,
+         'destroy_peer_close_subscribers': destroy_peer_close_subscribers,
+         'destroy_mapped': destroy_mapped}

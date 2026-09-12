@@ -129,6 +129,22 @@
     {
       "id": "destroy_xid_reuse",
       "mandatory": true
+    },
+    {
+      "id": "destroy_subwindows_order",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_subwindows_invalid",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_peer_close_subscribers",
+      "mandatory": true
+    },
+    {
+      "id": "destroy_mapped",
+      "mandatory": true
     }
   ],
   "features": [
@@ -436,6 +452,42 @@
       "cases": [
         "destroy_xid_reuse"
       ]
+    },
+    {
+      "name": "DestroySubwindows restacked sibling order, empty and invalid targets",
+      "accepted_core_opcodes": [
+        5,
+        12,
+        3,
+        14,
+        15
+      ],
+      "cases": [
+        "destroy_subwindows_order",
+        "destroy_subwindows_invalid"
+      ]
+    },
+    {
+      "name": "Disconnect destruction subscription addresses and healthy continuation",
+      "accepted_core_opcodes": [
+        2,
+        3,
+        14
+      ],
+      "cases": [
+        "destroy_peer_close_subscribers"
+      ]
+    },
+    {
+      "name": "Mapped DestroyWindow automatically unmaps before destruction",
+      "accepted_core_opcodes": [
+        4,
+        8,
+        3
+      ],
+      "cases": [
+        "destroy_mapped"
+      ]
     }
   ],
   "extensions": {
@@ -601,7 +653,8 @@
       "cases": [
         "destroy_peer_close",
         "destroy_subscribers",
-        "destroy_xid_reuse"
+        "destroy_xid_reuse",
+        "destroy_peer_close_subscribers"
       ]
     },
     "3": {
@@ -622,13 +675,16 @@
         "destroy_descendants",
         "destroy_invalid",
         "destroy_subscribers",
-        "destroy_xid_reuse"
+        "destroy_xid_reuse",
+        "destroy_mapped"
       ]
     },
     "5": {
       "name": "DestroySubwindows",
       "cases": [
-        "destroy_subwindows"
+        "destroy_subwindows",
+        "destroy_subwindows_order",
+        "destroy_subwindows_invalid"
       ],
       "baseline": "Required core request missing from decoder at b3941c04; strict case must fail until implemented."
     },
@@ -640,7 +696,8 @@
     "8": {
       "name": "X_MAP_WINDOW",
       "cases": [
-        "map"
+        "map",
+        "destroy_mapped"
       ]
     },
     "9": {
@@ -657,7 +714,8 @@
     "12": {
       "name": "X_CONFIGURE_WINDOW",
       "cases": [
-        "configure"
+        "configure",
+        "destroy_subwindows_order"
       ]
     },
     "14": {

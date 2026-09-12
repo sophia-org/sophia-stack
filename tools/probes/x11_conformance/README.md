@@ -38,6 +38,14 @@ Each case has an absolute socket deadline, record/backlog limits and an outer
 client-process deadline. Progress or unrelated events do not reset the deadline.
 Only process groups created by the runner are terminated.
 
+Lifecycle cases distinguish explicit DestroyWindow from owner disconnect. They
+check descendant event order, both StructureNotify/SubstructureNotify addresses,
+no-mask suppression, stale subscriptions after XID reuse, and automatic unmap
+before mapped destruction. DestroySubwindows is tested with empty/invalid targets
+and with newer siblings restacked below older ones; allocation order cannot
+accidentally satisfy the stacking assertion. Each behavior has its own mandatory
+case so a passing notification-presence check cannot hide an ordering failure.
+
 `manifest.json` binds the mandatory profile to cases, core request numbers and
 extension obligations. Every required case must produce exactly one PASS per
 byte order. Missing, duplicate, unexecuted, unknown, malformed, NORESULT,

@@ -182,6 +182,7 @@ unrelated descriptors before starting the unchanged canonical command.
 ```sh
 python3 -B tools/probes/x11_conformance/offline_check.py \
   --source /absolute/clean-checkout \
+  --verification-key /absolute/public-verification.gpg \
   --target-dir /absolute/main-checkout/.artifacts/offline-target \
   --output /absolute/main-checkout/.artifacts/offline-check-new
 ```
@@ -189,8 +190,8 @@ python3 -B tools/probes/x11_conformance/offline_check.py \
 Both output and target must be distinct, disk-backed children of the main
 checkout's `.artifacts`; build targets under `/tmp` are refused. The source
 must be clean and committed. The wrapper copies the exact commit into an
-independent repository, records its tree/archive hash and toolchain hashes,
-and mounts only the offline registry cache from Cargo home. It generates a
+independent repository with one parent commit, records its tree/archive hash and
+toolchain hashes, and mounts only the offline registry cache from Cargo home. It generates a
 loopback-only `/etc/hosts` for regular-file refusal tests, generates its loader
 cache from the allowlisted libraries, and links the private source copy's `target` to the explicitly owned target directory for profile
 binary discovery. These fixtures expose neither an installed Sophia nor host `/etc`. The exact
@@ -198,9 +199,33 @@ binary discovery. These fixtures expose neither an installed Sophia nor host `/e
 versions are checked before the workspace suite, so a missing helper cannot be
 mistaken for source-layout evidence.
 
+Full checks also require an explicit public OpenPGP export containing the
+signers of the source commit and its parent. The archive-verifier fixture uses
+both commits and genuine signature verification. Export only those known
+fingerprints; for example, after identifying the required signer:
+
+```sh
+gpg --batch --no-options --no-autostart --no-auto-key-retrieve \
+  --no-auto-check-trustdb --export-options export-minimal \
+  --export EXACT_SIGNING_FINGERPRINT > /absolute/public-verification.gpg
+```
+
+The wrapper accepts one nonempty regular file up to 64 KiB, records its SHA256,
+and mounts that file alone. It never mounts a host keyring, private keys,
+ownertrust database, GnuPG configuration, or agent. Inside containment it
+inspects packets before import, refuses secret-key packets, and imports only
+accepted public data into a fresh private `GNUPGHOME`. Packet diagnostics stay
+in bounded memory, not evidence logs. Signature commands have a 30-second
+deadline and a 256-KiB output limit. The report records imported fingerprints
+and genuine signature results for both commits. Unknown ownertrust warnings
+are possible because host trust is not copied. Missing keys, malformed input,
+and failed signatures block before the canonical command runs.
+
 `--validate-only` checks tool versions and offline Cargo metadata without
-building or running the workspace gate. Reports distinguish that from an
-invoked full check. A failed invocation remains failed; hardware proofs and
+building or running the workspace gate. Without a key it makes no signature
+claim; supplying `--verification-key` adds the same signature preflight so its
+prerequisites can be tested without a full check. Reports distinguish these
+paths from an invoked full check. A failed invocation remains failed; hardware proofs and
 host promoted archives remain unrun inside this environment. This command
 cannot establish physical-input or display acceptance.
 

@@ -10,6 +10,11 @@ import argparse
 import hashlib
 import json
 import os
+import selectors
+import signal
+import stat
+import tempfile
+import time
 from pathlib import Path
 import shutil
 import subprocess
@@ -57,7 +62,7 @@ def snapshot(source, destination):
     # Fetch an exact local object, not a branch name, configured remote or shared
     # worktree. The shallow repository owns its object data and index.
     git(destination, '-c', 'protocol.file.allow=always', 'fetch', '--quiet',
-        '--no-tags', '--depth=1', str(source.resolve()), before['commit'])
+        '--no-tags', '--depth=2', str(source.resolve()), before['commit'])
     git(destination, '-c', 'advice.detachedHead=false', 'checkout', '--quiet',
         '--detach', before['commit'])
     if source_state(source) != before:
@@ -149,7 +154,125 @@ def preflight_versions(environment):
             for name, command in commands.items()}
 
 
-def inside(activation_fd, validate_only):
+
+MAX_PUBLIC_KEY_BYTES = 64 * 1024
+MAX_VERIFICATION_OUTPUT = 256 * 1024
+
+
+class VerificationError(ValueError):
+    pass
+
+
+def verification_input(path):
+    # The caller selects one export, never a directory or host keyring mount.
+    # Refuse links and special files before opening (notably blocking FIFOs).
+    descriptor = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    try:
+        info = os.fstat(descriptor)
+        if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_PUBLIC_KEY_BYTES:
+            raise VerificationError('verification input must be a bounded nonempty regular file')
+        with os.fdopen(os.dup(descriptor), 'rb') as source:
+            data = source.read(MAX_PUBLIC_KEY_BYTES + 1)
+        if not 0 < len(data) <= MAX_PUBLIC_KEY_BYTES:
+            raise VerificationError('verification input changed size or exceeds the limit')
+        return data
+    finally:
+        os.close(descriptor)
+
+
+def verification_command(command, environment, *, payload=b'', timeout=30):
+    # Raw packet diagnostics can contain private material in a mistaken input.
+    # Keep them only in bounded memory, never an evidence log. The input copy is
+    # anonymous in private tmpfs; only an accepted public import persists.
+    with tempfile.TemporaryFile() as incoming:
+        incoming.write(payload)
+        incoming.seek(0)
+        with subprocess.Popen(command, env=environment, stdin=incoming,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                              close_fds=True, start_new_session=True) as child:
+            deadline = time.monotonic() + timeout
+            output = bytearray()
+            try:
+                os.set_blocking(child.stdout.fileno(), False)
+                with selectors.DefaultSelector() as selector:
+                    selector.register(child.stdout, selectors.EVENT_READ)
+                    while selector.get_map():
+                        remaining = deadline - time.monotonic()
+                        if remaining <= 0:
+                            raise VerificationError('verification command timed out')
+                        if not selector.select(remaining):
+                            raise VerificationError('verification command timed out')
+                        chunk = os.read(child.stdout.fileno(), 16384)
+                        if not chunk:
+                            selector.unregister(child.stdout)
+                        else:
+                            output.extend(chunk)
+                            if len(output) > MAX_VERIFICATION_OUTPUT:
+                                raise VerificationError('verification output limit exceeded')
+                child.wait(timeout=max(0.001, deadline - time.monotonic()))
+            except (VerificationError, subprocess.TimeoutExpired):
+                os.killpg(child.pid, signal.SIGKILL)
+                child.wait()
+                raise VerificationError('verification deadline or output bound exceeded') from None
+            if child.returncode:
+                raise VerificationError('verification command refused the input or signature')
+            return bytes(output)
+
+
+def verify_public_input(key_path, environment, directory, source):
+    data = verification_input(key_path)
+    directory.mkdir(mode=0o700)
+    private_environment = {**environment, 'GNUPGHOME': str(directory)}
+    flags = ['/usr/bin/gpg', '--batch', '--no-options', '--no-autostart',
+             '--no-auto-key-retrieve', '--no-auto-check-trustdb']
+    packets = verification_command([*flags, '--list-packets'], private_environment, payload=data)
+    if b':secret key packet:' in packets or b':secret sub key packet:' in packets:
+        raise VerificationError('secret-key packets are forbidden; nothing was imported')
+    if b':public key packet:' not in packets:
+        raise VerificationError('verification input contains no public key certificate')
+    version = verification_command([*flags, '--version'], private_environment).decode('utf-8', errors='replace').splitlines()
+    if not version:
+        raise VerificationError('GnuPG returned no version identity')
+    verification_command([*flags, '--import-options', 'import-minimal', '--import'],
+                         private_environment, payload=data)
+    listing = verification_command([*flags, '--with-colons', '--with-subkey-fingerprint', '--fingerprint', '--list-keys'],
+                                   private_environment).decode('utf-8', errors='replace')
+    fingerprints = sorted({line.split(':')[9] for line in listing.splitlines()
+                           if line.startswith('fpr:') and len(line.split(':')) > 9})
+    if not fingerprints or any(len(value) not in (40, 64) or
+                               any(letter not in '0123456789ABCDEF' for letter in value)
+                               for value in fingerprints):
+        raise VerificationError('public import returned no valid fingerprint inventory')
+    helper = directory / 'verify-gpg'
+    helper.write_text('#!/bin/sh\nexec /usr/bin/gpg --batch --no-options --no-autostart '
+                      '--no-auto-key-retrieve --no-auto-check-trustdb "$@"\n')
+    helper.chmod(0o700)
+    private_environment.update(GIT_CONFIG_COUNT='1', GIT_CONFIG_KEY_0='gpg.program',
+                               GIT_CONFIG_VALUE_0=str(helper))
+    commits = {}
+    for revision in ('HEAD', 'HEAD^'):
+        commit = verification_command(['/usr/bin/git', '-C', str(source), 'rev-parse', revision],
+                                      private_environment).decode().strip()
+        if len(commit) != 40 or any(letter not in '0123456789abcdef' for letter in commit):
+            raise VerificationError('snapshot is missing required commit history')
+        verification_command(['/usr/bin/git', '-C', str(source), 'verify-commit', commit],
+                             private_environment)
+        commits[revision] = {'commit': commit, 'signature': 'PASS'}
+    return private_environment, {'status': 'PASS', 'public_sha256': hashlib.sha256(data).hexdigest(),
+                                 'public_bytes': len(data), 'public_fingerprints': fingerprints,
+                                 'gpg_version': version[0],
+                                 'commits': commits, 'host_ownertrust_imported': False}
+
+
+def prepare_verification(validate_only, key_path, environment, directory, source):
+    if key_path is None:
+        if not validate_only:
+            raise VerificationError('full checks require --verification-key with public signing keys')
+        return environment, {'status': 'NOT_RUN', 'reason': 'metadata-only run without a verification key'}
+    return verify_public_input(key_path, environment, directory, source)
+
+
+def inside(activation_fd, validate_only, verification_key=None, verification_sha256=None):
     validate_entry(activation_fd)  # Before changing environment, directories or running tools.
     if Path('/dev/dri').exists():
         raise IsolationError('render-device namespace is not empty')
@@ -166,12 +289,23 @@ def inside(activation_fd, validate_only):
                    'GIT_CONFIG_NOSYSTEM': '1', 'GIT_TERMINAL_PROMPT': '0',
                    'PWD': '/work/source'}
     os.chdir('/work/source')
+    signatures = {'status': 'NOT_RUN', 'reason': 'signature preflight has not completed'}
     try:
+        environment, signatures = prepare_verification(
+            validate_only, verification_key, environment,
+            Path('/work/evidence/verification-home'), Path('/work/source'))
+        if verification_sha256 is not None and signatures.get('public_sha256') != verification_sha256:
+            signatures = {'status': 'FAIL', 'detail': 'verification input changed before private import'}
+            raise VerificationError(signatures['detail'])
+        Path('/work/evidence/signature-verification.json').write_text(json.dumps(signatures, indent=2) + '\n')
         versions = preflight_versions(environment)
         private_loader_cache()
-    except (OSError, subprocess.SubprocessError) as error:
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        if verification_key is not None and signatures['status'] == 'NOT_RUN':
+            signatures = {'status': 'FAIL', 'detail': str(error)}
         report = {'status': 'BLOCKED', 'full_check_executed': False,
-                  'detail': f'private tool preflight failed: {type(error).__name__}: {error}'}
+                  'detail': f'private preflight failed: {type(error).__name__}: {error}',
+                  'signature_verification': signatures}
         Path('/work/evidence/inner-report.json').write_text(json.dumps(report, indent=2) + '\n')
         return 2
     Path('/work/evidence/preflight.json').write_text(json.dumps(versions, indent=2) + '\n')
@@ -182,7 +316,7 @@ def inside(activation_fd, validate_only):
                                 stdout=log, stderr=subprocess.STDOUT, check=False)
     report = {'status': 'PASS' if result.returncode == 0 else 'FAIL',
               'command': command, 'command_exit': result.returncode, 'tool_versions': versions,
-              'full_check_executed': not validate_only,
+              'full_check_executed': not validate_only, 'signature_verification': signatures,
               'scope': 'Contained offline checks; no hardware or physical-input acceptance.',
               'render_devices_present': False,
               'private_runtime_data': ['generated /etc/hosts: loopback names only',
@@ -200,13 +334,15 @@ def main():
     parser.add_argument('--output', type=Path)
     parser.add_argument('--target-dir', type=Path)
     parser.add_argument('--registry', type=Path, default=Path.home() / '.cargo/registry')
-    parser.add_argument('--validate-only', action='store_true', help='versions and full offline metadata only; no check/build/test')
+    parser.add_argument('--verification-key', type=Path, help='one bounded public OpenPGP export; required for full checks')
+    parser.add_argument('--validate-only', action='store_true', help='versions, optional signature preflight and offline metadata only; no check/build/test')
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--inside', action='store_true', help=argparse.SUPPRESS)
+    parser.add_argument('--verification-sha256', help=argparse.SUPPRESS)
     parser.add_argument('--activation-fd', type=int, default=-1, help=argparse.SUPPRESS)
     args = parser.parse_args()
     if args.inside:
-        return inside(args.activation_fd, args.validate_only)
+        return inside(args.activation_fd, args.validate_only, args.verification_key, args.verification_sha256)
     if not args.output or not args.target_dir:
         parser.error('--output and --target-dir are required')
     if not 0 < args.timeout <= 1800:
@@ -227,6 +363,18 @@ def main():
     for directory in ('evidence', 'cargo'):
         (output / directory).mkdir()
     target.mkdir(parents=True, exist_ok=True)
+    key_input = None
+    if args.verification_key is not None:
+        try:
+            data = verification_input(args.verification_key)
+            key_input = {'source': str(args.verification_key.absolute()),
+                         'sha256': hashlib.sha256(data).hexdigest(), 'bytes': len(data)}
+        except (OSError, ValueError) as error:
+            report = {'status': 'BLOCKED', 'full_check_executed': False,
+                      'detail': f'invalid verification input: {error}', 'provenance': provenance}
+            (output / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+            print(json.dumps(report, indent=2))
+            return 2
     mounts = [Mount(HERE, '/work/harness/tools/probes/x11_conformance'),
               Mount(output / 'source', '/work/source', writable=True),
               Mount(output / 'cargo', '/work/cargo', writable=True),
@@ -237,13 +385,18 @@ def main():
     command = ['/usr/bin/python3', '-B',
                '/work/harness/tools/probes/x11_conformance/offline_check.py', '--inside',
                '--activation-fd', '{activation_fd}']
+    if args.verification_key is not None:
+        mounts.append(Mount(args.verification_key.absolute(), '/work/verification/public-key'))
+        command += ['--verification-key', '/work/verification/public-key',
+                    '--verification-sha256', key_input['sha256']]
     if args.validate_only:
         command.append('--validate-only')
     provenance.update(toolchain=str(toolchain), tool_sha256=tool_hashes,
                       auxiliary_tools={'rg': {'source': str(ripgrep), 'sha256': file_digest(ripgrep)}},
                       wrapper_sha256=file_digest(Path(__file__)),
                       isolation_sha256=file_digest(HERE / 'isolation.py'),
-                      target=str(target), registry=str(registry), validate_only=args.validate_only)
+                      target=str(target), registry=str(registry), validate_only=args.validate_only,
+                      public_verification_input=key_input)
     (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
     try:
         result = launch(command, mounts=mounts, timeout=args.timeout)
@@ -259,6 +412,12 @@ def main():
             report['adapter_exit'] = result.returncode
     except IsolationError as error:
         report = {'status': 'BLOCKED', 'full_check_executed': False, 'detail': str(error)}
+    signatures = report.get('signature_verification', {'status': 'NOT_RUN'})
+    if key_input and signatures.get('status') == 'PASS' and signatures.get('public_sha256') != key_input['sha256']:
+        report['status'] = 'FAIL'
+        report['detail'] = 'verification input changed between launch provenance and private import'
+    provenance['signature_verification'] = signatures
+    (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
     report['provenance'] = provenance
     report['hardware_proofs'] = {'status': 'NOT_RUN', 'reason': 'render nodes are never mounted'}
     (output / 'report.json').write_text(json.dumps(report, indent=2) + '\n')

@@ -1,6 +1,8 @@
 """Offline wrapper regressions; these do not execute cargo xtask check."""
 from pathlib import Path
 import subprocess
+import json
+import os
 import sys
 import tempfile
 import unittest
@@ -18,6 +20,8 @@ class OfflineCheckTests(unittest.TestCase):
         gate.git(source, 'add', 'tracked.txt')
         gate.git(source, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
                  '-c', 'commit.gpgSign=false', 'commit', '--quiet', '-m', 'fixture')
+        gate.git(source, '-c', 'user.name=Fixture', '-c', 'user.email=fixture@example.invalid',
+                 '-c', 'commit.gpgSign=false', 'commit', '--quiet', '--allow-empty', '-m', 'child fixture')
         return source
 
     def test_snapshot_preserves_exact_commit_without_worktree_links(self):
@@ -28,6 +32,8 @@ class OfflineCheckTests(unittest.TestCase):
             report = gate.snapshot(source, destination)
             self.assertEqual(report['commit'], gate.git(source, 'rev-parse', 'HEAD'))
             self.assertEqual(report['tree'], gate.git(destination, 'rev-parse', 'HEAD^{tree}'))
+            self.assertEqual(gate.git(destination, 'rev-parse', 'HEAD^'),
+                             gate.git(source, 'rev-parse', 'HEAD^'))
             self.assertFalse(report['dirty'])
             self.assertEqual(len(report['archive_sha256']), 64)
             self.assertFalse((destination / '.git/commondir').exists())
@@ -157,6 +163,112 @@ class OfflineCheckTests(unittest.TestCase):
         with patch.object(gate.subprocess, 'check_output', side_effect=FileNotFoundError('missing rg')):
             with self.assertRaises(FileNotFoundError):
                 gate.preflight_versions(gate.ENVIRONMENT)
+
+
+    def test_verification_input_rejects_links_special_files_and_size(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            public = root / 'public'; public.write_bytes(b'certificate bytes')
+            self.assertEqual(gate.verification_input(public), b'certificate bytes')
+            link = root / 'alias'; link.symlink_to(public)
+            fifo = root / 'pipe'; os.mkfifo(fifo)
+            empty = root / 'empty'; empty.touch()
+            large = root / 'large'; large.write_bytes(b'x' * (gate.MAX_PUBLIC_KEY_BYTES + 1))
+            for invalid in (link, fifo, root, empty, large):
+                with self.subTest(path=invalid.name):
+                    with self.assertRaises((OSError, gate.VerificationError)):
+                        gate.verification_input(invalid)
+
+    def test_metadata_without_key_has_no_signature_claim(self):
+        with patch.object(gate, 'verify_public_input') as verify:
+            environment, report = gate.prepare_verification(True, None, gate.ENVIRONMENT,
+                                                            Path('/unused'), Path('/unused'))
+        self.assertEqual(environment, gate.ENVIRONMENT)
+        self.assertEqual(report['status'], 'NOT_RUN')
+        verify.assert_not_called()
+
+    def check_blocked_inside(self, *, has_key, error=None, verification=None, expected_hash=None):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary)
+            for name in ('work/source', 'work/cargo', 'work/evidence', 'usr'):
+                (base / name).mkdir(parents=True, exist_ok=True)
+            def private_path(value):
+                return base / str(value).lstrip('/')
+            with patch.object(gate, 'Path', side_effect=private_path), \
+                    patch.object(gate, 'validate_entry'), patch.object(gate, 'private_hosts'), \
+                    patch.object(gate, 'private_target_link'), patch.object(gate.os, 'chdir'), \
+                    patch.object(gate, 'verify_public_input', side_effect=error,
+                                 return_value=(gate.ENVIRONMENT, verification)) as verify, \
+                    patch.object(gate, 'preflight_versions') as versions, \
+                    patch.object(gate.subprocess, 'run') as run:
+                result = gate.inside(5, False, Path('/supplied-public') if has_key else None, expected_hash)
+                report = json.loads((base / 'work/evidence/inner-report.json').read_text())
+                self.assertEqual(result, 2)
+                self.assertEqual(report['status'], 'BLOCKED')
+                self.assertFalse(report['full_check_executed'])
+                versions.assert_not_called(); run.assert_not_called()
+                self.assertEqual(verify.call_count, int(has_key))
+                return report
+
+    def test_missing_public_key_blocks_before_canonical_command(self):
+        self.check_blocked_inside(has_key=False)
+
+    def test_signature_failure_blocks_before_canonical_command(self):
+        self.check_blocked_inside(has_key=True, error=gate.VerificationError('invalid signature'))
+
+    def test_changed_public_input_identity_blocks_before_canonical_command(self):
+        report = self.check_blocked_inside(has_key=True, expected_hash='0' * 64,
+                                          verification={'status': 'PASS', 'public_sha256': '1' * 64})
+        self.assertEqual(report['signature_verification']['status'], 'FAIL')
+
+    def test_secret_key_packets_are_refused_before_import(self):
+        for packet in (b':secret key packet:', b':secret sub key packet:'):
+            with self.subTest(packet=packet), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); public = root / 'mistaken-input'; public.write_bytes(b'fixture')
+                with patch.object(gate, 'verification_command', return_value=packet) as command:
+                    with self.assertRaisesRegex(gate.VerificationError, 'secret-key packets'):
+                        gate.verify_public_input(public, gate.ENVIRONMENT, root / 'private-home', root)
+                self.assertEqual(command.call_count, 1)
+                self.assertIn('--list-packets', command.call_args.args[0])
+                self.assertNotIn('--import', command.call_args.args[0])
+                self.assertEqual(list((root / 'private-home').iterdir()), [])
+
+    def test_public_import_and_signature_commands_use_only_private_home(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary); public = root / 'public'; public.write_bytes(b'fixture-public')
+            home = root / 'private-home'; fingerprint = 'A' * 40
+            listing = ('fpr:::::::::' + fingerprint + ':\n').encode()
+            responses = [b':public key packet:', b'gpg (GnuPG) fixture\n', b'imported', listing,
+                         b'1' * 40 + b'\n', b'good signature', b'2' * 40 + b'\n', b'good signature']
+            with patch.object(gate, 'verification_command', side_effect=responses) as command:
+                environment, report = gate.verify_public_input(public, gate.ENVIRONMENT, home, root)
+            self.assertEqual(report['status'], 'PASS')
+            self.assertEqual(report['public_fingerprints'], [fingerprint])
+            self.assertEqual(set(report['commits']), {'HEAD', 'HEAD^'})
+            self.assertEqual(environment['GNUPGHOME'], str(home))
+            self.assertEqual(home.stat().st_mode & 0o777, 0o700)
+            self.assertNotIn('SSH_AUTH_SOCK', environment)
+            self.assertNotIn('DBUS_SESSION_BUS_ADDRESS', environment)
+            calls = command.call_args_list
+            self.assertIn('--list-packets', calls[0].args[0])
+            self.assertIn('--version', calls[1].args[0])
+            self.assertIn('--import', calls[2].args[0])
+            self.assertEqual(report['gpg_version'], 'gpg (GnuPG) fixture')
+            for call in calls:
+                self.assertEqual(call.args[1]['GNUPGHOME'], str(home))
+                if call.args[0][0].endswith('/gpg'):
+                    for flag in ('--no-options', '--no-autostart', '--no-auto-key-retrieve'):
+                        self.assertIn(flag, call.args[0])
+            self.assertIn('--no-autostart', (home / 'verify-gpg').read_text())
+
+    def test_verification_process_deadline_and_output_bound(self):
+        with self.assertRaises(gate.VerificationError):
+            gate.verification_command([sys.executable, '-c', 'import time; time.sleep(5)'],
+                                      gate.ENVIRONMENT, timeout=0.05)
+        with patch.object(gate, 'MAX_VERIFICATION_OUTPUT', 32):
+            with self.assertRaises(gate.VerificationError):
+                gate.verification_command([sys.executable, '-c', 'print("x" * 65536)'],
+                                          gate.ENVIRONMENT, timeout=2)
 
 
 if __name__ == '__main__':

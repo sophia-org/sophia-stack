@@ -598,10 +598,22 @@ impl XAuthorityRuntime {
              release.released_shm_segments = release.released_shm_segments.saturating_add(1);
          }
  
-         for record in self
+         // Resource records come back in XID allocation order, which is
+         // ordinarily parent-before-child: the exact reverse of what a window
+         // vanishing owes its watchers. Order the client's windows deepest-first
+         // before destroying any of them, so the notifications this drives
+         // report descendants before their ancestors.
+         let mut records = self
              .resources
-             .records_for_namespace_in_client_range(namespace, range)
-         {
+             .records_for_namespace_in_client_range(namespace, range);
+         records.sort_by_key(|record| {
+             core::cmp::Reverse(match record.kind {
+                 XResourceKind::Window => self.windows.depth(record.id),
+                 _ => 0,
+             })
+         });
+
+         for record in records {
              match record.kind {
                  XResourceKind::Window => {
                      let surface = self.destroy_window(namespace, record.id)?;

@@ -2259,6 +2259,14 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         })?;
                 }
             }
+        }
+        // Retire the subscriptions only once every notification is routed. A
+        // destroyed window is frequently the parent that another destroyed
+        // window addresses its SubstructureNotify to, so removing them as the
+        // loop went delivered those to nobody. Destruction order alone would
+        // mask this -- children precede their parents -- but that is too
+        // fragile to rest on, and a separate pass cannot be got wrong.
+        for window in &release.destroyed_windows {
             routing
                 .remove_core_event_window(*window)
                 .map_err(|error| {

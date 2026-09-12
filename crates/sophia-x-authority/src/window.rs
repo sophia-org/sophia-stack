@@ -331,6 +331,25 @@ impl XWindowTable {
         Ok(record.authority_surface())
     }
 
+    /// Distance from the root: a root child is one, its own child two.
+    ///
+    /// Ordering a client's windows by descending depth destroys them
+    /// deepest-first, so a parent is never reported gone before its children.
+    pub fn depth(&self, id: XResourceId) -> usize {
+        let mut depth: usize = 0;
+        let mut current = id;
+        // The root holds no record, so the walk ordinarily ends there. The
+        // bound is belt-and-braces: a malformed cycle must not spin forever.
+        while let Some(record) = self.windows.get(&current) {
+            depth = depth.saturating_add(1);
+            if depth > self.windows.len() {
+                break;
+            }
+            current = record.parent;
+        }
+        depth
+    }
+
     pub fn set_parent(
         &mut self,
         id: XResourceId,

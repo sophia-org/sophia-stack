@@ -169,3 +169,48 @@ The mixed-owner descendant case closes a parent client while another client owns
 its child and a separate selection. It requires actual child destruction,
 client-close subtype 2 for the parent, window-destroy subtype 1 for the child,
 retained ownership timestamps and continued service for the surviving peer.
+
+
+## Canonical workspace checks without hardware access
+
+Use the contained wrapper for an offline `cargo xtask check`. Clearing
+`SOPHIA_*` and `HAGIA_*` is insufficient: parts of the canonical gate also
+probe writable render nodes automatically. The wrapper supplies a private
+`/dev` without DRM or input devices, clears the environment, and closes
+unrelated descriptors before starting the unchanged canonical command.
+
+```sh
+python3 -B tools/probes/x11_conformance/offline_check.py \
+  --source /absolute/clean-checkout \
+  --target-dir /absolute/main-checkout/.artifacts/offline-target \
+  --output /absolute/main-checkout/.artifacts/offline-check-new
+```
+
+Both output and target must be distinct, disk-backed children of the main
+checkout's `.artifacts`; build targets under `/tmp` are refused. The source
+must be clean and committed. The wrapper copies the exact commit into an
+independent repository, records its tree/archive hash and toolchain hashes,
+and mounts only the offline registry cache from Cargo home. It generates a
+loopback-only `/etc/hosts` for regular-file refusal tests, generates its loader
+cache from the allowlisted libraries, and links the private source copy's `target` to the explicitly owned target directory for profile
+binary discovery. These fixtures expose neither an installed Sophia nor host `/etc`. The exact
+`rg` executable is mounted separately and hashed; compiler and required helper
+versions are checked before the workspace suite, so a missing helper cannot be
+mistaken for source-layout evidence.
+
+`--validate-only` checks tool versions and offline Cargo metadata without
+building or running the workspace gate. Reports distinguish that from an
+invoked full check. A failed invocation remains failed; hardware proofs and
+host promoted archives remain unrun inside this environment. This command
+cannot establish physical-input or display acceptance.
+
+Wrapper regression commands (no full workspace check):
+
+```sh
+python3 -B -W error -m unittest discover -s tools/probes/x11_conformance -p test_offline_check.py
+python3 -B tools/probes/x11_conformance/test_isolation.py
+```
+
+The second command requires working unprivileged namespaces and fails when they
+are unavailable. Its socket endpoints and inherited descriptors are fabricated
+by the tests; it never probes the operator's display or service endpoints.

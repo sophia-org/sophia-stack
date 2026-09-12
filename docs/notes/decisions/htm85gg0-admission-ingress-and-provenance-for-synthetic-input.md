@@ -40,93 +40,156 @@ seat.
 
 ## Admission
 
-**Authorization is per admitted caller, not per server.** A global enable makes
-the capability *available*; it must never be read as authorizing every connected
-client. Each admitted client carries its own synthetic-input authorization,
-derived from verified admission, never from a caller-supplied field, a matching
-UID, or membership of a shared namespace.
+**Authorization is per admitted caller, and the global enable is also
+necessary.** A global enable makes the capability *available*; it never
+authorizes a connected client by itself. Absence of either the enable or the
+caller's authorization disables discovery and effects alike.
 
 **Discovery follows authorization.** `ListExtensions` and `QueryExtension` report
-XTEST only to a caller authorized for it, and they must agree -- the same
-property t086 repaired for the rest of the extension set. Absence is the default
-for an unavailable capability. Hiding the extension is not a security boundary:
-a client that guesses the opcode still meets the same denial, and that denial is
-an explicit error, never silence or a dropped request.
+XTEST only to a caller authorized for it, and they must agree -- the property
+t086 repaired for the rest of the extension set. Absence is the default for an
+unavailable capability. Hiding the extension is not a security boundary: a
+client that guesses the opcode meets the same denial, and that denial is an
+explicit error, never silence or a dropped request.
 
-**Authorization is rechecked at execution, not only at dispatch.** Delayed input
-and revocation both mean the decision can change between a request arriving and
-its effect landing. A revoked caller's pending synthetic input does not execute.
+`BadAccess` is the denial. A client may report an authorization denial and an
+absent extension alike as failure, but they are distinguishable on the wire --
+`BadAccess` is not `BadRequest` and not `BadImplementation` -- and an
+intentionally absent extension is not a defect. What the contract requires is
+that the **refusal record** separate intentional authorization denial from
+missing implementation, so the log answers which one happened.
 
-`BadAccess` is the denial, and it is intentional policy rather than a missing
-feature. That distinction belongs in the refusal log, because the two look
-identical from the client side and only one is a bug.
+### The authorization boundary is atomic, not a check followed by work
+
+A check, then an enqueue, still races revocation; so does a check followed by a
+focus, seat or security-epoch change. Authorized work binds to the **admitted
+connection, the grant generation, the session, and the seat and security
+epoch**, and there is a single authoritative commit boundary shared with
+revocation:
+
+- work not committed at that boundary when revocation takes effect does not run;
+- effects already committed are not retroactively undone;
+- focus, grab resolution and security validation are coherent at that boundary;
+- no reconnect, and no reuse of a client or resource identifier, inherits an
+  earlier grant's pending input.
+
+**Cleanup outlives the grant.** Retiring a revoked caller's contribution must
+remain possible after injection permission is gone, and when the ordinary queue
+is full. Cleanup that depends on the path being available is cleanup that fails
+exactly when it is needed.
 
 ## Ingress
 
-**Synthetic input enters where real input enters.** Session authorizes; Engine
-remains the input authority. `FakeInput` must not write client events directly,
-because doing so would step around committed focus, active grabs, the security
-epoch, input recovery, and lock and VT policy -- every protection the real path
-enforces.
+**Synthetic input joins shared authoritative routing through an explicitly
+synthetic ingress.** Session authorizes; Engine remains the input authority.
+`FakeInput` must not write client events directly, because that steps around
+committed focus, active grabs, the security epoch, input recovery, and lock and
+VT policy. It does **not** follow that synthetic input impersonates a libinput
+device: the protocol requires shared routing, not a forged device identity.
 
-There is already a precedent in tree:
 `crates/sophia-session/src/live_session/owner_loop/input_proof.rs` injects
-through the committed Engine path and *asserts* it traversed committed focus
-rather than assuming it. That is the shape, and it is evidence the ingress
-constraint is satisfiable rather than aspirational. It is not itself a general
-XTEST grant.
+through the committed Engine path and *asserts* it traversed committed focus.
+That is precedent that the ingress constraint is satisfiable. It is not a
+general XTEST grant, and its single-source release helper is not proof that
+multi-source cleanup works.
 
-**Bounded queueing, and cleanup that survives failure.** `FakeInput`'s time field
-is a **delay, not a timestamp**, and it constrains the processing order of that
-client's subsequent requests. A contract for it has to state the queue bound,
-what happens when the bound is reached, and how a caller that disconnects or is
-revoked mid-sequence has its held keys, buttons and grabs released. A synthetic
-press with no release is a stuck modifier for the whole seat.
+**Reserved session actions default to refusal.** Whether this grant may invoke
+VT switches, emergency chords, or anything with locked or inactive-seat
+behaviour is a separate question from whether it may inject a keystroke.
+Anything requiring physical presence or separate authority is refused unless
+explicitly granted.
 
-## Provenance
+**A delay blocks one client, not the server.** `FakeInput`'s time field is a
+delay, not a timestamp, and it constrains the processing order of that
+*client's* subsequent requests. During it, revocation, cleanup, healthy peers
+and physical input all continue. A later X reply is not by itself proof that a
+recipient received anything or that anything was presented.
 
-**Synthetic input keeps a synthetic identity, end to end.** It must never be
-promoted into something indistinguishable from a physical gesture. The existing
-`source=synthetic` labelling is the precedent to extend, and the label has to
-survive into whatever evidence a run produces.
+## Provenance and cleanup
 
-**Acceptance consequence.** Synthetic input may provide setup, and may provide
-explicitly labelled regression evidence. It **cannot substitute for the physical
-evidence** t077, t060 and t062 require: it establishes nothing about hardware,
-libinput, VT delivery, physical timing, or recovery through the original device
-path. The earlier phrasing "never any evidence" was too broad and is withdrawn;
-the correct constraint is that it never substitutes for their required physical
-evidence.
+**Provenance is enforced runtime state, not an evidence label.** Synthetic input
+carries a synthetic identity that the runtime acts on, and it is never promoted
+into something indistinguishable from a physical gesture. `source=synthetic` in
+the existing path is the precedent for saying so in evidence; the contract needs
+the state itself.
 
-Where a run uses synthetic setup before a physical phase, the synthetic phase
-releases its keys, buttons and grabs and settles pending work first, and the two
-phases stay separately identifiable in the record.
+**Cleanup retires a contribution, it does not release the seat.** This is where
+the naive reading is actively unsafe. If the operator physically holds Shift,
+injector A also injects Shift-down, and A is revoked, cleanup must leave the
+physical hold intact. The same holds when a second injector B holds it too.
+
+So the contract requires **source-owned contribution tracking**: each source's
+contribution to a key, button or modifier is held separately, with a stated
+policy for overlap and for duplicate transitions. Retiring A removes A's
+contribution and nothing else. Cleanup must not:
+
+- send a global key-up or button-up;
+- alter another device's or another client's state;
+- manufacture a new action on whatever window now has focus.
+
+**Injector-owned state and target-side state are different things.** A caller's
+own `GrabControl` server-grab imperviousness is its to retire. A passive grab
+that its injection *activated* inside a target client belongs to that client;
+the implementation must specify how that recovers rather than cancelling
+another client's grab.
 
 ## The other three requests
 
-`GetVersion` is a version handshake and can be answered wherever the extension
-is advertised at all.
+`GetVersion` is a version handshake, answerable wherever the extension is
+advertised at all.
 
 `CompareCursor` splits. With an explicit cursor and window it is a
-resource-scoped question and can be answered within the caller's namespace.
-Asking about the **current** cursor is a disclosure question about what the seat
-is displaying, and needs its own check or an admitted virtual-seat reading.
+resource-scoped question, answerable within the caller's namespace. Asking about
+the **current** cursor is a disclosure question about what the seat is
+displaying, and needs its own check or an admitted virtual-seat reading.
 
 `GrabControl` makes the calling client **impervious to server grabs**. It does
-not release pointer or keyboard grabs and does not grant injection; the earlier
-reading of it as device-grab control was wrong. Gating it with the
-administrative surface is defensible, but its actual scheduling semantics have
-to be implemented and tested rather than stubbed. Neither of these may report
-behaviour the server does not perform.
+not release pointer or keyboard grabs and does not grant injection. Gating it
+with the administrative surface is defensible, but its actual scheduling
+semantics must be implemented and tested rather than stubbed. Neither request
+may report behaviour the server does not perform.
+
+## Settled here, and deliberately not settled here
+
+Settled: default absence; the global enable and per-caller authorization are
+both necessary; discovery agrees with authorization; the atomic commit boundary
+and its revocation semantics; synthetic ingress through shared authoritative
+routing; provenance as runtime state; source-owned cleanup; corrected
+`GrabControl` and `CompareCursor` readings; and the physical-evidence rule.
+
+**Open implementation-admission gates.** These are named, not decided, and an
+implementation is not admitted until each is chosen:
+
+- **Grant issuance and binding.** Who issues a synthetic-input authorization,
+  and what it binds to. "Derived from verified admission" does not say.
+- **Permission scope.** Whether injection, current-cursor disclosure and
+  server-grab imperviousness are separate permissions or one explicitly bundled
+  grant.
+- **Delegation boundary.** Whether the mode trusts the whole host-user domain or
+  delegates selectively, named explicitly either way. Matching UID or
+  `ClassicShared` membership is not that boundary.
+- **Bounds.** The delay bound, per-client and aggregate queue bounds, what
+  happens on overflow, and fairness between callers. Requiring a contract to
+  state a bound is not a bound.
+- **Reserved actions.** Which session actions, if any, the grant may reach.
 
 ## Consequences
 
-Default remains absence, as t030 decided. What changes is that there is now a
-contract an admitted implementation must satisfy, rather than an open gap.
+Default remains absence, as t030 decided. What changes is that there is a
+contract to satisfy and a named list of what remains unchosen.
 
-An implementation admitted under this note owes the independent manifest cases
-for enabled, disabled, unauthorized and revoked callers, in both byte orders.
+An implementation admitted under this note owes independent manifest cases for
+enabled, disabled, unauthorized and revoked callers in both byte orders, and
+these negatives specifically:
+
+- physical and synthetic holding the same key, with the synthetic source retired;
+- two injectors holding the same key, with one retired;
+- revocation landing on delayed input at the commit boundary;
+- a reconnected client, or a reused identifier, not inheriting pending input;
+- cleanup succeeding while the ordinary queue is exhausted;
+- healthy peers and physical input continuing throughout a delayed caller's block.
+
 XTS results stay separate from physical acceptance records.
 
 Nothing here authorises writing the extension. It states what writing it would
-have to honour.
+have to honour, and what still has to be decided first.

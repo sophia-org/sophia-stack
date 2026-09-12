@@ -584,3 +584,39 @@ ancestry including d9c49d85 were checked. Both capture scripts and all generated
 wrappers pass bash -n against that release. No installed files or live processes
 were changed, and no new native run was launched. Full-GUI recovery on the
 repaired release remains the next acceptance step.
+
+### Attended Enter acceptance on the repaired release
+
+Capture `/tmp/sophia-pinentry-trace/run.qeBCVI` uses release manifest
+702efef161ddf758affdbf68bf139b00aa21a5be and the v8 instrumented probe.
+PID 22185 identifies GUI XID 4194307 and clipboard XID 6291456. Enter is
+observed at sequence 3413. Clipboard destruction and flush return; the worker
+receives clipboard_destroy_notify for exactly 6291456 at sequence 3519,
+clipboard_join_return succeeds at 3520, running_drop_return appears at 3521
+and destroy_return at 3522. Event-loop exit and return follow, then
+run_native_return at 3542 and process_exit at 3547.
+
+The direct Assuan exchange returns the expected dummy value and completes.
+Process exit is zero, harness_termination is null, trace_complete is true and
+trace_loss is false. Harness receipt latency from submission is 13.729 ms;
+this is a harness measurement, not an exact execution interval. The operator
+also reported outcome completed.
+
+This verifies recovery of the captured full-GUI Enter shutdown stall:
+historical run.0WbZgV stopped at the clipboard worker join, while this run
+receives the notification that releases that join and finishes normally.
+Together with the isolated real-arboard old/fresh-server comparison, this
+establishes the clipboard teardown mechanism, rather than the rejected theory
+of waiting for a GUI-window event after teardown had already returned.
+
+The native trace has no clipboard_drop_complete marker (that marker belongs
+to the standalone fixture), so summary.open_spans retains clipboard_drop_enter.
+It is an instrumentation boundary limitation, not a surviving destructor:
+the enclosing running-state drop returns, run_native returns, and the process
+exits normally.
+
+Scope remains explicit: this accepts the instrumented dummy Enter path on the
+named release. It does not test OK/Cancel, real GPG signing, floating/dialog
+hints, UTF-8 encoding or the complete t077 physical recovery matrix. T082 remains
+open for its separate hints/encoding work; its captured Enter shutdown failure
+is now reproduced, explained and observed recovering.

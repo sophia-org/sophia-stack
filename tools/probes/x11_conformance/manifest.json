@@ -201,6 +201,10 @@
     {
       "id": "xfixes_selection_peer_descendant",
       "mandatory": true
+    },
+    {
+      "id": "get_geometry_errors",
+      "mandatory": true
     }
   ],
   "features": [
@@ -573,6 +577,15 @@
         "xfixes_selection_stalled",
         "xfixes_selection_peer_descendant"
       ]
+    },
+    {
+      "name": "GetGeometry rejects absent and destroyed drawables with BadDrawable and preserves continuation",
+      "accepted_core_opcodes": [
+        14
+      ],
+      "cases": [
+        "get_geometry_errors"
+      ]
     }
   ],
   "extensions": {
@@ -817,7 +830,8 @@
       "cases": [
         "configure",
         "reply_errors",
-        "window_tree"
+        "window_tree",
+        "get_geometry_errors"
       ]
     },
     "15": {

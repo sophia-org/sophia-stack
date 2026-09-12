@@ -116,6 +116,17 @@ def reply_errors(context):
         assert c.u16(c.reply(14, c.pack('I', wid)), 16) == 80
 
 
+def get_geometry_errors(context):
+    with client(context) as c:
+        alive = c.window(events=0)
+        destroyed = c.window(events=0)
+        c.send(4, c.pack('I', destroyed))
+        c.sync()
+        for invalid in (c.xid(), destroyed):
+            c.completion(c.send(14, c.pack('I', invalid)), error=9, opcode=14, resource=invalid)
+            assert c.u16(c.reply(14, c.pack('I', alive)), 16) == 80
+
+
 def destroy_subscribers(context):
     with client(context) as owner, peer_client(context) as watcher, client(context) as silent:
         parent = owner.window(events=1 << 19)
@@ -761,7 +772,8 @@ CASES = {'setup': setup,
              'setup_truncated_auth', 'setup_invalid_order', 'setup_version_containment')},
          'window_tree': window_tree, 'map': window_transition,
          'configure': window_transition, 'unmap': window_transition, 'destroy': window_transition,
-         'reply_errors': reply_errors, 'property_values': property_values,
+         'reply_errors': reply_errors,
+         'get_geometry_errors': get_geometry_errors, 'property_values': property_values,
          'selection_owner': selection_owner, 'selection_transfer': selection_transfer,
          'selection_absent': selection_absent, 'focus': focus, 'pointer_grab': grab,
          'keyboard_grab': grab, 'disconnect': disconnect, 'extensions': extensions,

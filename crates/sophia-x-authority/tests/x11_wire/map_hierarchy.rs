@@ -459,6 +459,34 @@ fn routed_lifecycle_events_follow_structure_and_substructure_masks() {
         window
     );
 
+    // Destroy completes the family, and is the case where routing order shows:
+    // both records are owed after the window is already gone.
+    owner
+        .write_all(&resource_request(XByteOrder::LittleEndian, 4, window))
+        .unwrap();
+
+    let destroyed = read_x_record(&mut owner);
+    assert_eq!(destroyed[0], 17, "owner receives DestroyNotify");
+    assert_eq!(
+        read_u32(XByteOrder::LittleEndian, &destroyed[4..8]),
+        window,
+        "the owner's copy is addressed to the window it selected on"
+    );
+    assert_eq!(read_u32(XByteOrder::LittleEndian, &destroyed[8..12]), window);
+
+    let parent_destroyed = read_x_record(&mut observer);
+    assert_eq!(parent_destroyed[0], 17, "observer receives DestroyNotify");
+    assert_eq!(
+        read_u32(XByteOrder::LittleEndian, &parent_destroyed[4..8]),
+        X_SETUP_DEFAULT_ROOT,
+        "the observer's copy is addressed to the parent it selected on"
+    );
+    assert_eq!(
+        read_u32(XByteOrder::LittleEndian, &parent_destroyed[8..12]),
+        window,
+        "both records name the same destroyed window"
+    );
+
     drop(owner);
     drop(observer);
     service_sender

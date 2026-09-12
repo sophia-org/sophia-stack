@@ -1329,22 +1329,14 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         if let Some(window) = unmapped_window {
                             selections.observe_unmapped(window);
                         }
+                        // Routing reads the window's subscriptions and parent to
+                        // find who is owed its DestroyNotify, so those entries
+                        // have to outlive the window and are cleared after the
+                        // notification is routed. Clearing here deleted the
+                        // recipients before the event addressed to them was
+                        // delivered.
                         if let Some(window) = destroyed_window {
                             selections.remove(window);
-                            if let Some(routing) = protocol_routing.as_ref() {
-                                routing
-                                    .remove_window_parent(client, window)
-                                    .map_err(|error| {
-                                        X11SetupSocketError::new(format!(
-                                            "failed to remove X11 window hierarchy: {error}"
-                                        ))
-                                    })?;
-                                routing.remove_core_event_window(window).map_err(|error| {
-                                    X11SetupSocketError::new(format!(
-                                        "failed to remove core X11 event subscriptions: {error}"
-                                    ))
-                                })?;
-                            }
                         }
                         if let Some((window, mask)) = randr_selection
                             && let Some(routing) = protocol_routing.as_ref()
@@ -1973,6 +1965,37 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     client,
                     output,
                 )?;
+
+                // The destroyed window is named by the notification that was
+                // just routed, which keeps this independent of where the
+                // request was decoded. Retiring the entries now stops a reused
+                // XID from inheriting a previous window's subscribers.
+                let retired = output
+                    .outputs
+                    .iter()
+                    .filter_map(|entry| match entry {
+                        crate::XClientOutput::Event(crate::XClientEvent::DestroyNotify {
+                            event,
+                            window,
+                            ..
+                        }) if event == window => Some(*window),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>();
+                for window in retired {
+                    routing
+                        .remove_window_parent(client, window)
+                        .map_err(|error| {
+                            X11SetupSocketError::new(format!(
+                                "failed to remove X11 window hierarchy: {error}"
+                            ))
+                        })?;
+                    routing.remove_core_event_window(window).map_err(|error| {
+                        X11SetupSocketError::new(format!(
+                            "failed to remove core X11 event subscriptions: {error}"
+                        ))
+                    })?;
+                }
             } else {
                 let selections = core_event_selections.lock().map_err(|_| {
                     X11SetupSocketError::new("X11 core event selection lock poisoned")

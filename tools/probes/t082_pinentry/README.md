@@ -37,12 +37,11 @@ compile the real trace helper against a stand-in process; they do not open a GUI
 
 ## Operator capture
 
-First install the checked recovery release. **Installation needs sudo.** Run
-from the main Sophia checkout:
-
-```sh
-sudo tools/install_live_session.sh .artifacts/sophia-0.1.0-2f38ac757f8e
-```
+The capture pins installed release `0.1.0-18f70f862300`, whose commit is a
+verified descendant of the t077 recovery commit `2f38ac75`. Installation on this
+host is complete; no further installation or sudo is needed. An exact pin keeps
+the specimen reproducible. If that release is removed, verify and deliberately
+retarget the launcher instead of accepting an arbitrary newer build.
 
 End the old desktop normally. From a local VT, as the ordinary user, run:
 

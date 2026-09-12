@@ -6,17 +6,17 @@ umask 077
 [[ $EUID != 0 ]] || { echo 'Capture runs as the ordinary user, without sudo.' >&2; exit 1; }
 export T082_TOOLS
 T082_TOOLS=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
-export T082_RELEASE=/opt/sophia/releases/0.1.0-2f38ac757f8e
+export T082_RELEASE=/opt/sophia/releases/0.1.0-18f70f862300
 export T082_BUNDLE=/home/niltempus/dev/sophia-stack/.artifacts/t082-probe-v4
 export T082_CAPTURE
 mkdir -p /tmp/sophia-pinentry-trace
 T082_CAPTURE=$(mktemp -d /tmp/sophia-pinentry-trace/run.XXXXXX)
-printf 'Capture directory: %s\nCapture needs no sudo; installing its prerequisite release does.\n' "$T082_CAPTURE"
+printf 'Capture directory: %s\nCapture needs no sudo.\n' "$T082_CAPTURE"
 [[ -f $T082_RELEASE/manifest ]] || {
-    echo 'Required t077 release is not installed. Have the operator install sophia-0.1.0-2f38ac757f8e first.' >&2
+    echo 'Pinned capture release 0.1.0-18f70f862300 is absent; verify the installed release and retarget this capture before running.' >&2
     exit 1
 }
-grep -Fxq 'commit=2f38ac757f8ea70f001bba664e8c8acc4984ef4b' "$T082_RELEASE/manifest" || {
+grep -Fxq 'commit=18f70f862300ff1cf2cd82704217bb1882cdd396' "$T082_RELEASE/manifest" || {
     echo 'Release identity mismatch.' >&2; exit 1;
 }
 (cd "$T082_RELEASE" && sha256sum -c --quiet SHA256SUMS)
@@ -46,7 +46,7 @@ export SOPHIA_TTY_PROFILE=hagia SOPHIA_BUILD_SESSION=false SOPHIA_MANAGE_KEYD=fa
 export SOPHIA_INSTALLED_SESSION=true SOPHIA_REQUIRE_RUNTIME_DIR=true SOPHIA_REQUIRE_LOCAL_VT=true
 export SOPHIA_INPUT_GUARD_ARMING=automatic SOPHIA_SESSION_STARTUP=terminal
 export SOPHIA_SESSION_HANDOFF=display_manager SOPHIA_HAGIA_PROFILE_MODE=user
-export SOPHIA_INSTALLED_VERSION=0.1.0 SOPHIA_INSTALLED_COMMIT=2f38ac757f8ea70f001bba664e8c8acc4984ef4b
+export SOPHIA_INSTALLED_VERSION=0.1.0 SOPHIA_INSTALLED_COMMIT=18f70f862300ff1cf2cd82704217bb1882cdd396
 export SOPHIA_DESKTOP_PROFILE_SHA256
 SOPHIA_DESKTOP_PROFILE_SHA256=$(sha256sum "$SOPHIA_DESKTOP_PROFILE" | awk '{print $1}')
 export SOPHIA_X11_AUTHORITY_TRACE=1 SOPHIA_LIVE_VISUAL_PROGRESS=1

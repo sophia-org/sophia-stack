@@ -342,3 +342,13 @@ verify healthy terminal input, focus, VT round trip and clean logout. Correlate
 the explicit PID/XID with session records and identify the first absent native
 transition before proposing a repair. A non-reproduction or lost trace leaves
 t082 open rather than establishing success.
+
+### Installed-release retargeting
+
+The operator subsequently installed `0.1.0-18f70f862300` (commit
+`18f70f862300ff1cf2cd82704217bb1882cdd396`). Its manifest and full release
+checksums were verified, and git ancestry confirms it contains `2f38ac75`.
+The launcher now pins that exact installed release; the earlier installation
+prerequisite is satisfied. Both the materialized capture and all three wrappers
+generated from this installed release pass `bash -n`. This is preparation only:
+the attended dummy reproduction and physical acceptance remain outstanding.

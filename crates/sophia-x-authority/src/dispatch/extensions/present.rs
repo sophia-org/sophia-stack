@@ -111,7 +111,11 @@ fn dispatch_present_request(
                 XWireRequest::PresentUnimplemented { minor_opcode } => XDispatchResult {
                     response: None,
                     outputs: vec![XClientOutput::Error(crate::XClientError {
-                        code: XErrorCode::BadImplementation,
+                        code: if minor_opcode <= crate::X_PRESENT_LAST_MINOR_OPCODE {
+                            XErrorCode::BadImplementation
+                        } else {
+                            XErrorCode::BadRequest
+                        },
                         sequence: context.sequence,
                         resource_id: 0,
                         minor_code: u16::from(minor_opcode),

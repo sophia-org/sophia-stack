@@ -176,6 +176,10 @@ pub const X_DRI3_GET_SUPPORTED_MODIFIERS_MINOR_OPCODE: u8 = 6;
 pub const X_DRI3_PIXMAP_FROM_BUFFERS_MINOR_OPCODE: u8 = 7;
 pub const X_DRI3_BUFFERS_FROM_PIXMAP_MINOR_OPCODE: u8 = 8;
 pub const X_DRI3_SET_DRM_DEVICE_IN_USE_MINOR_OPCODE: u8 = 9;
+/// The highest DRI3 minor Sophia answers. Minor 5, `FDFromFence`, sits inside
+/// this range without a constant above: it is defined by the protocol and not
+/// implemented here, so it owes BadImplementation rather than BadRequest.
+pub const X_DRI3_LAST_MINOR_OPCODE: u8 = X_DRI3_SET_DRM_DEVICE_IN_USE_MINOR_OPCODE;
 pub const X_PRESENT_EXTENSION_NAME: &str = "Present";
 pub const X_PRESENT_MAJOR_OPCODE: u8 = 138;
 pub const X_PRESENT_FIRST_EVENT: u8 = 0;
@@ -184,6 +188,10 @@ pub const X_PRESENT_PIXMAP_MINOR_OPCODE: u8 = 1;
 pub const X_PRESENT_NOTIFY_MSC_MINOR_OPCODE: u8 = 2;
 pub const X_PRESENT_SELECT_INPUT_MINOR_OPCODE: u8 = 3;
 pub const X_PRESENT_QUERY_CAPABILITIES_MINOR_OPCODE: u8 = 4;
+/// The highest minor Present 1.2 defines, which is the version Sophia
+/// advertises. Minor 5, `PresentPixmapSynced`, arrived in 1.4 and is not a
+/// request at the advertised version.
+pub const X_PRESENT_LAST_MINOR_OPCODE: u8 = X_PRESENT_QUERY_CAPABILITIES_MINOR_OPCODE;
 pub const X_XFIXES_EXTENSION_NAME: &str = "XFIXES";
 pub const X_XFIXES_MAJOR_OPCODE: u8 = 139;
 pub const X_XFIXES_FIRST_EVENT: u8 = 66;
@@ -509,6 +517,10 @@ pub const X_XF86_VIDMODE_GET_MODE_LINE_MINOR_OPCODE: u8 = 1;
 pub const X_XF86_VIDMODE_SET_CLIENT_VERSION_MINOR_OPCODE: u8 = 14;
 /// Answering 2 is what selects the modern reply shape in `libXxf86vm`;
 /// answering 0 or 1 selects a shorter, differently laid out one.
+/// `GetPermissions`, the highest minor version 2.2 defines. Sophia implements
+/// only `QueryVersion`, `GetModeLine` and `SetClientVersion`; the rest of this
+/// range is defined-but-unimplemented and owes BadImplementation.
+pub const X_XF86_VIDMODE_LAST_MINOR_OPCODE: u8 = 20;
 pub const X_XF86_VIDMODE_MAJOR_VERSION: u16 = 2;
 pub const X_XF86_VIDMODE_MINOR_VERSION: u16 = 2;
 const X_XF86_VIDMODE_QUERY_VERSION_REQ_LEN: usize = 4;

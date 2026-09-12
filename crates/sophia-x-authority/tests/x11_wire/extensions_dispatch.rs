@@ -1619,13 +1619,16 @@ fn vidmode_answers_the_two_requests_mesa_needs_and_declines_the_rest() {
         client_version.outputs
     );
 
-    // SwitchToMode, as an example of the surface that stays closed.
+    // SwitchToMode, as an example of the surface that stays closed. Version 2.2
+    // defines it, so a server of that version has a dispatch entry for it and
+    // owes BadImplementation; answering BadRequest would claim the request does
+    // not exist at the version just negotiated.
     let refused = dispatch(XWireRequest::XF86VidModeUnimplemented { minor_opcode: 10 });
     assert!(
         matches!(
             refused.outputs.as_slice(),
             [XClientOutput::Error(XClientError {
-                code: XErrorCode::BadRequest,
+                code: XErrorCode::BadImplementation,
                 minor_code: 10,
                 major_code: X_XF86_VIDMODE_MAJOR_OPCODE,
                 ..
@@ -1633,6 +1636,23 @@ fn vidmode_answers_the_two_requests_mesa_needs_and_declines_the_rest() {
         ),
         "{:?}",
         refused.outputs
+    );
+
+    // Past the last minor 2.2 defines, where a genuine server of this version
+    // had no entry at all.
+    let unknown = dispatch(XWireRequest::XF86VidModeUnimplemented { minor_opcode: 200 });
+    assert!(
+        matches!(
+            unknown.outputs.as_slice(),
+            [XClientOutput::Error(XClientError {
+                code: XErrorCode::BadRequest,
+                minor_code: 200,
+                major_code: X_XF86_VIDMODE_MAJOR_OPCODE,
+                ..
+            })]
+        ),
+        "{:?}",
+        unknown.outputs
     );
 }
 

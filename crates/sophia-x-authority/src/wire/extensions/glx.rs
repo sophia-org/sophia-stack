@@ -249,6 +249,6 @@ fn decode_glx(context: XWireClientContext, bytes: &[u8]) -> Result<XWireRequest,
             require_exact_len(X_GLX_MAJOR_OPCODE, 8, bytes.len())?;
             Ok(XWireRequest::GlxGetDrawableAttributes { drawable: id(4) })
         }
-        other => Err(XWireParseError::UnknownOpcode(other)),
+        minor_opcode => Ok(XWireRequest::GlxUnimplemented { minor_opcode }),
     }
 }

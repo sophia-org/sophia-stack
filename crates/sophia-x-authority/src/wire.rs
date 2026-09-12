@@ -756,6 +756,12 @@ pub enum XWireRequest {
         kind: u8,
     },
     /// A SHAPE minor no version of the extension defines.
+    /// A GLX minor Sophia does not answer. Decoded rather than refused at the
+    /// parser, so the client gets a normal error against a sequence number it
+    /// can attribute, which a parse failure would deny it.
+    GlxUnimplemented {
+        minor_opcode: u8,
+    },
     ShapeUnimplemented {
         minor_opcode: u8,
     },

@@ -53,6 +53,7 @@ fn dispatch_glx_request(
             | XWireRequest::GlxGetDrawableAttributes { .. }
             | XWireRequest::GlxQueryExtensionsString
             | XWireRequest::GlxQueryServerString { .. }
+            | XWireRequest::GlxUnimplemented { .. }
     ) {
         return Unhandled(request);
     }
@@ -713,6 +714,21 @@ fn dispatch_glx_request(
                         metadata_candidates: Vec::new(),
                     }
                 }
+                XWireRequest::GlxUnimplemented { minor_opcode } => XDispatchResult {
+                    response: None,
+                    outputs: vec![XClientOutput::Error(crate::XClientError {
+                        code: if minor_opcode <= crate::X_GLX_LAST_MINOR_OPCODE {
+                            XErrorCode::BadImplementation
+                        } else {
+                            XErrorCode::BadRequest
+                        },
+                        sequence: context.sequence,
+                        resource_id: 0,
+                        minor_code: u16::from(minor_opcode),
+                        major_code: context.major_opcode,
+                    })],
+                    metadata_candidates: Vec::new(),
+                },
         _ => unreachable!("request family checked before dispatch"),
     })
 }

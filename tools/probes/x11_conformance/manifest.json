@@ -197,6 +197,10 @@
     {
       "id": "xfixes_selection_stalled",
       "mandatory": true
+    },
+    {
+      "id": "xfixes_selection_peer_descendant",
+      "mandatory": true
     }
   ],
   "features": [
@@ -566,7 +570,8 @@
         "xfixes_selection_close",
         "xfixes_selection_reuse",
         "xfixes_selection_self",
-        "xfixes_selection_stalled"
+        "xfixes_selection_stalled",
+        "xfixes_selection_peer_descendant"
       ]
     }
   ],
@@ -611,7 +616,8 @@
         "xfixes_selection_close",
         "xfixes_selection_reuse",
         "xfixes_selection_self",
-        "xfixes_selection_stalled"
+        "xfixes_selection_stalled",
+        "xfixes_selection_peer_descendant"
       ],
       "coverage": "listed mandatory discovery/negotiation/error behaviors and selected stateful cases only; remaining extension requests are explicit coverage debt"
     },

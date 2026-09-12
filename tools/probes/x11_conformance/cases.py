@@ -621,6 +621,45 @@ def xfixes_selection_self(context):
         c.sync()
 
 
+def xfixes_selection_peer_descendant(context):
+    with client(context) as owner, peer_client(context) as peer, client(context) as watcher:
+        parent = owner.window(events=0)
+        child = peer.window(parent, events=0)
+        watched = watcher.window(events=0)
+        parent_selection = owner.atom('SOPHIA_XFIXES_PARENT_CLOSE')
+        child_selection = owner.atom('SOPHIA_XFIXES_PEER_CHILD')
+        _, base = xfixes_listen(watcher, watched, parent_selection, 7)
+        xfixes_listen(watcher, watched, child_selection, 7)
+        xfixes_owner(owner, parent, parent_selection)
+        first = xfixes_notice(watcher, base, watched, parent, parent_selection)
+        xfixes_owner(peer, child, child_selection)
+        second = xfixes_notice(watcher, base, watched, child, child_selection)
+        owner.close()
+        # The parent owner departed; the child's client remains. Both windows
+        # disappear, but the two selection ownerships end for different causes.
+        expected = {parent_selection: (2, watcher.u32(first, 20)),
+                    child_selection: (1, watcher.u32(second, 20))}
+        for _ in range(2):
+            try:
+                event = watcher.event(base)
+            except TimeoutError as error:
+                raise TimeoutError(f'missing descendant teardown notifications: {expected}') from error
+            selection = watcher.u32(event, 12)
+            assert selection in expected, 'duplicate or foreign selection teardown'
+            subtype, timestamp = expected.pop(selection)
+            assert event[1] == subtype, ('wrong descendant teardown cause', event.hex())
+            assert watcher.unpack('II', event, 4) == (watched, 0)
+            assert watcher.u32(event, 20) == timestamp
+            if selection == parent_selection:
+                # Parent teardown is an observed barrier. Its peer-owned child
+                # must already be gone; announcing only the parent is not enough.
+                peer.completion(peer.send(14, peer.pack('I', child)), error=9, opcode=14, resource=child)
+        for selection in (parent_selection, child_selection):
+            assert watcher.u32(watcher.reply(23, watcher.pack('I', selection)), 8) == 0
+        peer.completion(peer.send(14, peer.pack('I', child)), error=9, opcode=14, resource=child)
+        peer.sync()
+
+
 def xfixes_selection_stalled(context):
     with client(context) as owner, peer_client(context) as healthy, client(context) as stalled:
         owned, watched, stuck = owner.window(), healthy.window(), stalled.window()
@@ -738,6 +777,7 @@ CASES = {'setup': setup,
          'xfixes_selection_reuse': xfixes_selection_reuse,
          'xfixes_selection_self': xfixes_selection_self,
          'xfixes_selection_stalled': xfixes_selection_stalled,
+         'xfixes_selection_peer_descendant': xfixes_selection_peer_descendant,
          'disconnect_grab': disconnect_grab,
          'truncated_peer': truncated_peer, 'destroy_descendants': destroy_family,
          'destroy_subwindows': destroy_family, 'destroy_peer_close': destroy_family,

@@ -164,3 +164,8 @@ notification, the stalled socket must close, and both the sender and fresh
 admission must remain usable. A live socket with silently lost notifications
 fails by deadline. This pressure check does not certify every routed event
 family; older destroy/MSC recipient handling is tracked separately as t090.
+
+The mixed-owner descendant case closes a parent client while another client owns
+its child and a separate selection. It requires actual child destruction,
+client-close subtype 2 for the parent, window-destroy subtype 1 for the child,
+retained ownership timestamps and continued service for the surviving peer.

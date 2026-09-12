@@ -1129,15 +1129,33 @@ fn x11_core_decoder_rejects_bad_lengths_and_unknown_opcodes() {
         })
     );
 
-    let mut unknown = vec![127, 0];
+    // 110 is ListHosts, which this server does not implement. 127 used to
+    // stand in here, but it is NoOperation and is now recognised.
+    let mut unknown = vec![110, 0];
     push_u16(&mut unknown, XByteOrder::LittleEndian, 1);
     assert_eq!(
         decode_x11_core_request(
             context(NamespaceId::from_raw(45), 507, XByteOrder::LittleEndian),
             &unknown
         ),
-        Err(XWireParseError::UnknownOpcode(127))
+        Err(XWireParseError::UnknownOpcode(110))
     );
+
+    // NoOperation carries whatever padding the client chose to align what
+    // follows, so it is the one core request with no fixed length.
+    for padding_units in [0, 1, 7] {
+        let mut nop = vec![127, 0];
+        push_u16(&mut nop, XByteOrder::LittleEndian, 1 + padding_units);
+        nop.resize(4 + usize::from(padding_units) * 4, 0xcd);
+        assert_eq!(
+            decode_x11_core_request(
+                context(NamespaceId::from_raw(45), 508, XByteOrder::LittleEndian),
+                &nop
+            ),
+            Ok(XWireRequest::NoOperation),
+            "NoOperation padded with {padding_units} units"
+        );
+    }
 
     let mut unsupported_shm_minor = vec![X_MIT_SHM_MAJOR_OPCODE, 99];
     push_u16(&mut unsupported_shm_minor, XByteOrder::LittleEndian, 1);

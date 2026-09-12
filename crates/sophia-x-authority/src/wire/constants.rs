@@ -75,6 +75,10 @@ const X_BELL: u8 = 104;
 const X_GET_POINTER_MAPPING: u8 = 117;
 const X_QUERY_BEST_SIZE: u8 = 97;
 const X_GET_MODIFIER_MAPPING: u8 = 119;
+/// Does nothing. Its length field is deliberately unconstrained: clients pad
+/// with it to align what follows, so the request is frequently longer than its
+/// header and every extra byte is ignored.
+const X_NO_OPERATION: u8 = 127;
 
 pub const X_SOPHIA_PRESENT_EXTENSION_NAME: &str = "SOPHIA-PRESENT";
 pub const X_SOPHIA_PRESENT_MAJOR_OPCODE: u8 = 130;

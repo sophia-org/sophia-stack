@@ -18,6 +18,7 @@ fn dispatch_core_input_discovery_request(
             | XWireRequest::QueryPointer { .. }
             | XWireRequest::QueryExtension { .. }
             | XWireRequest::ListExtensions
+            | XWireRequest::NoOperation
             | XWireRequest::QueryBestSize { .. }
             | XWireRequest::QueryColors { .. }
             | XWireRequest::CreateColormap { .. }
@@ -258,6 +259,15 @@ fn dispatch_core_input_discovery_request(
                         metadata_candidates: Vec::new(),
                     }
                 }
+                // Does nothing, and says nothing: no reply, no error. It still
+                // consumes a sequence number, which the connection assigns
+                // before dispatch, so the request after it completes against
+                // the sequence the client expects.
+                XWireRequest::NoOperation => XDispatchResult {
+                    response: None,
+                    outputs: Vec::new(),
+                    metadata_candidates: Vec::new(),
+                },
                 XWireRequest::ListExtensions => XDispatchResult {
                     response: None,
                     outputs: vec![XClientOutput::Reply(XClientReply::ListExtensions {

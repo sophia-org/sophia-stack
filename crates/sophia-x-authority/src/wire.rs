@@ -217,6 +217,7 @@ pub enum XWireRequest {
     },
     GrabServer,
     UngrabServer,
+    NoOperation,
     CreateGraphicsContext {
         gc: XResourceId,
         drawable: XResourceId,
@@ -1337,6 +1338,9 @@ pub fn decode_x11_core_request(
                 minor_version: context.byte_order.u16(&bytes[6..8]),
             })
         }
+        // Deliberately no length check beyond the preamble's: NoOperation may
+        // carry any amount of padding, and all of it is ignored.
+        X_NO_OPERATION => Ok(XWireRequest::NoOperation),
         X_DRI3_MAJOR_OPCODE => decode_dri3(context, bytes),
         X_PRESENT_MAJOR_OPCODE => decode_present(context, bytes),
         X_XFIXES_MAJOR_OPCODE => decode_xfixes(context, bytes),

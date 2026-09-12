@@ -9,24 +9,45 @@ tags: [investigation, x11, conformance]
 
 ## Current independent result
 
-The 2026-09-12 XFixes pressure expansion executes **96 cases: 94 PASS,
-2 TIMEOUT** on committed runtime 3f4b0462. Both stalled-watcher cases time out:
-the healthy watcher receives all 4,096 events, while the stalled peer drains
-10,976 bytes and then remains connected after silently losing notifications.
-Evidence is `.artifacts/x11-xfixes-pressure-before/`, including a targeted
-`stalled-detail.json` recording which phase reached the deadline.
+The final 2026-09-12 gate executes **100 cases: 100 PASS, zero nonpassing**
+on clean source c690b7cd, incorporating runtime 9be53aff. A fresh host build and
+twenty strict reporting regressions pass. Evidence is
+`.artifacts/x11-conformance/final-100/`, with exact source and host/harness hashes.
 
-Before pressure coverage was added, the same fresh host passed 94/94 executions
-in `.artifacts/x11-xfixes-final/`; twenty strict reporting regressions pass.
-Both byte orders cover selection assertions (including same-owner reassertion
-and bursts), masks, invalid subscriptions, owner-window destruction, owner
-client close, watched-window XID reuse, and self-notification sequence numbers.
+The same isolated checkout also passes `cargo clippy --offline -p
+sophia-x-authority --all-features --all-targets -- -D warnings` with zero warnings
+and the full x-authority crate suite with an empty XDG configuration and inherited
+session opt-ins cleared. Commands, exits and logs are retained in `validation.json`,
+`clippy.log` and `crate-tests.log`. The operator-reported full `xtask check` failure
+was not reproduced in these checks; no full xtask success is claimed here.
 
-The current mandatory gate is red. Review also leaves t063 open for atomic,
-namespace-correct retirement draining and registration cleanup on early errors.
-These conditions are not certified by the ordinary passing socket cases.
-Older destroy/MSC recipient containment is separately filed as
+Both byte orders cover all three XFixes selection-notification subtypes,
+same-owner reassertion and bursts, masks, invalid subscriptions, original
+ownership timestamps, watched-window reuse and self-notification sequences.
+The pressure case requires all 4,096 events at a healthy subscriber, disconnect
+of a stalled subscriber, continued sender service and fresh admission. It fails
+on 3f4b0462: only 10,976 bytes reach the stalled client, which remains connected
+after silently losing events. It passes with the 1a631234 repair.
+
+Two further failures were retained and repaired. A peer-owned child survived its
+parent client's departure (t091), then GetGeometry reported BadWindow after
+actual destruction began (t092). The final cases require real child destruction,
+distinct teardown causes, retained timestamps, BadDrawable and a healthy surviving
+peer. See the [mixed-owner record](g8c2ey1f-peer-owned-child-selections-outlive-a-disconnected-parent.md)
+and [geometry record](78qco9vp-getgeometry-misclassifies-an-invalid-drawable-as-badwindow.md).
+
+Task t063 is accepted for this implementation, including stalled-watcher
+handling, subscription cleanup and retirement carried with the release under its
+runtime lock. The additional Rust test covers two Confined namespaces with a
+same-namespace positive control and a bounded quiet read at the excluded peer;
+the independent socket host itself remains single-namespace ClassicShared.
+
+Older destroy/MSC recipient containment remains open as
 [t090](psf52z1x-a-stalled-protocol-recipient-can-escape-x11-client-containment.md).
+A green selected manifest is not full X11/XFixes certification; t057 retains
+coverage debt and unrun XTS5 integration. t089 still requires installed Sophia
+repair acceptance. No live display, VT, GPU test or Sophia deployment was used
+for this verification.
 
 Retained progression, all under `.artifacts/` in the main checkout:
 
@@ -39,9 +60,14 @@ Retained progression, all under `.artifacts/` in the main checkout:
 | x11-xfixes-increment | 8faab7d9 | 88 | 6 |
 | x11-xfixes-final | 3f4b0462 | 94 | 0 |
 | x11-xfixes-pressure-before | 3f4b0462, pressure case added | 94 | 2 |
+| x11-xfixes-pressure-increment | 1a631234, mixed-owner case added | 96 | 2 |
+| x11-xfixes-accepted | 385282b4 | 96 | 2 |
+| x11-geometry-before | 385282b4, standalone geometry case added | 96 | 4 |
+| x11-conformance/final-100 | 9be53aff, clean gate source c690b7cd | 100 | 0 |
 
-Changed runtime baselines use separate fresh Cargo targets; the expanded
-before-run reuses the already verified cb07cafc host. Reports retain source,
+Changed runtime baselines use separate fresh Cargo targets. Expanded before-runs
+reuse the already verified host for the same runtime. Artifact directory names
+do not override report status: `x11-xfixes-accepted` was a failed attempt. Reports retain source,
 host and harness identity, including dirty state where applicable. These are
 private software-only socket results. XTS5 remains unrun, and no physical
 acceptance or installed Sophia repair is claimed. See the
@@ -286,7 +312,7 @@ subscriptions and resource/subscription retirement in that same lifecycle repair
 on another connection, changes ownership, and waits for the advertised event.
 At the original baseline no event arrived in either byte order, independently
 confirming t063. Commits 8faab7d9 and 3f4b0462 implement the notification lifecycle;
-all sixteen expanded XFixes executions now pass. The current-result section
+all twenty expanded XFixes executions now pass. The current-result section
 records the remaining review conditions and evidence; the t063 plan remains
 the scope owner.
 

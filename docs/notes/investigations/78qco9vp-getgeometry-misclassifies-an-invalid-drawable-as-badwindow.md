@@ -2,7 +2,7 @@
 id: 78qco9vp
 date: 2026-09-12
 kind: investigation
-status: investigating
+status: closed
 tags: [investigation, x11, protocol, conformance]
 ---
 # GetGeometry misclassifies an invalid drawable as BadWindow
@@ -34,6 +34,16 @@ unallocated ID and a destroyed window, then reads an existing window's geometry
 to prove continuation. The mixed-owner selection case keeps its strict
 BadDrawable assertion. Run both byte orders on a private frontend; no installed
 session or display is needed.
+
+## Resolution
+
+Repaired in 9be53aff by changing the missing-window classification to BadDrawable
+specifically in GetGeometry. Other runtime error classes are preserved. Both
+standalone invalid-drawable and mixed-owner cases now pass in both byte orders;
+the final gate reports 100/100 in
+`.artifacts/x11-conformance/final-100/report.json`. The expanded before-run in
+`.artifacts/x11-geometry-before/report.json` records 96 PASS and four failures.
+Task t092 is closed for this completion error.
 
 ## Connections
 

@@ -2,7 +2,7 @@
 id: g8c2ey1f
 date: 2026-09-12
 kind: investigation
-status: investigating
+status: closed
 tags: [investigation, x11, selection, lifecycle, conformance]
 ---
 # Peer-owned child selections outlive a disconnected parent
@@ -45,6 +45,16 @@ notification, missing child geometry, cleared selection owners, and a healthy
 surviving peer. The case initially fails; it is not covered by the earlier
 same-client descendant and ordinary owner-close passes. The bounded pressure
 case remains a separate t063 obligation.
+
+## Resolution
+
+Repaired by 385282b4: client release destroys subtrees across peer ownership
+within the admitted namespace and carries the resulting selection retirements
+with the release. The final independent 100-case run on runtime 9be53aff passes
+both mixed-owner cases, including actual child disappearance, distinct subtype
+1/2 events, retained timestamps and a healthy surviving peer. Evidence:
+`.artifacts/x11-conformance/final-100/report.json`. Task t091 is closed for this
+finding; older recipient queue containment remains t090.
 
 ## Connections
 

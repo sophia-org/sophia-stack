@@ -323,12 +323,14 @@ Limits carried forward, each with a reason rather than as undifferentiated debt:
 
 ## t063
 
-**2026-09-12 implementation:** 8faab7d9 and 3f4b0462 deliver all three
-subtypes, preserve ownership timestamps, retire subscriptions and sequence
-self-notifications correctly. The independent gate passes 94/94 executions,
-including sixteen XFixes executions in both byte orders. Closure still requires
-stalled-watcher disconnection and atomic namespace-correct retirement draining;
-ordinary passing cases do not prove these conditions. See the
+**Accepted 2026-09-12:** 8faab7d9, 3f4b0462, 1a631234 and 385282b4 deliver
+all three subtypes, preserve ownership timestamps, sequence self-notifications,
+retire subscriptions on normal and early-error teardown, disconnect stalled
+watchers and carry retirement atomically with the client release. The independent
+final gate on runtime 9be53aff passes 100/100 executions, including twenty XFixes
+executions in both byte orders. Separate Rust coverage checks Confined namespace
+exclusion against a positive delivery control. The runtime repair does not imply
+installed acceptance or coverage of every XFixes operation. See the
 [independent evidence](../investigations/wzxlxbok-independent-x11-socket-conformance-exposes-missing-client-completions.md).
 
 The original diagnosis and intended contract follow for context.

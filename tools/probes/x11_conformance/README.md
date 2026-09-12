@@ -157,3 +157,10 @@ live-display option are not used here. No external implementation code was copie
 See the [investigation](../../../docs/notes/investigations/wzxlxbok-independent-x11-socket-conformance-exposes-missing-client-completions.md)
 for candidate-specific failures and linked repair tasks. The gate must remain
 red until those mandatory behaviors work; it does not establish a pinentry cause.
+
+The XFixes stalled-watcher case leaves one subscriber unread while generating
+4,096 bounded ownership assertions. A second subscriber must receive every
+notification, the stalled socket must close, and both the sender and fresh
+admission must remain usable. A live socket with silently lost notifications
+fails by deadline. This pressure check does not certify every routed event
+family; older destroy/MSC recipient handling is tracked separately as t090.

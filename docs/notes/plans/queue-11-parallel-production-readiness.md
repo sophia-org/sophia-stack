@@ -323,6 +323,16 @@ Limits carried forward, each with a reason rather than as undifferentiated debt:
 
 ## t063
 
+**2026-09-12 implementation:** 8faab7d9 and 3f4b0462 deliver all three
+subtypes, preserve ownership timestamps, retire subscriptions and sequence
+self-notifications correctly. The independent gate passes 94/94 executions,
+including sixteen XFixes executions in both byte orders. Closure still requires
+stalled-watcher disconnection and atomic namespace-correct retirement draining;
+ordinary passing cases do not prove these conditions. See the
+[independent evidence](../investigations/wzxlxbok-independent-x11-socket-conformance-exposes-missing-client-completions.md).
+
+The original diagnosis and intended contract follow for context.
+
 Deliver `XFixesSelectionNotify`. Minor 2 `SelectSelectionInput` is accepted and
 validated, and then dropped: ten measured requests with `event_mask=0x7` against
 real selection atoms, and no event has ever been encoded with the advertised

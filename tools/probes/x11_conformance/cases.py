@@ -621,6 +621,48 @@ def xfixes_selection_self(context):
         c.sync()
 
 
+def xfixes_selection_stalled(context):
+    with client(context) as owner, peer_client(context) as healthy, client(context) as stalled:
+        owned, watched, stuck = owner.window(), healthy.window(), stalled.window()
+        selection = owner.atom('SOPHIA_XFIXES_STALLED')
+        _, base = xfixes_listen(healthy, watched, selection, 1)
+        xfixes_listen(stalled, stuck, selection, 1)
+        # Deliberately leave this peer unread. Bound both work and elapsed time;
+        # healthy peers drain every batch so this is recipient-specific pressure.
+        count = 4096
+        for _ in range(count // 16):
+            for _ in range(16):
+                owner.send(22, owner.pack('III', owned, selection, 0))
+            owner.sync()
+            for _ in range(16):
+                xfixes_notice(healthy, base, watched, owned, selection)
+        owner.sync()
+        healthy.sync()
+        received = 0
+        while True:
+            stalled.sock.settimeout(stalled.remaining())
+            try:
+                part = stalled.sock.recv(65536)
+            except ConnectionResetError:
+                break
+            except TimeoutError as error:
+                raise TimeoutError(
+                    f'stalled subscriber stayed connected after {count} assertions; '
+                    f'drained {received} bytes; healthy watcher received every event'
+                ) from error
+            if not part:
+                break
+            received += len(part)
+            assert received <= count * 32, 'unexpected output to stalled subscriber'
+        # EOF is mandatory: keeping the peer alive after silently losing its
+        # notifications is not a successful delivery or a policy denial.
+        xfixes_owner(owner, owned, selection)
+        xfixes_notice(healthy, base, watched, owned, selection)
+        with peer_client(context) as newcomer:
+            newcomer.sync()
+            assert newcomer.u16(newcomer.reply(14, newcomer.pack('I', owned)), 16) == 80
+
+
 def disconnect_grab(context):
     with client(context) as healthy:
         peer = client(context)
@@ -695,6 +737,7 @@ CASES = {'setup': setup,
          'xfixes_selection_close': xfixes_selection_end,
          'xfixes_selection_reuse': xfixes_selection_reuse,
          'xfixes_selection_self': xfixes_selection_self,
+         'xfixes_selection_stalled': xfixes_selection_stalled,
          'disconnect_grab': disconnect_grab,
          'truncated_peer': truncated_peer, 'destroy_descendants': destroy_family,
          'destroy_subwindows': destroy_family, 'destroy_peer_close': destroy_family,

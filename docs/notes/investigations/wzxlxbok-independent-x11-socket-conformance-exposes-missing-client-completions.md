@@ -9,30 +9,45 @@ tags: [investigation, x11, conformance]
 
 ## Current independent result
 
-The final 2026-09-12 setup-containment expansion executes **80 cases: 78 PASS
-and 2 TIMEOUT** on runtime tip cb07cafc, including containment repair 5cb58d3a
-and the Generic Event Extension correction. Only `xfixes_selection` times out,
-in both byte orders (t063). The full gate correctly remains red. The complete
-`extension_errors` case now passes every advertised extension in both orders.
+The 2026-09-12 XFixes pressure expansion executes **96 cases: 94 PASS,
+2 TIMEOUT** on committed runtime 3f4b0462. Both stalled-watcher cases time out:
+the healthy watcher receives all 4,096 events, while the stalled peer drains
+10,976 bytes and then remains connected after silently losing notifications.
+Evidence is `.artifacts/x11-xfixes-pressure-before/`, including a targeted
+`stalled-detail.json` recording which phase reached the deadline.
 
-Five new mandatory setup obligations and an actively reaped host expose
-client-local failures that the prior fixture could hide while blocked in accept.
-The prior runtime baseline terminates the host on all ten new executions and
-on both truncated-request executions. All twelve pass with the repair, while
-existing window state and fresh-client admission survive.
+Before pressure coverage was added, the same fresh host passed 94/94 executions
+in `.artifacts/x11-xfixes-final/`; twenty strict reporting regressions pass.
+Both byte orders cover selection assertions (including same-owner reassertion
+and bursts), masks, invalid subscriptions, owner-window destruction, owner
+client close, watched-window XID reuse, and self-notification sequence numbers.
 
-Evidence in the main checkout:
-- `.artifacts/x11-setup-containment-before/`: 64 PASS, 16 nonpassing, b52fff29
-- `.artifacts/x11-setup-containment-after/`: 76 PASS, 4 nonpassing, 528803aa
-- `.artifacts/x11-setup-containment-final/`: 78 PASS, 2 TIMEOUT, cb07cafc
+The current mandatory gate is red. Review also leaves t063 open for atomic,
+namespace-correct retirement draining and registration cleanup on early errors.
+These conditions are not certified by the ordinary passing socket cases.
+Older destroy/MSC recipient containment is separately filed as
+[t090](psf52z1x-a-stalled-protocol-recipient-can-escape-x11-client-containment.md).
 
-Each runtime was built in a separate fresh Cargo target. Twenty strict reporting
-regressions pass. Reports retain host/harness hashes and the dirty test-checkout
-state; the final source patch is retained beside the report. These are private
-software-only socket results, not physical acceptance or XTS5 results. See the
+Retained progression, all under `.artifacts/` in the main checkout:
+
+| Evidence directory | Runtime | PASS | Nonpassing |
+| --- | --- | ---: | ---: |
+| x11-setup-containment-before | b52fff29 | 64 | 16 |
+| x11-setup-containment-after | 528803aa | 76 | 4 |
+| x11-setup-containment-final | cb07cafc | 78 | 2 |
+| x11-xfixes-before | cb07cafc, expanded cases | 78 | 16 |
+| x11-xfixes-increment | 8faab7d9 | 88 | 6 |
+| x11-xfixes-final | 3f4b0462 | 94 | 0 |
+| x11-xfixes-pressure-before | 3f4b0462, pressure case added | 94 | 2 |
+
+Changed runtime baselines use separate fresh Cargo targets; the expanded
+before-run reuses the already verified cb07cafc host. Reports retain source,
+host and harness identity, including dirty state where applicable. These are
+private software-only socket results. XTS5 remains unrun, and no physical
+acceptance or installed Sophia repair is claimed. See the
 [separate containment incident](kwhei4x4-preflight-setup-disconnect-precedes-an-authority-exit.md).
 
-UnmapNotify and mapped destruction (t084/t087) now independently pass, as do
+UnmapNotify and mapped destruction (t084/t087) independently pass, as do
 NoOperation (t085), extension discovery (t086) and extension refusal classification
 (t088). Those task closures do not claim complete coverage of every operation.
 
@@ -259,8 +274,8 @@ Three independent cases failed at acaa8453 after b3941c04:
 
 The [destruction-family investigation](ksbt5d8f-the-window-destroy-family-is-incomplete-beyond-destroynotify.md)
 owns the source analysis. Its two source findings are now repaired and the note
-is closed; **t087 remains open for peer-close notification and remaining family
-acceptance**, with current wire evidence above. Descendant destruction must
+is closed. The later independent peer-close and remaining manifest family cases
+now pass, and t087 is closed with the current wire evidence above. Descendant destruction must
 precede truthful descendant notifications; adding only events would announce
 destructions that never happened. Keep nested ordering, peer-close parent
 subscriptions and resource/subscription retirement in that same lifecycle repair.
@@ -269,9 +284,11 @@ subscriptions and resource/subscription retirement in that same lifecycle repair
 
 `xfixes_selection` negotiates XFIXES, successfully selects owner-change events
 on another connection, changes ownership, and waits for the advertised event.
-No event arrives in either byte order. This independently confirms the existing
-t063 finding; no duplicate task was created. Its existing plan remains the
-scope owner, with this case supplying external socket evidence.
+At the original baseline no event arrived in either byte order, independently
+confirming t063. Commits 8faab7d9 and 3f4b0462 implement the notification lifecycle;
+all sixteen expanded XFixes executions now pass. The current-result section
+records the remaining review conditions and evidence; the t063 plan remains
+the scope owner.
 
 ## Extension error classification
 

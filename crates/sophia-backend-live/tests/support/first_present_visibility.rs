@@ -195,3 +195,74 @@ fn each_parking_reason_travels_with_its_candidate() {
         3
     );
 }
+
+#[test]
+fn an_escaped_present_is_removed_by_exact_identity_even_once_parked() {
+    // A frame that presented before its window mapped can already be parked by
+    // the time the map is acknowledged, so the prompt skip has to be able to
+    // take a parked entry as well as a runnable one. It must take only the
+    // exact frame: a transaction and surface pair can name more than one
+    // source, and the buffer is what separates them.
+    let mut resources = LivePresentationResourceSession::default();
+    let mut scheduler = LiveProductionPresentScheduler::default();
+    let now = Instant::now();
+    let surface = SurfaceId::new(501, 1);
+    let handle = BufferHandle::from_raw(501);
+    resources
+        .register_source(descriptor(handle), vec![fd()])
+        .unwrap();
+    let batch = scheduler_batch(TransactionId::from_raw(501), surface, handle);
+    scheduler
+        .enqueue_group(&batch.groups[0], &[], &mut resources, now)
+        .unwrap();
+    let transaction = TransactionId::from_raw(501);
+    assert_eq!(
+        scheduler.poll_gate(&mut resources, now).unwrap(),
+        LiveProductionPresentGate::Ready(transaction)
+    );
+    let candidate = scheduler.front().unwrap().candidate.key();
+    assert!(scheduler.defer_first_visibility(
+        candidate,
+        LiveProductionFirstVisibilityReason::OutsidePresentationOrder,
+        now,
+    ));
+    assert_eq!(scheduler.awaiting_first_visibility().count(), 1);
+
+    // Another buffer for the same transaction and surface is a different frame
+    // and must not be taken.
+    assert!(
+        scheduler
+            .remove_queued_dma_candidate(sophia_protocol::DmaBufPresentKey {
+                transaction,
+                surface,
+                buffer: BufferHandle::from_raw(502),
+            })
+            .is_none()
+    );
+    assert_eq!(scheduler.awaiting_first_visibility().count(), 1);
+
+    // The exact frame is taken, parked or not, and leaves nothing behind.
+    assert_eq!(
+        scheduler.remove_queued_dma_candidate(sophia_protocol::DmaBufPresentKey {
+            transaction,
+            surface,
+            buffer: handle,
+        }),
+        Some(transaction)
+    );
+    assert_eq!(scheduler.awaiting_first_visibility().count(), 0);
+    assert_eq!(
+        scheduler.poll_gate(&mut resources, now).unwrap(),
+        LiveProductionPresentGate::Idle
+    );
+    // Asking twice is a miss, not a second removal.
+    assert!(
+        scheduler
+            .remove_queued_dma_candidate(sophia_protocol::DmaBufPresentKey {
+                transaction,
+                surface,
+                buffer: handle,
+            })
+            .is_none()
+    );
+}

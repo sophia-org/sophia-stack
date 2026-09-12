@@ -40,7 +40,54 @@ enum LiveLayoutProgress {
     Committed(LiveWmCommitResult),
 }
 
+/// Whether an escaped Present names the same content as an admission candidate.
+///
+/// The buffer is part of the comparison because one transaction and surface can
+/// carry more than one source, and a backing snapshot must not be read as the
+/// client's Present.
+fn escaped_key_names_candidate(
+    key: sophia_protocol::DmaBufPresentKey,
+    candidate: sophia_protocol::SurfaceTransactionKey,
+) -> bool {
+    candidate.transaction == key.transaction
+        && candidate.surface == key.surface
+        && matches!(
+            candidate.target_buffer,
+            sophia_protocol::BufferSource::DmaBuf { handle, .. }
+                if handle == key.buffer.raw()
+        )
+}
+
 const PRE_ADMISSION_GROUP_CAPACITY: usize = 256;
+
+/// How many escaped pre-admission Presents are remembered at once.
+///
+/// One per escaped Present, not per window, held until production skips it or
+/// it stops being eligible. A client outstanding more than this many unskipped
+/// pre-map frames at once is not a case worth carrying unbounded state for.
+const ESCAPED_PRE_ADMISSION_CAPACITY: usize = 64;
+
+/// A Present that reached production without passing through admission,
+/// because its surface was inactive when the batch carrying it was observed.
+///
+/// A client that presents its first frame before mapping its window produces
+/// one of these: `surface_requires_admission` is false while the surface is
+/// inactive, so the frame is never quarantined, and a later map does not
+/// replay the batch that carried it. Production owns the frame, admission has
+/// no claim on it, and nothing waiting on presentation order can release it.
+///
+/// "Inactive at intake" rather than "never admitted": withdrawal clears
+/// admission state, so inactive is a fact about that moment and not a history.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+struct EscapedPreAdmissionPresent {
+    /// The exact Present, buffer included. A transaction and surface pair is
+    /// not identity here -- several sources can share one, and the buffer is
+    /// what stops a backing snapshot being mistaken for this frame.
+    key: sophia_protocol::DmaBufPresentKey,
+    /// Set when the authority confirms the map for this surface, which is the
+    /// point the client can be expected to draw again after a skip.
+    ready: bool,
+}
 
 /// One committed policy answer that placed nothing.
 ///
@@ -74,6 +121,7 @@ struct PersistentLiveLayout {
     authority_stack_ranks: BTreeMap<SurfaceId, u32>,
     mapped_surfaces: BTreeSet<SurfaceId>,
     pre_admission_groups: VecDeque<LiveAdmissionAuthorityGroup>,
+    escaped_pre_admission: VecDeque<EscapedPreAdmissionPresent>,
     released_admission_groups: VecDeque<LiveAdmissionAuthorityGroup>,
     output_reservations: sophia_engine::SurfaceOutputReservationState,
     unmanaged_surfaces: BTreeSet<SurfaceId>,

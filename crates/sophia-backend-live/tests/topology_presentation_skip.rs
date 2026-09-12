@@ -322,3 +322,173 @@ fn topology_skip_is_empty_when_nothing_is_outstanding() {
     );
     assert!(fixture.runtime.topology_rebind_quiescent());
 }
+
+#[test]
+fn skipping_an_escaped_pre_admission_present_settles_it_and_frees_its_surface() {
+    // A frame presented before its window mapped is owned by production with no
+    // admission claim on it. Skipping it has to do more than drop it from the
+    // queue: the client is waiting on that buffer, and a successor for the same
+    // surface is waiting behind its content ownership.
+    let surface = SurfaceId::new(320, 1);
+    let escaped_handle = BufferHandle::from_raw(321);
+    let next_handle = BufferHandle::from_raw(322);
+    let escaped = TransactionId::from_raw(323);
+    let successor = TransactionId::from_raw(324);
+    let mut fixture = fixture(surface, &[escaped_handle, next_handle]);
+
+    // An acquire fence that never triggers is only how this fixture keeps a
+    // real present queued without a display; the parked case is covered in the
+    // scheduler tests.
+    let acquire_handle = FenceHandle::from_raw(325);
+    let batch = LiveProductionAuthorityBatch {
+        groups: vec![group(
+            escaped,
+            surface,
+            escaped_handle,
+            LiveProductionPresentDisposition::Immediate,
+            Some(acquire_handle),
+        )],
+        dma_buf_registrations: Vec::new(),
+        fence_registrations: vec![LiveProductionFenceRegistration {
+            handle: acquire_handle,
+            initially_triggered: false,
+            fd: Arc::new(sophia_xshmfence::allocate().unwrap()),
+        }],
+        released_dma_bufs: Vec::new(),
+        released_fences: Vec::new(),
+    };
+    fixture.run(&batch);
+
+    // A second frame for the same surface queues behind the first's content
+    // ownership, which is what a client's redraw after the skip looks like.
+    let successor_batch = LiveProductionAuthorityBatch {
+        groups: vec![group(
+            successor,
+            surface,
+            next_handle,
+            LiveProductionPresentDisposition::Immediate,
+            None,
+        )],
+        dma_buf_registrations: Vec::new(),
+        fence_registrations: Vec::new(),
+        released_dma_bufs: Vec::new(),
+        released_fences: Vec::new(),
+    };
+    fixture.run(&successor_batch);
+
+    // Before the skip the successor owes nothing: it is waiting behind the
+    // escaped frame's content ownership, which is the state the skip has to
+    // clear. Establishing this first is what makes the assertion afterwards
+    // evidence rather than coincidence.
+    let mut before = Vec::new();
+    fixture
+        .runtime
+        .drain_present_feedback_into(&mut before)
+        .unwrap();
+    assert_eq!(
+        before
+            .iter()
+            .flat_map(|outcome| outcome.feedback.iter())
+            .filter(|entry| feedback_names(entry, successor))
+            .count(),
+        0,
+        "the successor is blocked behind the escaped frame, not settled"
+    );
+
+    let key = sophia_protocol::DmaBufPresentKey {
+        transaction: escaped,
+        surface,
+        buffer: escaped_handle,
+    };
+    // Removed and settled, not merely removed.
+    assert_eq!(fixture.runtime.skip_escaped_pre_admission(key), Some(true));
+
+    let mut feedback = Vec::new();
+    fixture
+        .runtime
+        .drain_present_feedback_into(&mut feedback)
+        .unwrap();
+    let entries = feedback
+        .iter()
+        .flat_map(|outcome| outcome.feedback.iter())
+        .collect::<Vec<_>>();
+    // The client is told the buffer will never reach a screen, and told it is
+    // free again. Without both it waits on a completion that cannot arrive --
+    // which is the failure this whole path exists to end.
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| matches!(
+                entry,
+                LivePresentProtocolFeedback::Complete {
+                    transaction: settled,
+                    disposition: LivePresentBufferDisposition::Skipped,
+                    ..
+                } if *settled == escaped
+            ))
+            .count(),
+        1,
+        "the skipped present owes its client a completion"
+    );
+    assert_eq!(
+        entries
+            .iter()
+            .filter(|entry| matches!(
+                entry,
+                LivePresentProtocolFeedback::Idle { transaction } if *transaction == escaped
+            ))
+            .count(),
+        1,
+        "and owes it the buffer back"
+    );
+
+    // The surface is free again. Releasing the buffer is only half the point --
+    // the frame waiting behind it has to be able to run, or a client that
+    // redraws after the skip is blocked by the frame it just replaced.
+    let idle_batch = LiveProductionAuthorityBatch {
+        groups: Vec::new(),
+        dma_buf_registrations: Vec::new(),
+        fence_registrations: Vec::new(),
+        released_dma_bufs: Vec::new(),
+        released_fences: Vec::new(),
+    };
+    fixture.run(&idle_batch);
+    let mut after = Vec::new();
+    fixture
+        .runtime
+        .drain_present_feedback_into(&mut after)
+        .unwrap();
+    assert!(
+        after
+            .iter()
+            .flat_map(|outcome| outcome.feedback.iter())
+            .any(|entry| feedback_names(entry, successor)),
+        "skipping the owner has to let its successor run, not just free a buffer"
+    );
+
+    // Asking again is a miss rather than a second settlement, so a request the
+    // caller has not yet consumed cannot double-settle the same frame.
+    assert_eq!(fixture.runtime.skip_escaped_pre_admission(key), None);
+    let mut repeat = Vec::new();
+    fixture
+        .runtime
+        .drain_present_feedback_into(&mut repeat)
+        .unwrap();
+    assert!(
+        repeat.is_empty(),
+        "a missed skip must not manufacture feedback"
+    );
+}
+
+/// Whether one feedback entry concerns this transaction, whatever its outcome.
+fn feedback_names(entry: &LivePresentProtocolFeedback, transaction: TransactionId) -> bool {
+    match entry {
+        LivePresentProtocolFeedback::Complete {
+            transaction: named, ..
+        }
+        | LivePresentProtocolFeedback::Idle {
+            transaction: named, ..
+        } => *named == transaction,
+        _ => false,
+    }
+}

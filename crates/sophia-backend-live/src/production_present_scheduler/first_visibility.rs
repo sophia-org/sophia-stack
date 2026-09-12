@@ -125,6 +125,33 @@ impl LiveProductionPresentScheduler {
         expired
     }
 
+    /// Remove a queued candidate by exact DMA-BUF identity, yielding its
+    /// transaction so the caller can settle it the ordinary way.
+    ///
+    /// Only a queued candidate. One already in flight has been selected and
+    /// committed to a frame, and taking it back here would settle a present
+    /// the kernel still owns. Matching includes the buffer, because a
+    /// transaction and surface pair can name more than one source and a
+    /// backing snapshot must not be mistaken for the client's Present.
+    pub fn remove_queued_dma_candidate(
+        &mut self,
+        key: sophia_protocol::DmaBufPresentKey,
+    ) -> Option<sophia_protocol::TransactionId> {
+        let position = self.queued.iter().position(|queued| {
+            let candidate = queued.candidate.key();
+            candidate.transaction == key.transaction
+                && candidate.surface == key.surface
+                && matches!(
+                    candidate.target_buffer,
+                    sophia_protocol::BufferSource::DmaBuf { handle, .. }
+                        if handle == key.buffer.raw()
+                )
+        })?;
+        let queued = self.queued.remove(position)?;
+        self.observe_queue_depth();
+        Some(queued.submission.transaction)
+    }
+
     /// Whether the candidate at the head has already spent its
     /// first-visibility budget, so the Present path knows not to park it
     /// again.

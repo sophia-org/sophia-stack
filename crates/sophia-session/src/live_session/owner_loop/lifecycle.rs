@@ -604,6 +604,23 @@
             // makes a layout pending, so servicing parked candidates only
             // when nothing is pending cannot release the ones that matter.
             runtime.service_first_visibility_presentations(Instant::now());
+            // A frame presented before its window mapped escaped admission
+            // entirely, so waiting on visibility for it only delays the redraw
+            // that can actually be admitted. Skip it as soon as the authority
+            // has confirmed the map, and only once production still holds it:
+            // a request dropped on a queue miss would strand the client the
+            // way the unbounded wait used to.
+            let skippable = layout.skippable_escaped_presents();
+            for key in skippable {
+                // Consumed once production has taken the candidate, settled or
+                // not: it is out of the queue either way, and asking again for
+                // a candidate that is gone would spin forever. A queue miss is
+                // different -- intake may not have reached it -- so that record
+                // stands.
+                if runtime.skip_escaped_pre_admission(key).is_some() {
+                    layout.consume_escaped_present(key);
+                }
+            }
             let service = match runtime.service_native(native_scanout, &scene) {
                 Ok(service) => Some(service),
                 Err(error) => {

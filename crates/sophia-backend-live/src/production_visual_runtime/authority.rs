@@ -341,6 +341,39 @@ impl LiveProductionVisualRuntime {
         }
     }
 
+    /// Skip a Present that reached production without an admission claim.
+    ///
+    /// A client that presents before mapping leaves a frame production owns and
+    /// admission has no record of. It cannot become visible and nothing will
+    /// settle it, so the sooner it takes the ordinary rejection the sooner the
+    /// client gets its buffer back and can draw a frame that *can* be admitted.
+    /// Returns whether the candidate was still queued to skip.
+    /// `None` when the candidate is not queued here, which is not terminal:
+    /// intake may not have reached it yet, and the caller should keep asking.
+    /// `Some(settled)` once it has been removed, where `settled` reports only
+    /// that the rejection produced and queued its feedback. Routing and writing
+    /// it to the client happen later, so this is a backend result and not proof
+    /// the client was told anything; the routed Complete and Idle records are
+    /// what show delivery.
+    pub fn skip_escaped_pre_admission(
+        &mut self,
+        key: sophia_protocol::DmaBufPresentKey,
+    ) -> Option<bool> {
+        let transaction = self.present_scheduler.remove_queued_dma_candidate(key)?;
+        // Reported at info with the exact identity, because the next real-client
+        // run has to show this path ran. Inferring it from an absent expiry
+        // record would confuse "skipped promptly" with "never parked".
+        let settled = self.reject_gpu_presentation(transaction);
+        tracing::info!(
+            transaction = transaction.raw(),
+            surface = key.surface.index(),
+            buffer = key.buffer.raw(),
+            settled,
+            "sophia_live_pre_admission_skip schema=1 status=skipped"
+        );
+        Some(settled)
+    }
+
     /// Service the first candidates parked by the Present path.
     ///
     /// Separate from the layout-deferred release above because that one only

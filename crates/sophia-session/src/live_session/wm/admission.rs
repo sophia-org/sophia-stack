@@ -209,10 +209,152 @@ impl PersistentLiveLayout {
         Ok(stage)
     }
 
+    /// Whether this surface's Present escaped admission because the surface
+    /// was inactive when the batch arrived.
+    ///
+    /// Affirmative rather than inferred. `surface_requires_admission` is also
+    /// false for a surface this session does not manage, for one already
+    /// managed, and when policy admission is bypassed entirely; none of those
+    /// escaped anything and none may take the skip. Only an inactive
+    /// policy-managed surface did.
+    fn present_escaped_admission(&self, surface: SurfaceId) -> bool {
+        !self.bypass_policy_admission
+            && self.presentation_roles.get(&surface)
+                == Some(&sophia_protocol::SurfacePresentationRole::PolicyManaged)
+            && matches!(
+                self.admissions.state(surface),
+                sophia_engine::SurfacePresentationAdmissionState::Inactive
+            )
+    }
+
+    fn record_escaped_pre_admission(&mut self, batch: &XAuthorityObservedTransactionBatch) {
+        for submission in &batch.present_submissions {
+            if self.surface_requires_admission(submission.surface)
+                || !self.present_escaped_admission(submission.surface)
+            {
+                continue;
+            }
+            let key = sophia_protocol::DmaBufPresentKey {
+                transaction: submission.transaction,
+                surface: submission.surface,
+                buffer: submission.buffer,
+            };
+            if self
+                .escaped_pre_admission
+                .iter()
+                .any(|escaped| escaped.key == key)
+            {
+                continue;
+            }
+            if self.escaped_pre_admission.len() >= ESCAPED_PRE_ADMISSION_CAPACITY {
+                self.escaped_pre_admission.pop_front();
+            }
+            self.escaped_pre_admission
+                .push_back(EscapedPreAdmissionPresent { key, ready: false });
+        }
+    }
+
+    /// Whether an escaped Present may still be skipped.
+    ///
+    /// Revalidated at the moment of acting, never inferred from the state that
+    /// recorded it. Between escaping and being skipped the surface can change
+    /// role, be admitted outright, or have this very frame selected as its
+    /// visual candidate, and each of those makes the frame somebody else's to
+    /// settle.
+    fn escaped_present_eligible(&self, key: sophia_protocol::DmaBufPresentKey) -> bool {
+        if self.bypass_policy_admission
+            || self.presentation_roles.get(&key.surface)
+                != Some(&sophia_protocol::SurfacePresentationRole::PolicyManaged)
+        {
+            // A surface the client now positions for itself, or one admission
+            // no longer governs, is not ours to skip.
+            return false;
+        }
+        // A candidate already staged into the pending layout belongs to
+        // admission, which arms retirement from exactly this key when the
+        // layout commits. Both tests are needed: membership says admission owns
+        // the surface this cycle, and the staged key says it owns *this* frame
+        // rather than some other buffer the surface also presented.
+        if self.pending.as_ref().is_some_and(|pending| {
+            pending.admission_surfaces.contains(&key.surface)
+                && pending
+                    .staged_transactions
+                    .get(&key.surface)
+                    .is_some_and(|transaction| {
+                        escaped_key_names_candidate(key, transaction.key())
+                    })
+        }) {
+            return false;
+        }
+        match self.admissions.state(key.surface) {
+            // Fully admitted: there is nothing left to rescue, and the record
+            // is only occupying space that an actionable one could use.
+            sophia_engine::SurfacePresentationAdmissionState::Managed => false,
+            // Admission selected this exact frame after it escaped. Observed
+            // pixels are not a claim, but a selected visual candidate is, and
+            // settling it here would take a retirement that is not ours.
+            sophia_engine::SurfacePresentationAdmissionState::AwaitingRetirement {
+                visual_candidate,
+                ..
+            } => !escaped_key_names_candidate(key, visual_candidate),
+            _ => true,
+        }
+    }
+
+    /// Escaped Presents the authority has confirmed a map for, which production
+    /// may now skip.
+    ///
+    /// Reported rather than taken: production owns the candidate and may not
+    /// have queued it yet, and a request consumed on a queue miss would strand
+    /// the client exactly as before.
+    ///
+    /// Records that can never be acted on are dropped here rather than left to
+    /// age out, because eviction is by arrival and a stale record would push out
+    /// an actionable one -- silently returning some other window to the slow
+    /// path this exists to avoid.
+    ///
+    /// This does not catch every settled record. A frame ordinarily rejected
+    /// while its surface is still pending admission stays eligible by these
+    /// tests and remains a permanent queue miss until the surface is cleaned
+    /// up. No ownership rule is broken by that, but it is not free either: a
+    /// stale record occupies a slot and can evict an actionable one, returning
+    /// some other window to the slow path. Closing it needs a positive
+    /// terminal-result signal this does not yet have.
+    pub(crate) fn skippable_escaped_presents(
+        &mut self,
+    ) -> Vec<sophia_protocol::DmaBufPresentKey> {
+        let ineligible = self
+            .escaped_pre_admission
+            .iter()
+            .filter(|escaped| !self.escaped_present_eligible(escaped.key))
+            .map(|escaped| escaped.key)
+            .collect::<Vec<_>>();
+        self.escaped_pre_admission
+            .retain(|escaped| !ineligible.contains(&escaped.key));
+        self.escaped_pre_admission
+            .iter()
+            .filter(|escaped| escaped.ready)
+            .map(|escaped| escaped.key)
+            .collect()
+    }
+
+    /// Forget one escaped Present, once production has actually skipped it or
+    /// the surface it belonged to is gone.
+    pub(crate) fn consume_escaped_present(&mut self, key: sophia_protocol::DmaBufPresentKey) {
+        self.escaped_pre_admission
+            .retain(|escaped| escaped.key != key);
+    }
+
+    fn forget_escaped_presents(&mut self, surface: SurfaceId) {
+        self.escaped_pre_admission
+            .retain(|escaped| escaped.key.surface != surface);
+    }
+
     fn observe_pre_admission_groups(
         &mut self,
         batch: &XAuthorityObservedTransactionBatch,
     ) -> Result<bool, &'static str> {
+        self.record_escaped_pre_admission(batch);
         let transactions = batch
             .transactions
             .iter()
@@ -529,6 +671,10 @@ impl PersistentLiveLayout {
             .retain(|group| !group.contains_surface(surface));
         self.released_admission_groups
             .retain(|group| !group.contains_surface(surface));
+        // Withdrawal clears admission state, so a remap starts inactive again.
+        // Carrying an authorization across that would let a stale key skip a
+        // frame the new window legitimately presented.
+        self.forget_escaped_presents(surface);
     }
 
     fn observe_presentation_intents(
@@ -609,6 +755,16 @@ impl PersistentLiveLayout {
         // its X client, which draws, while the session holds it unmapped and
         // composites nothing.
         self.mapped_surfaces.insert(surface);
+        // A frame this surface presented before it was mapped is owned by
+        // production with no admission claim on it, so nothing here will ever
+        // settle it. This acknowledgement is the first point the map is a
+        // confirmed fact rather than a request, and therefore the first point
+        // the client can be expected to draw again once its buffer comes back.
+        for escaped in &mut self.escaped_pre_admission {
+            if escaped.key.surface == surface {
+                escaped.ready = true;
+            }
+        }
         true
     }
 

@@ -559,3 +559,28 @@ socket-test findings as an outstanding gate failure was too broad. Final
 source snapshots were also compared byte-for-byte with their exported archives;
 the only fixture addition is the conformance host example. Commit, archive,
 example and host hashes are retained in t082-clipboard-v1/provenance.json.
+
+### Full-GUI clipboard identity confirmed on the historical capture pin
+
+Capture `/tmp/sophia-pinentry-trace/run.0WbZgV` ran v8 against manifest
+1a59ab8c1406, even though /opt/sophia/current had advanced to 702efef161dd.
+PID 13164 identifies GUI XID 4194307 and hidden clipboard XID 6291456.
+Saving, on_exit, painter destruction and the visible-window drop body returned.
+The remaining teardown entered clipboard_drop_enter, acquired its lock,
+completed manager handoff, and returned successfully from clipboard destroy
+and flush. It then entered clipboard_join_enter (sequence 3750) without a
+return or clipboard_destroy_notify before the 15-second watchdog. Trace loss
+was false and the heartbeat remained fresh. No Assuan result was produced.
+
+This closes the uncertainty about which destructor stalled in this full-GUI
+specimen: the arboard clipboard worker join. The independent headless test
+already establishes its failure on the old server and recovery after the
+DestroyNotify repairs. This capture is additional old-server evidence, not a
+failed acceptance of the newly installed repair.
+
+The repository and fixed /tmp capture scripts now pin
+702efef161ddf758affdbf68bf139b00aa21a5be. Its installed manifest, SHA256SUMS and
+ancestry including d9c49d85 were checked. Both capture scripts and all generated
+wrappers pass bash -n against that release. No installed files or live processes
+were changed, and no new native run was launched. Full-GUI recovery on the
+repaired release remains the next acceptance step.

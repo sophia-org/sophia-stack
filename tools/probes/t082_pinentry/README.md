@@ -38,8 +38,8 @@ compile the real trace helper against a stand-in process; they do not open a GUI
 ## Operator capture
 
 The first physical run exposed a session-fatal peer-write classification gap.
-The follow-up repair is now installed. The capture pins verified release
-`0.1.0-1a59ab8c1406`, containing that repair and the initial t077 recovery.
+The peer-write and destroy repairs are now installed. The capture pins verified
+release `0.1.0-702efef161dd`, which contains both and the initial t077 recovery.
 No installation or sudo is needed for this run. The manifest, release checksums
 and generated wrapper syntax have been checked against this installed build.
 An exact pin keeps the specimen reproducible; if that release is removed,
@@ -206,8 +206,9 @@ This proves the library failure/recovery, not that arboard was the destructor
 blocked in the original full-GUI specimen. V8's GUI markers are for establishing
 that identity or observing full-GUI recovery.
 
-The fixed capture still deliberately names installed 1a59ab8c1406. Running it
-now would be a historical-server diagnostic, not acceptance of the destroy
-repair. The next full-GUI acceptance should use a verified installed release
-containing the repair and an explicitly retargeted capture. No install or native
-launch is part of this delivery.
+Capture run.0WbZgV still used the historical 1a59ab8c pin and reached
+clipboard_join_enter without a return in the full GUI. It did not test the newly
+installed server. The fixed capture has since been retargeted to verified
+702efef161dd (manifest, checksums and destroy-repair ancestry checked).
+The next run tests full-GUI recovery on that repaired release. No install or
+native launch is performed by retargeting.

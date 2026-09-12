@@ -169,7 +169,7 @@ with the administrative surface is defensible, but its actual scheduling
 semantics must be implemented and tested rather than stubbed. Neither request
 may report behaviour the server does not perform.
 
-## Settled here, and deliberately not settled here
+## Settled here, chosen since, and still owed
 
 Settled: default absence; the global enable and per-caller authorization are
 both necessary; discovery agrees with authorization; the atomic commit boundary
@@ -177,21 +177,51 @@ and its revocation semantics; synthetic ingress through shared authoritative
 routing; provenance as runtime state; source-owned cleanup; corrected
 `GrabControl` and `CompareCursor` readings; and the physical-evidence rule.
 
-**Open implementation-admission gates.** These are named, not decided, and an
-implementation is not admitted until each is chosen:
+**The admission gates are now chosen.** The operator approved these on
+2026-09-12 as constraints for a concrete design. They are decisions about
+authority, not about implementation, and they authorize neither.
 
-- **Grant issuance and binding.** Who issues a synthetic-input authorization,
-  and what it binds to. "Derived from verified admission" does not say.
-- **Permission scope.** Whether injection, current-cursor disclosure and
-  server-grab imperviousness are separate permissions or one explicitly bundled
-  grant.
-- **Delegation boundary.** Whether the mode trusts the whole host-user domain or
-  delegates selectively, named explicitly either way. Matching UID or
-  `ClassicShared` membership is not that boundary.
-- **Bounds.** The delay bound, per-client and aggregate queue bounds, what
-  happens on overflow, and fairness between callers. Requiring a contract to
-  state a bound is not a bound.
-- **Reserved actions.** Which session actions, if any, the grant may reach.
+- **Authorization.** Session grants access to individually verified
+  connections. Disconnect, revocation, locking, or leaving the active seat
+  cancels pending input. Reconnecting requires fresh authorization -- never a
+  resumption that could replay what was pending.
+- **Permissions.** One administrator bundle initially: input injection, cursor
+  comparison, and correctly implemented server-grab control. Namespace
+  restrictions on resource access remain.
+- **Trust boundary.** Sophia's existing host-user administrator boundary,
+  **disabled by default**. The operator was explicitly informed, and accepted,
+  that this trusts every eligible application in that domain including a
+  browser, and that it is **not harness-only authorization**. Selective
+  delegation to confined harnesses is deferred to a later design.
+- **Limits.** Start at 16 authorized injectors per seat and one pending request
+  per injector, with bounded queues, fair scheduling, reserved cleanup capacity,
+  and physical input that stays responsive. Protocol delay semantics are
+  preserved with bounded state rather than clamped.
+- **Protected actions.** Ordinary application and window-management automation
+  is permitted. VT switching, emergency chords, authentication and unlock, and
+  injection into a locked or inactive seat are denied. Synthetic tests do not
+  replace physical acceptance.
+
+**What the concrete design still owes.** Choosing the gates did not settle how
+to satisfy them, and a design returns for review before any code:
+
+- exact scheduling limits, with justification rather than assertion -- the
+  service turn budget, the per-turn event count, and why those numbers;
+- how the delay is held in bounded state across the full CARD32 range without
+  blocking the server or delaying disconnect and revocation;
+- the mechanics of the atomic commit boundary shared with revocation, and where
+  it sits relative to focus, grab and epoch resolution;
+- the representation of source-owned contributions, and the overlap and
+  duplicate-transition policy in concrete terms;
+- how discovery filtering is implemented so `ListExtensions` and
+  `QueryExtension` cannot disagree;
+- what the refusal record contains, so intentional denial stays distinguishable
+  from missing implementation.
+
+One value is already contested and the design should resolve it rather than
+inherit it: 16 injectors with one pending request each makes a separate
+16-per-seat request cap unreachable. Either it guards a case not yet named, or
+it is redundant.
 
 ## Consequences
 
@@ -229,6 +259,11 @@ sources' holds survive.
 scope, delegation boundary, bounds/fairness and reserved actions remain open
 implementation-admission gates. No XTEST implementation or deployment is
 authorized by this acceptance.**
+
+On the same date the operator subsequently approved the five gates, recorded
+above under "Settled here, chosen since, and still owed". That approval is
+likewise constraint rather than authorization: a concrete design returns for
+review, and no implementation or deployment is authorized by either step.
 
 Default absence and current implementation behaviour are unchanged by this
 record. [t030](../plans/queue-11-parallel-production-readiness.md) excluded XTEST

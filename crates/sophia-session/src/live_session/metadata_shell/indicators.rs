@@ -98,31 +98,8 @@ impl LiveMetadataShell {
         let (tx, activation) = sophia_protocol::decode_shell_indicator_activation(&frame)
             .map_err(sophia_runtime::ShellTransportError::Codec)?;
 
-        let published = self.indicators.last_published.as_ref();
-        let current = published.is_some_and(|snapshot| {
-            snapshot.connection_epoch == activation.connection_epoch
-                && snapshot.generation == activation.snapshot_generation
-        });
-        let known = current
-            && published.is_some_and(|snapshot| {
-                snapshot.indicators.iter().any(|indicator| {
-                    indicator.output == activation.output
-                        && indicator.indicator == activation.indicator
-                        && indicator.action == activation.action
-                })
-            });
-
-        let status = if !current {
-            sophia_protocol::ShellIndicatorActivationStatus::Stale
-        } else if !known {
-            sophia_protocol::ShellIndicatorActivationStatus::Unknown
-        } else if activation.action == 0 {
-            // A pill published without an action is not activatable, and zero
-            // is how that is spelled.
-            sophia_protocol::ShellIndicatorActivationStatus::Unauthorized
-        } else {
-            sophia_protocol::ShellIndicatorActivationStatus::Accepted
-        };
+        let status =
+            classify_indicator_activation(self.indicators.last_published.as_ref(), &activation);
 
         let outcome = sophia_protocol::ShellIndicatorActivationOutcome {
             connection_epoch: self.transport.connection_epoch(),
@@ -144,6 +121,42 @@ impl LiveMetadataShell {
         }
         Ok(None)
     }
+}
+
+/// Decide what an activation is worth against the set the shell was last sent.
+///
+/// Split out from the transport so it can be exercised directly: these are the
+/// paths that decide whether a click reaches policy, and they should not be
+/// reachable only through a socket.
+pub(in crate::live_session) fn classify_indicator_activation(
+    published: Option<&ShellIndicatorSnapshot>,
+    activation: &sophia_protocol::ShellIndicatorActivation,
+) -> sophia_protocol::ShellIndicatorActivationStatus {
+    use sophia_protocol::ShellIndicatorActivationStatus as Status;
+    let Some(snapshot) = published else {
+        return Status::Stale;
+    };
+    // The shell must have been looking at the same screen the session was. A
+    // pill clicked against a replaced set points at a view that may have moved.
+    if snapshot.connection_epoch != activation.connection_epoch
+        || snapshot.generation != activation.snapshot_generation
+    {
+        return Status::Stale;
+    }
+    let Some(indicator) = snapshot.indicators.iter().find(|indicator| {
+        indicator.output == activation.output
+            && indicator.indicator == activation.indicator
+            && indicator.action == activation.action
+    }) else {
+        return Status::Unknown;
+    };
+    // A pill published without an action is not activatable, and zero is how
+    // that is spelled. Honouring it would invent authority the publication
+    // never granted.
+    if indicator.action == 0 {
+        return Status::Unauthorized;
+    }
+    Status::Accepted
 }
 
 #[derive(Default)]

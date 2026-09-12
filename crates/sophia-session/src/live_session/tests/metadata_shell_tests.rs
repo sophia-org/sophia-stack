@@ -137,3 +137,124 @@ fn switcher_admits_only_presented_policy_managed_surfaces() {
         BTreeSet::from([managed])
     );
 }
+
+mod indicator_activation {
+    use crate::live_session::metadata_shell::indicators::classify_indicator_activation;
+    use sophia_protocol::{
+        OutputId, ShellIndicator, ShellIndicatorActivation, ShellIndicatorActivationStatus as Status,
+        ShellIndicatorSnapshot,
+    };
+
+    fn published() -> ShellIndicatorSnapshot {
+        ShellIndicatorSnapshot {
+            connection_epoch: 5,
+            generation: 6,
+            active_output: Some(OutputId::from_raw(2)),
+            statuses: Vec::new(),
+            indicators: vec![
+                ShellIndicator {
+                    output: OutputId::from_raw(1),
+                    indicator: 11,
+                    action: 41,
+                    slot: 0,
+                    state_bits: 0,
+                    label: "web".to_owned(),
+                },
+                ShellIndicator {
+                    output: OutputId::from_raw(1),
+                    indicator: 12,
+                    action: 0,
+                    slot: 1,
+                    state_bits: 0,
+                    label: "code".to_owned(),
+                },
+            ],
+        }
+    }
+
+    fn activation(indicator: u64, action: u64) -> ShellIndicatorActivation {
+        ShellIndicatorActivation {
+            connection_epoch: 5,
+            snapshot_generation: 6,
+            output: OutputId::from_raw(1),
+            indicator,
+            action,
+            event_id: 77,
+        }
+    }
+
+    #[test]
+    fn a_published_pill_is_accepted() {
+        assert_eq!(
+            classify_indicator_activation(Some(&published()), &activation(11, 41)),
+            Status::Accepted
+        );
+    }
+
+    #[test]
+    fn an_activation_against_a_replaced_set_is_stale() {
+        let mut later = published();
+        later.generation = 7;
+        assert_eq!(
+            classify_indicator_activation(Some(&later), &activation(11, 41)),
+            Status::Stale
+        );
+    }
+
+    #[test]
+    fn an_activation_before_anything_was_published_is_stale() {
+        assert_eq!(
+            classify_indicator_activation(None, &activation(11, 41)),
+            Status::Stale
+        );
+    }
+
+    #[test]
+    fn a_new_connection_epoch_makes_an_activation_stale() {
+        let mut reconnected = published();
+        reconnected.connection_epoch = 6;
+        assert_eq!(
+            classify_indicator_activation(Some(&reconnected), &activation(11, 41)),
+            Status::Stale
+        );
+    }
+
+    /// The shell cannot mint an action it was never shown.
+    #[test]
+    fn an_invented_action_is_unknown() {
+        assert_eq!(
+            classify_indicator_activation(Some(&published()), &activation(11, 999)),
+            Status::Unknown
+        );
+    }
+
+    /// Nor borrow a real action from a different output.
+    #[test]
+    fn an_action_from_another_output_is_unknown() {
+        let mut foreign = activation(11, 41);
+        foreign.output = OutputId::from_raw(2);
+        assert_eq!(
+            classify_indicator_activation(Some(&published()), &foreign),
+            Status::Unknown
+        );
+    }
+
+    /// Nor pair a real action with a different pill.
+    #[test]
+    fn a_mismatched_indicator_and_action_pair_is_unknown() {
+        assert_eq!(
+            classify_indicator_activation(Some(&published()), &activation(12, 41)),
+            Status::Unknown
+        );
+    }
+
+    /// A pill published with no action is not activatable, and zero must not be
+    /// honoured as though it were one.
+    #[test]
+    fn a_pill_without_an_action_is_unauthorized() {
+        assert_eq!(
+            classify_indicator_activation(Some(&published()), &activation(12, 0)),
+            Status::Unauthorized
+        );
+    }
+}

@@ -26,7 +26,151 @@ HERE = Path(__file__).resolve().parent
 ROOT = HERE.parents[2]
 GIT_ENVIRONMENT = {'PATH': '/usr/bin:/bin', 'HOME': '/nonexistent',
                    'GIT_CONFIG_GLOBAL': '/dev/null', 'GIT_CONFIG_NOSYSTEM': '1',
+                   'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1',
                    'GIT_TERMINAL_PROMPT': '0', 'LANG': 'C.UTF-8'}
+
+SIBLINGS = ('hagia', 'narthex')
+MAX_COMMIT_BYTES = 1024 * 1024
+IDENTITY_CONFIG = b'[core]\n\trepositoryformatversion = 0\n\tbare = false\n'
+
+
+def exact_commit(value):
+    if not isinstance(value, str) or len(value) != 40 or any(c not in '0123456789abcdef' for c in value):
+        raise ValueError('sibling commit must be an exact lowercase 40-hex commit, not a revision or branch')
+    return value
+
+
+def sibling_arguments(validate_only, values):
+    selected = {}
+    for name in SIBLINGS:
+        source, commit = values.get(name, (None, None))
+        if (source is None) != (commit is None):
+            raise ValueError(f'--{name}-source and --{name}-commit must be supplied together')
+        if source is None:
+            if not validate_only:
+                raise ValueError(f'full checks require --{name}-source and --{name}-commit')
+            selected[name] = None
+        else:
+            selected[name] = (Path(source).resolve(strict=True), exact_commit(commit))
+    return selected
+
+
+def commit_payload(source, commit):
+    exact_commit(commit)
+    size = int(git(source, 'cat-file', '-s', commit))
+    if not 0 < size <= MAX_COMMIT_BYTES or git(source, 'cat-file', '-t', commit) != 'commit':
+        raise ValueError('sibling identity must name a bounded commit object')
+    data = verification_command(['git', '-C', str(source), 'cat-file', 'commit', commit],
+                                GIT_ENVIRONMENT, output_limit=MAX_COMMIT_BYTES, timeout=30)
+    if len(data) != size or len(data) > MAX_COMMIT_BYTES:
+        raise ValueError('sibling commit object changed size')
+    # Verify the content-addressed identity independently, without replacements
+    # or any re-encoding of the bytes covered by the commit signature.
+    oid = hashlib.sha1(b'commit ' + str(len(data)).encode() + b'\0' + data).hexdigest()
+    if oid != commit:
+        raise ValueError('sibling commit object does not match the requested identity')
+    tree = data.split(b'\n', 1)[0]
+    if not tree.startswith(b'tree '):
+        raise ValueError('sibling commit has no tree identity')
+    return data, exact_commit(tree[5:].decode('ascii'))
+
+
+def identity_repository_state(repository, commit):
+    # A deliberately incomplete, commit-only identity repository. It is NOT a
+    # checkout or source snapshot, and cannot satisfy consumers needing trees.
+    if (repository.is_symlink() or (repository / '.git').is_symlink()
+            or {p.name for p in repository.iterdir()} != {'.git'} or not (repository / '.git').is_dir()):
+        raise ValueError('identity repository contains checkout files or an external Git directory')
+    files = set()
+    for path in (repository / '.git').rglob('*'):
+        info = path.lstat()
+        if stat.S_ISDIR(info.st_mode):
+            continue
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError('identity repository contains a link or special file')
+        files.add(str(path.relative_to(repository)))
+    expected = {'.git/HEAD', '.git/config', '.git/shallow', f'.git/objects/{commit[:2]}/{commit[2:]}'}
+    if files != expected or (repository / '.git/config').read_bytes() != IDENTITY_CONFIG:
+        raise ValueError('identity repository has unexpected Git configuration or object links')
+    for name in ('HEAD', 'shallow'):
+        if (repository / '.git' / name).read_text() != commit + '\n':
+            raise ValueError('identity repository HEAD or shallow boundary changed')
+    data, tree = commit_payload(repository, commit)
+    return {'commit': commit, 'tree': tree, 'commit_object_sha256': hashlib.sha256(data).hexdigest(),
+            'commit_bytes': len(data), 'tree_objects_included': False, 'checkout_files': False}
+
+
+def identity_repository(source, commit, destination):
+    before, tree = commit_payload(source, commit)
+    destination.mkdir()
+    git(destination, '-c', 'init.templateDir=', 'init', '--quiet')
+    (destination / '.git/config').write_bytes(IDENTITY_CONFIG)
+    written = subprocess.check_output(
+        ['git', '-C', str(destination), 'hash-object', '-t', 'commit', '-w', '--stdin'],
+        input=before, env=GIT_ENVIRONMENT, stderr=subprocess.PIPE, timeout=30).decode().strip()
+    if written != commit:
+        raise ValueError('copied commit object does not match requested identity')
+    (destination / '.git/HEAD').write_text(commit + '\n')
+    (destination / '.git/shallow').write_text(commit + '\n')
+    if commit_payload(source, commit) != (before, tree):
+        raise ValueError('source commit object changed while copying identity')
+    state = identity_repository_state(destination, commit)
+    return {**state, 'source': str(source.resolve()), 'status': 'READY',
+            'signature': 'NOT_RUN', 'source_worktree_used': False}
+
+
+def prepare_siblings(selected, directory):
+    directory.mkdir()
+    report = {}
+    for name in SIBLINGS:
+        value = selected[name]
+        report[name] = (identity_repository(*value, directory / name) if value else
+                        {'status': 'NOT_RUN', 'reason': 'metadata-only run without explicit sibling identity'})
+    (directory / 'identities.json').write_text(json.dumps(report, indent=2) + '\n')
+    return report
+
+
+def verify_siblings(validate_only, directory, environment, signatures):
+    manifest = directory / 'identities.json'
+    identities = json.loads(manifest.read_text()) if manifest.exists() else {}
+    updated, result = dict(environment), {}
+    for name in SIBLINGS:
+        expected = identities.get(name, {'status': 'NOT_RUN'})
+        if expected.get('status') == 'NOT_RUN':
+            if not validate_only:
+                raise VerificationError(f'full checks require explicit {name} identity')
+            result[name] = {'status': 'NOT_RUN', 'reason': 'metadata-only run without explicit sibling identity'}
+            continue
+        if expected.get('status') != 'READY':
+            raise VerificationError('invalid sibling identity manifest status')
+        commit = exact_commit(expected.get('commit'))
+        state = identity_repository_state(directory / name, commit)
+        if any(state[key] != expected.get(key) for key in state):
+            raise VerificationError(f'{name} identity changed before signature verification')
+        signature = 'NOT_RUN'
+        if signatures.get('status') == 'PASS':
+            try:
+                verification_command(['/usr/bin/git', '-C', str(directory / name), 'verify-commit', commit], environment)
+            except VerificationError as error:
+                raise VerificationError(f'{name} commit signature failed: {error}') from None
+            signature = 'PASS'
+        elif not validate_only:
+            raise VerificationError('sibling signature verification requires the explicit public key')
+        if identity_repository_state(directory / name, commit) != state:
+            raise VerificationError(f'{name} identity changed during signature verification')
+        result[name] = {**state, 'status': 'PASS', 'signature': signature,
+                        'scope': 'commit identity only; tree/blob contents omitted and unverified'}
+        updated[f'SOPHIA_{name.upper()}_ROOT'] = str(directory / name)
+    return updated, result
+
+
+def unchanged_siblings(identities, directory):
+    for name, expected in identities.items():
+        if expected['status'] != 'PASS':
+            continue
+        state = identity_repository_state(directory / name, expected['commit'])
+        if any(state[key] != expected[key] for key in state):
+            raise VerificationError(f'{name} identity changed during contained command')
 
 
 def git(source, *arguments):
@@ -180,10 +324,13 @@ def verification_input(path):
         os.close(descriptor)
 
 
-def verification_command(command, environment, *, payload=b'', timeout=30):
+def verification_command(command, environment, *, payload=b'', timeout=30, output_limit=None):
     # Raw packet diagnostics can contain private material in a mistaken input.
     # Keep them only in bounded memory, never an evidence log. The input copy is
     # anonymous in private tmpfs; only an accepted public import persists.
+    limit = MAX_VERIFICATION_OUTPUT if output_limit is None else output_limit
+    if not isinstance(limit, int) or limit <= 0:
+        raise VerificationError('verification output limit must be positive')
     with tempfile.TemporaryFile() as incoming:
         incoming.write(payload)
         incoming.seek(0)
@@ -202,12 +349,12 @@ def verification_command(command, environment, *, payload=b'', timeout=30):
                             raise VerificationError('verification command timed out')
                         if not selector.select(remaining):
                             raise VerificationError('verification command timed out')
-                        chunk = os.read(child.stdout.fileno(), 16384)
+                        chunk = os.read(child.stdout.fileno(), min(16384, limit - len(output) + 1))
                         if not chunk:
                             selector.unregister(child.stdout)
                         else:
                             output.extend(chunk)
-                            if len(output) > MAX_VERIFICATION_OUTPUT:
+                            if len(output) > limit:
                                 raise VerificationError('verification output limit exceeded')
                 child.wait(timeout=max(0.001, deadline - time.monotonic()))
             except (VerificationError, subprocess.TimeoutExpired):
@@ -287,9 +434,11 @@ def inside(activation_fd, validate_only, verification_key=None, verification_sha
                    'CARGO_HOME': '/work/cargo', 'CARGO_TARGET_DIR': '/work/target',
                    'CARGO_NET_OFFLINE': 'true', 'GIT_CONFIG_GLOBAL': '/dev/null',
                    'GIT_CONFIG_NOSYSTEM': '1', 'GIT_TERMINAL_PROMPT': '0',
+                   'GIT_NO_REPLACE_OBJECTS': '1', 'GIT_NO_LAZY_FETCH': '1',
                    'PWD': '/work/source'}
     os.chdir('/work/source')
     signatures = {'status': 'NOT_RUN', 'reason': 'signature preflight has not completed'}
+    siblings = {'status': 'NOT_RUN', 'reason': 'sibling identity preflight has not completed'}
     try:
         environment, signatures = prepare_verification(
             validate_only, verification_key, environment,
@@ -298,14 +447,21 @@ def inside(activation_fd, validate_only, verification_key=None, verification_sha
             signatures = {'status': 'FAIL', 'detail': 'verification input changed before private import'}
             raise VerificationError(signatures['detail'])
         Path('/work/evidence/signature-verification.json').write_text(json.dumps(signatures, indent=2) + '\n')
+        environment, identities = verify_siblings(
+            validate_only, Path('/work/dependencies'), environment, signatures)
+        siblings = {'status': 'PASS' if all(value['status'] == 'PASS' for value in identities.values())
+                    else 'NOT_RUN', 'identities': identities}
+        Path('/work/evidence/sibling-identities.json').write_text(json.dumps(siblings, indent=2) + '\n')
         versions = preflight_versions(environment)
         private_loader_cache()
     except (OSError, ValueError, subprocess.SubprocessError) as error:
         if verification_key is not None and signatures['status'] == 'NOT_RUN':
             signatures = {'status': 'FAIL', 'detail': str(error)}
+        if signatures['status'] == 'PASS' and 'identities' not in siblings:
+            siblings = {'status': 'FAIL', 'detail': str(error)}
         report = {'status': 'BLOCKED', 'full_check_executed': False,
                   'detail': f'private preflight failed: {type(error).__name__}: {error}',
-                  'signature_verification': signatures}
+                  'signature_verification': signatures, 'sibling_prerequisites': siblings}
         Path('/work/evidence/inner-report.json').write_text(json.dumps(report, indent=2) + '\n')
         return 2
     Path('/work/evidence/preflight.json').write_text(json.dumps(versions, indent=2) + '\n')
@@ -314,9 +470,15 @@ def inside(activation_fd, validate_only, verification_key=None, verification_sha
     with Path('/work/evidence/command.log').open('wb') as log:
         result = subprocess.run(command, env=environment, stdin=subprocess.DEVNULL,
                                 stdout=log, stderr=subprocess.STDOUT, check=False)
+    identity_failure = None
+    try:
+        unchanged_siblings(identities, Path('/work/dependencies'))
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        identity_failure = str(error)
     report = {'status': 'PASS' if result.returncode == 0 else 'FAIL',
               'command': command, 'command_exit': result.returncode, 'tool_versions': versions,
               'full_check_executed': not validate_only, 'signature_verification': signatures,
+              'sibling_prerequisites': siblings,
               'scope': 'Contained offline checks; no hardware or physical-input acceptance.',
               'render_devices_present': False,
               'private_runtime_data': ['generated /etc/hosts: loopback names only',
@@ -324,8 +486,11 @@ def inside(activation_fd, validate_only, verification_key=None, verification_sha
                                        'private source/target symlink to owned /work/target'],
               'hardware_proofs': {'status': 'NOT_RUN', 'reason': 'private /dev has no render nodes'},
               'promoted_host_archives': {'status': 'NOT_RUN', 'reason': 'host state directories are not mounted'}}
+    if identity_failure:
+        report.update(status='FAIL', detail=identity_failure)
+        siblings['status'] = 'FAIL'
     Path('/work/evidence/inner-report.json').write_text(json.dumps(report, indent=2) + '\n')
-    return result.returncode
+    return result.returncode or int(identity_failure is not None)
 
 
 def main():
@@ -335,6 +500,9 @@ def main():
     parser.add_argument('--target-dir', type=Path)
     parser.add_argument('--registry', type=Path, default=Path.home() / '.cargo/registry')
     parser.add_argument('--verification-key', type=Path, help='one bounded public OpenPGP export; required for full checks')
+    for sibling in SIBLINGS:
+        parser.add_argument(f'--{sibling}-source', type=Path, help='explicit repository containing the pinned commit; never mounted')
+        parser.add_argument(f'--{sibling}-commit', help='exact lowercase 40-hex signed commit identity')
     parser.add_argument('--validate-only', action='store_true', help='versions, optional signature preflight and offline metadata only; no check/build/test')
     parser.add_argument('--timeout', type=float, default=1800)
     parser.add_argument('--inside', action='store_true', help=argparse.SUPPRESS)
@@ -351,6 +519,16 @@ def main():
     if source_state(source)['dirty']:
         parser.error('source is dirty; no canonical snapshot was taken')
     output, target = check_paths(source, args.output, args.target_dir)
+    output.mkdir(parents=True)
+    try:
+        selected = sibling_arguments(args.validate_only, {
+            name: (getattr(args, f'{name}_source'), getattr(args, f'{name}_commit')) for name in SIBLINGS})
+    except (OSError, ValueError) as error:
+        report = {'status': 'BLOCKED', 'full_check_executed': False,
+                  'detail': f'invalid sibling prerequisites: {error}'}
+        (output / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report, indent=2))
+        return 2
     toolchain = toolchain_path(source)
     ripgrep = required_tool('rg')
     tools = ('rustc', 'rustdoc', 'cargo', 'cargo-fmt', 'rustfmt', 'cargo-clippy', 'clippy-driver')
@@ -358,8 +536,16 @@ def main():
     registry = args.registry.resolve(strict=True)
     if not all((registry / part).is_dir() for part in ('cache', 'index', 'src')):
         parser.error('registry must contain offline cache, index and unpacked src directories')
-    output.mkdir(parents=True)
     provenance = snapshot(source, output / 'source')
+    try:
+        sibling_provenance = prepare_siblings(selected, output / 'dependencies')
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        report = {'status': 'BLOCKED', 'full_check_executed': False,
+                  'detail': f'sibling identity copy failed: {type(error).__name__}: {error}',
+                  'provenance': provenance}
+        (output / 'report.json').write_text(json.dumps(report, indent=2) + '\n')
+        print(json.dumps(report, indent=2))
+        return 2
     for directory in ('evidence', 'cargo'):
         (output / directory).mkdir()
     target.mkdir(parents=True, exist_ok=True)
@@ -382,6 +568,10 @@ def main():
               Mount(target, '/work/target', writable=True), Mount(toolchain, '/work/toolchain'),
               Mount(ripgrep, '/work/tools/rg'),
               Mount(registry, '/work/registry'), Mount(Path('/usr/include'), '/work/include')]
+    mounts.append(Mount(output / 'dependencies/identities.json', '/work/dependencies/identities.json'))
+    for name in SIBLINGS:
+        if selected[name] is not None:
+            mounts.append(Mount(output / 'dependencies' / name, f'/work/dependencies/{name}'))
     command = ['/usr/bin/python3', '-B',
                '/work/harness/tools/probes/x11_conformance/offline_check.py', '--inside',
                '--activation-fd', '{activation_fd}']
@@ -396,6 +586,7 @@ def main():
                       wrapper_sha256=file_digest(Path(__file__)),
                       isolation_sha256=file_digest(HERE / 'isolation.py'),
                       target=str(target), registry=str(registry), validate_only=args.validate_only,
+                      sibling_inputs=sibling_provenance,
                       public_verification_input=key_input)
     (output / 'provenance.json').write_text(json.dumps(provenance, indent=2) + '\n')
     try:
@@ -413,6 +604,17 @@ def main():
     except IsolationError as error:
         report = {'status': 'BLOCKED', 'full_check_executed': False, 'detail': str(error)}
     signatures = report.get('signature_verification', {'status': 'NOT_RUN'})
+    try:
+        for name, expected in sibling_provenance.items():
+            if expected['status'] != 'READY':
+                continue
+            copied = identity_repository_state(output / 'dependencies' / name, expected['commit'])
+            raw, tree = commit_payload(selected[name][0], expected['commit'])
+            if (any(copied[key] != expected[key] for key in copied)
+                    or tree != expected['tree'] or hashlib.sha256(raw).hexdigest() != expected['commit_object_sha256']):
+                raise ValueError(f'{name} source or copied commit changed during the run')
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        report.update(status='FAIL', detail=f'sibling identity integrity check failed: {error}')
     if key_input and signatures.get('status') == 'PASS' and signatures.get('public_sha256') != key_input['sha256']:
         report['status'] = 'FAIL'
         report['detail'] = 'verification input changed between launch provenance and private import'

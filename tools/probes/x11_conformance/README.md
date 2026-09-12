@@ -183,6 +183,10 @@ unrelated descriptors before starting the unchanged canonical command.
 python3 -B tools/probes/x11_conformance/offline_check.py \
   --source /absolute/clean-checkout \
   --verification-key /absolute/public-verification.gpg \
+  --hagia-source /absolute/hagia \
+  --hagia-commit a12fc5cc398fd4692bfb693df25184bbec9ebc76 \
+  --narthex-source /absolute/narthex \
+  --narthex-commit f270248f7368cef2e5a18023958627d12f8bf7eb \
   --target-dir /absolute/main-checkout/.artifacts/offline-target \
   --output /absolute/main-checkout/.artifacts/offline-check-new
 ```
@@ -199,9 +203,31 @@ binary discovery. These fixtures expose neither an installed Sophia nor host `/e
 versions are checked before the workspace suite, so a missing helper cannot be
 mistaken for source-layout evidence.
 
+Full checks require both explicit sibling source/commit pairs. Commits must be
+complete lowercase 40-hex identities, never branch names or moving `HEAD`.
+The sibling repositories may contain unrelated working edits: the wrapper reads
+only the specified immutable commit object and never looks for sibling checkouts
+implicitly. The pinned values above are explicit inputs, not automatic upgrades.
+
+Each sibling becomes a fresh, non-bare **identity repository**, not a source
+snapshot. It contains the exact raw commit object, detached `HEAD` and a depth-one
+shallow boundary. There is no checkout, index, remote, copied configuration,
+alternate object store or external Git link. Tree identities are recorded, but
+tree/blob objects and binaries are omitted; their contents are **not verified**.
+Consumers needing those objects must fail instead of reaching a host checkout.
+Only these generated identity repositories are mounted read-only, at
+`/work/dependencies/hagia` and `/work/dependencies/narthex`. The wrapper sets
+`SOPHIA_HAGIA_ROOT` and `SOPHIA_NARTHEX_ROOT` to those paths only inside containment.
+Commit payloads have a 1-MiB bound enforced while reading subprocess output,
+separate from the verifier's default 256-KiB output limit, and bounded Git waits. Object IDs
+and SHA256 hashes are checked during copying, before/after signature verification
+and after the contained command; sibling moving-HEAD and worktree state are not
+used as identity evidence.
+
 Full checks also require an explicit public OpenPGP export containing the
-signers of the source commit and its parent. The archive-verifier fixture uses
-both commits and genuine signature verification. Export only those known
+signers of the source commit, its parent and the two pinned sibling commits.
+The archive-verifier fixtures use these identities and genuine signature
+verification. Export only those known
 fingerprints; for example, after identifying the required signer:
 
 ```sh
@@ -217,13 +243,16 @@ inspects packets before import, refuses secret-key packets, and imports only
 accepted public data into a fresh private `GNUPGHOME`. Packet diagnostics stay
 in bounded memory, not evidence logs. Signature commands have a 30-second
 deadline and a 256-KiB output limit. The report records imported fingerprints
-and genuine signature results for both commits. Unknown ownertrust warnings
+and genuine signature results for the source pair and both sibling commits,
+all using the same fresh private GPG home. Unknown ownertrust warnings
 are possible because host trust is not copied. Missing keys, malformed input,
 and failed signatures block before the canonical command runs.
 
 `--validate-only` checks tool versions and offline Cargo metadata without
-building or running the workspace gate. Without a key it makes no signature
-claim; supplying `--verification-key` adds the same signature preflight so its
+building or running the workspace gate. It may omit complete sibling pairs,
+which are reported `NOT_RUN`; partial pairs remain errors. Without a key it makes no signature
+claim; supplying `--verification-key` adds the same signature preflight for
+the source pair and any explicitly supplied siblings so its
 prerequisites can be tested without a full check. Reports distinguish these
 paths from an invoked full check. A failed invocation remains failed; hardware proofs and
 host promoted archives remain unrun inside this environment. This command

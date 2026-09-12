@@ -43,6 +43,149 @@ class OfflineCheckTests(unittest.TestCase):
             self.assertEqual((destination / 'tracked.txt').read_text(), 'the committed fixture\n')
             self.assertFalse(gate.source_state(destination)['dirty'])
 
+    def test_full_sibling_arguments_require_both_explicit_pairs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            source = Path(temporary)
+            valid = (source, '1' * 40)
+            for values in ({}, {'hagia': valid}, {'narthex': valid},
+                           {'hagia': (source, None), 'narthex': valid},
+                           {'hagia': valid, 'narthex': (None, '2' * 40)}):
+                with self.subTest(values=values), self.assertRaises(ValueError):
+                    gate.sibling_arguments(False, values)
+            selected = gate.sibling_arguments(False, {'hagia': valid, 'narthex': valid})
+            self.assertEqual(set(selected), {'hagia', 'narthex'})
+            self.assertEqual(gate.sibling_arguments(True, {}), {'hagia': None, 'narthex': None})
+            for revision in ('HEAD', 'main', '1' * 8, 'A' * 40, '1' * 40 + '^', 'z' * 40):
+                with self.subTest(revision=revision), self.assertRaisesRegex(ValueError, '40-hex'):
+                    gate.sibling_arguments(True, {'hagia': (source, revision)})
+            with self.assertRaises(ValueError):
+                gate.sibling_arguments(True, {'hagia': (source, None)})
+
+    def test_missing_sibling_args_block_main_before_tools_or_canonical_launch(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            output, target = base / 'output', base / 'target'
+            arguments = ['offline_check.py', '--source', str(source), '--output', str(output),
+                         '--target-dir', str(target)]
+            with patch.object(sys, 'argv', arguments), \
+                    patch.object(gate, 'check_paths', return_value=(output, target)), \
+                    patch.object(gate, 'toolchain_path') as toolchain, \
+                    patch.object(gate, 'launch') as launch, patch('builtins.print'):
+                self.assertEqual(gate.main(), 2)
+            toolchain.assert_not_called(); launch.assert_not_called()
+            report = json.loads((output / 'report.json').read_text())
+            self.assertEqual(report['status'], 'BLOCKED')
+            self.assertFalse(report['full_check_executed'])
+
+    def test_identity_repository_keeps_only_pinned_raw_commit_with_no_external_git_links(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            commit = gate.git(source, 'rev-parse', 'HEAD^')
+            raw, tree = gate.commit_payload(source, commit)
+            # Neither a moving HEAD nor unrelated working edits are inputs.
+            (source / 'tracked.txt').write_text('unrelated host edit\n')
+            (source / 'untracked.txt').write_text('host-only content\n')
+            gate.git(source, 'config', 'remote.operator.url', '/must-not-be-copied')
+            destination = base / 'identity'
+            report = gate.identity_repository(source, commit, destination)
+            self.assertEqual(gate.git(destination, 'rev-parse', 'HEAD'), commit)
+            self.assertEqual(gate.git(destination, 'rev-list', '--count', 'HEAD'), '1')
+            self.assertEqual(gate.commit_payload(destination, commit), (raw, tree))
+            self.assertEqual(gate.git(destination, 'remote'), '')
+            self.assertEqual(gate.git(destination, 'rev-parse', '--is-bare-repository'), 'false')
+            self.assertEqual(gate.git(destination, 'cat-file', '--batch-all-objects',
+                                      '--batch-check=%(objectname) %(objecttype)'), commit + ' commit')
+            self.assertEqual({p.name for p in destination.iterdir()}, {'.git'})
+            self.assertFalse(report['tree_objects_included']); self.assertFalse(report['checkout_files'])
+            with self.assertRaises(subprocess.CalledProcessError):
+                gate.git(destination, 'cat-file', '-e', tree)
+            (destination / '.git/objects/info/alternates').write_text('/fabricated/external/objects\n')
+            with self.assertRaisesRegex(ValueError, 'unexpected Git'):
+                gate.identity_repository_state(destination, commit)
+
+    def test_identity_copy_rejects_wrong_type_missing_object_and_changed_write_identity(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            for value in ('0' * 40, gate.git(source, 'rev-parse', 'HEAD^{tree}')):
+                with self.subTest(value=value), self.assertRaises((ValueError, subprocess.CalledProcessError)):
+                    gate.identity_repository(source, value, base / value)
+            commit = gate.git(source, 'rev-parse', 'HEAD')
+            original = gate.subprocess.check_output
+            def wrong_identity(command, **kwargs):
+                if 'hash-object' in command:
+                    return b'0' * 40 + b'\n'
+                return original(command, **kwargs)
+            with patch.object(gate.subprocess, 'check_output', side_effect=wrong_identity):
+                with self.assertRaisesRegex(ValueError, 'copied commit object'):
+                    gate.identity_repository(source, commit, base / 'bad-write')
+
+    def test_identity_repository_rejects_external_git_directory_and_config(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            commit = gate.git(source, 'rev-parse', 'HEAD')
+            destination = base / 'identity'
+            gate.identity_repository(source, commit, destination)
+            config = destination / '.git/config'
+            config.write_bytes(gate.IDENTITY_CONFIG + b'[include]\npath = /fabricated/host-config\n')
+            with self.assertRaisesRegex(ValueError, 'unexpected Git'):
+                gate.identity_repository_state(destination, commit)
+            config.write_bytes(gate.IDENTITY_CONFIG)
+            (destination / '.git').rename(base / 'external-git')
+            (destination / '.git').symlink_to(base / 'external-git', target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, 'external Git'):
+                gate.identity_repository_state(destination, commit)
+
+    def test_sibling_environment_and_signatures_use_only_private_identity_repositories(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            commit = gate.git(source, 'rev-parse', 'HEAD')
+            directory = base / 'identities'
+            gate.prepare_siblings({name: (source, commit) for name in gate.SIBLINGS}, directory)
+            environment = {**gate.GIT_ENVIRONMENT, 'GNUPGHOME': str(base / 'private-gpg')}
+            real_command = gate.verification_command
+            def signed(command, environment, **kwargs):
+                if 'verify-commit' in command:
+                    return b''
+                return real_command(command, environment, **kwargs)
+            with patch.object(gate, 'verification_command', side_effect=signed) as verify:
+                private, result = gate.verify_siblings(False, directory, environment, {'status': 'PASS'})
+            signature_calls = [call for call in verify.call_args_list if 'verify-commit' in call.args[0]]
+            self.assertEqual(len(signature_calls), 2)
+            for name, call in zip(gate.SIBLINGS, signature_calls):
+                self.assertEqual(call.args, (['/usr/bin/git', '-C', str(directory / name),
+                                             'verify-commit', commit], environment))
+                self.assertEqual(private[f'SOPHIA_{name.upper()}_ROOT'], str(directory / name))
+                self.assertEqual(result[name]['signature'], 'PASS')
+            self.assertNotIn('SOPHIA_HAGIA_ROOT', environment)
+            gate.unchanged_siblings(result, directory)
+            (directory / 'hagia/.git/HEAD').write_text('0' * 40 + '\n')
+            with self.assertRaisesRegex(ValueError, 'HEAD'):
+                gate.unchanged_siblings(result, directory)
+
+    def test_unsigned_sibling_blocks_real_verification_without_ambient_keyring(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            base = Path(temporary); source = self.repository(base)
+            commit = gate.git(source, 'rev-parse', 'HEAD')
+            directory = base / 'identities'
+            gate.prepare_siblings({name: (source, commit) for name in gate.SIBLINGS}, directory)
+            home = base / 'private-gpg'; home.mkdir(mode=0o700)
+            environment = {**gate.GIT_ENVIRONMENT, 'GNUPGHOME': str(home)}
+            with self.assertRaisesRegex(gate.VerificationError, 'hagia commit signature failed'):
+                gate.verify_siblings(False, directory, environment, {'status': 'PASS'})
+
+    def test_metadata_omitted_siblings_stay_not_run_and_full_missing_is_blocked(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary) / 'identities'
+            gate.prepare_siblings({name: None for name in gate.SIBLINGS}, directory)
+            with patch.object(gate, 'verification_command') as command:
+                environment, result = gate.verify_siblings(True, directory, gate.ENVIRONMENT, {'status': 'NOT_RUN'})
+                self.assertTrue(all(value['status'] == 'NOT_RUN' for value in result.values()))
+                self.assertNotIn('SOPHIA_HAGIA_ROOT', environment)
+                self.assertNotIn('SOPHIA_NARTHEX_ROOT', environment)
+                with self.assertRaisesRegex(gate.VerificationError, 'explicit hagia'):
+                    gate.verify_siblings(False, directory, gate.ENVIRONMENT, {'status': 'PASS'})
+            command.assert_not_called()
+
     def test_dirty_tracked_and_untracked_source_refused_before_copy(self):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
@@ -187,7 +330,8 @@ class OfflineCheckTests(unittest.TestCase):
         self.assertEqual(report['status'], 'NOT_RUN')
         verify.assert_not_called()
 
-    def check_blocked_inside(self, *, has_key, error=None, verification=None, expected_hash=None):
+    def check_blocked_inside(self, *, has_key, error=None, verification=None, expected_hash=None,
+                             sibling_error=None):
         with tempfile.TemporaryDirectory() as temporary:
             base = Path(temporary)
             for name in ('work/source', 'work/cargo', 'work/evidence', 'usr'):
@@ -199,6 +343,8 @@ class OfflineCheckTests(unittest.TestCase):
                     patch.object(gate, 'private_target_link'), patch.object(gate.os, 'chdir'), \
                     patch.object(gate, 'verify_public_input', side_effect=error,
                                  return_value=(gate.ENVIRONMENT, verification)) as verify, \
+                    patch.object(gate, 'verify_siblings', side_effect=sibling_error,
+                                 return_value=(gate.ENVIRONMENT, {})), \
                     patch.object(gate, 'preflight_versions') as versions, \
                     patch.object(gate.subprocess, 'run') as run:
                 result = gate.inside(5, False, Path('/supplied-public') if has_key else None, expected_hash)
@@ -215,6 +361,10 @@ class OfflineCheckTests(unittest.TestCase):
 
     def test_signature_failure_blocks_before_canonical_command(self):
         self.check_blocked_inside(has_key=True, error=gate.VerificationError('invalid signature'))
+
+    def test_sibling_signature_failure_blocks_before_canonical_command(self):
+        self.check_blocked_inside(has_key=True, verification={'status': 'PASS'},
+                                 sibling_error=gate.VerificationError('narthex commit signature failed'))
 
     def test_changed_public_input_identity_blocks_before_canonical_command(self):
         report = self.check_blocked_inside(has_key=True, expected_hash='0' * 64,
@@ -269,6 +419,30 @@ class OfflineCheckTests(unittest.TestCase):
             with self.assertRaises(gate.VerificationError):
                 gate.verification_command([sys.executable, '-c', 'print("x" * 65536)'],
                                           gate.ENVIRONMENT, timeout=2)
+
+    def test_commit_reader_bounds_stream_even_if_size_preflight_lies(self):
+        # The object reader is replaced by an owned fabricated process; the
+        # declared size still passes. Bounds must stop stdout before validation.
+        for payload, timeout in [('import sys; sys.stdout.buffer.write(b"x" * (2 * 1024 * 1024))', 2),
+                                 ('import time; time.sleep(5)', .05)]:
+            with self.subTest(payload=payload):
+                real_command = gate.verification_command
+                def fabricated(command, environment, **kwargs):
+                    self.assertEqual(command[-3:], ['cat-file', 'commit', '1' * 40])
+                    self.assertEqual(kwargs['output_limit'], gate.MAX_COMMIT_BYTES)
+                    return real_command([sys.executable, '-c', payload], environment,
+                                        timeout=timeout, output_limit=kwargs['output_limit'])
+                with patch.object(gate, 'git', side_effect=['100', 'commit']), \
+                        patch.object(gate, 'verification_command', side_effect=fabricated):
+                    with self.assertRaisesRegex(gate.VerificationError, 'deadline or output bound'):
+                        gate.commit_payload(Path('/unused'), '1' * 40)
+
+    def test_explicit_commit_output_limit_does_not_raise_the_default_verifier_limit(self):
+        payload = [sys.executable, '-c', 'import sys; sys.stdout.buffer.write(b"x" * (300 * 1024))']
+        with self.assertRaises(gate.VerificationError):
+            gate.verification_command(payload, gate.ENVIRONMENT)
+        data = gate.verification_command(payload, gate.ENVIRONMENT, output_limit=gate.MAX_COMMIT_BYTES)
+        self.assertEqual(len(data), 300 * 1024)
 
 
 if __name__ == '__main__':

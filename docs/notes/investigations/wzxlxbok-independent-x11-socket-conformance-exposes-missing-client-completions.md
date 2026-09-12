@@ -89,6 +89,57 @@ explicit-destroy, subscription, invalid-ID and XID-reuse cases remain passing.
 The gate and remaining coverage work stay first under t057; all six repairs
 remain open at the highest priority in todo.md.
 
+## Expanded lifecycle baseline after disconnect notification landed
+
+The unchanged 62-execution profile was rerun on **d9c49d85**. Peer-close
+DestroyNotify changed from TIMEOUT to an ordering FAIL: all three structure
+events arrive, but name parent, child, grandchild in that order. The other
+verdicts remain unchanged: 50 PASS and 12 FAIL/TIMEOUT, exit 1.
+
+Four additional mandatory cases then landed in **cc577db5**, tested against the
+same runtime repair on clean committed source. **70 executions: 54 PASS,
+16 FAIL/TIMEOUT; exit 1.** The increase includes eight newly required
+case/order executions; these counts must not be compared as the same profile.
+Host SHA256: `fa48aecbbb6d14b02d22cd23eed20c84d0590b7549d5b8786fd526d6b2e42a95`.
+Evidence: `.artifacts/x11-conformance/baseline-cc577db5/`. The original-profile
+rerun is retained at `baseline-d9c49d85/` beside the earlier baselines.
+
+- `destroy_subwindows_order` passes both orders after moving the newer child
+  below the older one. Each child's subtree dies first, in the required sibling
+  stack order. A temporary isolated runtime mutant replacing stack-rank sorting
+  with XID sorting fails this case in both orders; the original passes. Source
+  and build cache were restored before the clean baseline. The selected-case
+  experiment is retained in `destroy-order-mutation/`; it is not a full gate run.
+- `destroy_subwindows_invalid` passes both orders: empty/repeated requests do
+  not destroy the parent, and invalid/already-destroyed targets produce BadWindow
+  without phantom events.
+- `destroy_peer_close_subscribers` times out in both orders. It receives
+  `(parent,parent)`, `(root,parent)` and `(child,child)`, but never
+  `(parent,child)`. Teardown retires the parent's subscriptions before routing
+  the child's parent-addressed event. This is a residual t087 defect, alongside
+  the independently failing descendant-before-ancestor ordering case.
+- `destroy_mapped` fails both orders: after confirmed Viewable state, explicit
+  DestroyWindow produces only DestroyNotify, omitting the automatic UnmapNotify.
+  This extends t084's existing notification gap and t087's lifecycle acceptance;
+  no duplicate task is needed.
+
+The [X11 protocol](https://xorg.freedesktop.org/archive/X11R7.7/doc/xproto/x11protocol.html)
+requires descendants before ancestors in the DestroyNotify event definition,
+including when destruction follows connection close. DestroySubwindows also
+requires bottom-to-top child order. DestroyWindow on a mapped window performs
+an automatic unmap before destruction. These checks do not impose a sibling
+order on ordinary DestroyWindow beyond the protocol's ancestor constraint.
+
+Twenty reporting regressions still pass. Actual XTS remains unrun for the
+previously recorded dependency blockers. The temporary mutation touched only
+the isolated worktree; no runtime repair is included in the harness commits.
+
+The installed `1a59ab8c1406` v6 pinentry observation remains separate historical
+evidence: its successful DestroyWindow API call was not observed as probe-client
+major 4 dispatch, and `running_drop` did not return. The socket experiments above
+identify their compiled source and distinguish explicit requests from connection
+cleanup; they neither ran that installed release nor establish a pinentry cause.
+
 ## UnmapNotify
 
 The `unmap` case receives MapNotify and confirms the window is Viewable, issues

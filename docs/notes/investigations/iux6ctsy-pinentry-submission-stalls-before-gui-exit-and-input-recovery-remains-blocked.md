@@ -352,3 +352,93 @@ The launcher now pins that exact installed release; the earlier installation
 prerequisite is satisfied. Both the materialized capture and all three wrappers
 generated from this installed release pass `bash -n`. This is preparation only:
 the attended dummy reproduction and physical acceptance remain outstanding.
+
+### t077 recovery gap exposed by the first t082 capture
+
+Capture `/tmp/sophia-pinentry-trace/run.TRaWWi` ran the deliberately pinned
+`18f70f862300` release. The first uninstrumented baseline started as PID 6664 at
+15:09:50.018 UTC on 2026-09-12. The operator reports clicking OK; the entered
+public word is uncertain. Only `case_start` survives: there is no protocol
+terminal, summary, harness-termination marker or instrumented specimen.
+
+At 15:10:18.424940 the session begins retiring outstanding deliveries for client
+2 as `ClientDisconnected`. Its final error at session.raw.log line 16021 includes
+`persistent X authority server failed: failed to write XI2 generic event: Broken pipe (os error 32)`.
+This is about 28 seconds into the baseline's 60-second budget. The evidence does
+not establish a harness timeout, successful pinentry exit, pinentry crash, or the
+original native-loop stall. Nor does it establish client 2's PID by itself.
+
+The session-fatal write classification is a t077 recovery gap, with t082 blocked
+on it. In `connection/writers/input.rs`, the XI2 generic-event write wraps its
+I/O error with `X11SetupSocketError::new`; both client classification flags are
+false. The writer absorbs only `client_disconnect`, returning other errors into
+the connection's writer join and ultimately the authority failure. Existing
+`is_x11_client_disconnect` already recognizes BrokenPipe, ConnectionReset and
+UnexpectedEof; the core-record writes use it but neighboring paths do not.
+
+Direct inspection finds eight unclassified I/O sites in input.rs: core leave,
+core enter, XI2 leave/focus-out, XI2 enter/focus-in, XKB state, XI2 generic,
+emulated XI2 wheel-button, and final flush. Two other write sites classify peer
+disconnects correctly. Counting constructors inside both branches would double
+count those classified sites. The reported additional four sites in
+`writers/records.rs` are not confirmed on master `3a2139bf`: that file contains
+no stream writes or flushes. Audit adjacent protocol/control writers as part of
+the repair rather than treating the approximate twelve-site total as verified.
+
+Repair scope: apply consistent typed peer-I/O classification across the writer
+subsystem without downgrading lock, encoding or shared-authority errors. Exercise
+real closed sockets through affected writer paths, verify exact delivery
+settlement without false Flushed outcomes, and demonstrate that a healthy peer
+and the authority stay alive. Keep a non-peer-error control that remains fatal.
+A helper-only test is insufficient because a missed call site caused this gap.
+Then repeat the attended dummy capture on the checked repair release. No further
+VT reproduction or runtime repair is performed by this filing.
+
+A peer disappearing at an affected write can terminate the session; the defect
+is not specific to pinentry. The current installed symlink has since moved to
+`fd2b86c72f54`, but the retained capture pin still names the actual `18f70f86`
+specimen. Neither installation change constitutes physical acceptance of t077.
+
+### Peer-write recovery repair
+
+The approved repair classifies the eight audited input I/O errors with the
+existing BrokenPipe/ConnectionReset/UnexpectedEof definition. Only I/O closures
+change: poisoned locks, codecs and shared-authority errors remain fatal. The
+bounded adjacent audit also found bare protocol/control flush errors and a
+control write that swallowed peer disconnect as `Ok(())`. The latter could reach
+`Delivered` acknowledgement despite writing no record. It now returns a typed
+connection-local error through the control caller, preventing that success ACK;
+the frontend supervisor already handles that class without stopping authority.
+
+Regression tests use actual Unix sockets through the production input writer for
+XI2 generic, core enter/leave, XI2 enter/leave and emulated-wheel paths. Leave
+cases first complete a successful delivery before closing the peer and changing
+the pointer destination. Each failed delivery has one `ClientDisconnected`
+receipt, never `Flushed`. Its actual writer result passes through the production
+frontend reaper; a healthy production writer still emits a complete XI2 record
+after each reap. The fixture supplies the worker join wrapper, rather than
+performing a whole session or client handshake, so this is worker-boundary
+coverage, not physical acceptance.
+
+Additional tests exercise a closed-socket protocol writer, the actual control
+record writer's error return, the disconnect-kind classifier, and a poisoned
+output lock which must retain fatal classification. The control test proves the
+record writer fails; the following `?` before `send_ack` is the static evidence
+that no successful ACK follows it. It does not observe a full control-queue
+round trip. XKB's later write and UnixStream's no-op flush are audited sites,
+not individually fault-injected native failures.
+
+A negative control restoring the original XI2 generic-event constructor fails
+the regression with `WriteFailed` instead of `ClientDisconnected`; restored
+positive tests pass. Evidence is under `.artifacts/t082-validation/peer-write-*`.
+The first full-gate attempt inherited a real atomic-scanout opt-in and failed its
+atomic submission. That environmental failure is retained separately; offline
+validation clears inherited SOPHIA_/HAGIA_ proof flags. It is not acceptance of
+any physical path. No repeated attended pinentry run has occurred.
+
+The clean-environment `cargo xtask check` completed successfully: 264 passing
+test-result groups, clippy, the unchanged source-layout ledger, promoted archive
+verification and installed native verifier fixtures. Claude reviewed the repair
+read-only and approved it. The existing TLA recovery model is unchanged; no new
+model-checking claim is made for this error-classification patch. Installation
+of the repair, capture retargeting and attended acceptance remain outstanding.

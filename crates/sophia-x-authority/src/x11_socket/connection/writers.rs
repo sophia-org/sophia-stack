@@ -99,7 +99,7 @@ fn spawn_x11_protocol_event_writer(
                 )));
             }
             stream.flush().map_err(|error| {
-                X11SetupSocketError::new(format!("failed to flush X11 protocol event: {error}"))
+                x11_peer_write_error("failed to flush X11 protocol event", error)
             })?;
             trace_written_selection_event(client, event);
         }

@@ -1144,3 +1144,8 @@ include!(concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/tests/support/xi_source_delivery.rs"
 ));
+
+include!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/support/peer_write_failure.rs"
+));

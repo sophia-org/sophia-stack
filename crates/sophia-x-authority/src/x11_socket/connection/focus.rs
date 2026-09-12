@@ -345,16 +345,11 @@ fn write_x11_control_records(
                 record.len(),
             );
         }
-        if let Err(error) = stream.write_all(&record) {
-            if is_x11_client_disconnect(&error) {
-                return Ok(());
-            }
-            return Err(X11SetupSocketError::new(format!(
-                "failed to write X11 control event: {error}"
-            )));
-        }
+        stream.write_all(&record).map_err(|error| {
+            x11_peer_write_error("failed to write X11 control event", error)
+        })?;
     }
     stream.flush().map_err(|error| {
-        X11SetupSocketError::new(format!("failed to flush X11 control event: {error}"))
+        x11_peer_write_error("failed to flush X11 control event", error)
     })
 }

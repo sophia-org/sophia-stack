@@ -319,6 +319,17 @@ fn is_x11_client_disconnect(error: &std::io::Error) -> bool {
     )
 }
 
+// Only transport errors identifying a departed peer are connection-local.
+// Locks, codecs and shared authority failures must retain their fatal class.
+fn x11_peer_write_error(context: &str, error: std::io::Error) -> X11SetupSocketError {
+    let message = format!("{context}: {error}");
+    if is_x11_client_disconnect(&error) {
+        X11SetupSocketError::client_disconnect(message)
+    } else {
+        X11SetupSocketError::new(message)
+    }
+}
+
 #[path = "x11_socket/tests.rs"]
 mod routing_tests;
 include!("x11_socket/connection/observations.rs");

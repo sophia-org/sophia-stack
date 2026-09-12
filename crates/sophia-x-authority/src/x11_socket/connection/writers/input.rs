@@ -511,9 +511,7 @@ fn spawn_x11_input_event_writer(
                                     },
                                 ))
                                 .map_err(|error| {
-                                    X11SetupSocketError::new(format!(
-                                        "failed to write X11 LeaveNotify event: {error}"
-                                    ))
+                                    x11_peer_write_error("failed to write X11 LeaveNotify event", error)
                                 })?;
                         }
                         if selections.crossing_selected(delivered_window, true) {
@@ -537,9 +535,7 @@ fn spawn_x11_input_event_writer(
                                     },
                                 ))
                                 .map_err(|error| {
-                                    X11SetupSocketError::new(format!(
-                                        "failed to write X11 EnterNotify event: {error}"
-                                    ))
+                                    x11_peer_write_error("failed to write X11 EnterNotify event", error)
                                 })?;
                         }
                         drop(selections);
@@ -552,9 +548,7 @@ fn spawn_x11_input_event_writer(
                                 byte_order, sequence, out_type, event, previous,
                             ))
                             .map_err(|error| {
-                                X11SetupSocketError::new(format!(
-                                    "failed to write XI2 leave/focus-out event: {error}"
-                                ))
+                                x11_peer_write_error("failed to write XI2 leave/focus-out event", error)
                             })?;
                     }
                     if xi_pointer_crossing_mask & (1 << in_type) != 0 {
@@ -567,9 +561,7 @@ fn spawn_x11_input_event_writer(
                                 delivered_window,
                             ))
                             .map_err(|error| {
-                                X11SetupSocketError::new(format!(
-                                    "failed to write XI2 enter/focus-in event: {error}"
-                                ))
+                                x11_peer_write_error("failed to write XI2 enter/focus-in event", error)
                             })?;
                     }
                     if matches!(event, XAuthorityInputEvent::Pointer(_)) {
@@ -670,9 +662,7 @@ fn spawn_x11_input_event_writer(
                             },
                         );
                         stream.write_all(&state_notify).map_err(|error| {
-                            X11SetupSocketError::new(format!(
-                                "failed to write XKB state notification: {error}"
-                            ))
+                            x11_peer_write_error("failed to write XKB state notification", error)
                         })?;
                     }
                 }
@@ -698,9 +688,7 @@ fn spawn_x11_input_event_writer(
                         0,
                     );
                     stream.write_all(&generic).map_err(|error| {
-                        X11SetupSocketError::new(format!(
-                            "failed to write XI2 generic event: {error}"
-                        ))
+                        x11_peer_write_error("failed to write XI2 generic event", error)
                     })?;
                 }
                 if let Some(event_type) = xi_emulated_button_type {
@@ -723,13 +711,11 @@ fn spawn_x11_input_event_writer(
                         XI_POINTER_EMULATED,
                     );
                     stream.write_all(&generic).map_err(|error| {
-                        X11SetupSocketError::new(format!(
-                            "failed to write emulated XI2 wheel-button event: {error}"
-                        ))
+                        x11_peer_write_error("failed to write emulated XI2 wheel-button event", error)
                     })?;
                 }
                 stream.flush().map_err(|error| {
-                    X11SetupSocketError::new(format!("failed to flush X11 input event: {error}"))
+                    x11_peer_write_error("failed to flush X11 input event", error)
                 })
             })();
             match write_result {

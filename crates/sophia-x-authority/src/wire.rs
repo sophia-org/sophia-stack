@@ -1331,14 +1331,18 @@ pub fn decode_x11_core_request(
         X_BIG_REQUESTS_MAJOR_OPCODE => decode_big_requests(bytes),
         X_INPUT_MAJOR_OPCODE => decode_x_input(context, bytes),
         X_GENERIC_EVENT_MAJOR_OPCODE => {
+            // The minor is checked before the length, as every other
+            // extension does. Asking the length first answers BadLength for a
+            // request this extension does not have at all, which tells the
+            // client its own well-formed request was the wrong size.
+            if bytes[1] != X_GENERIC_EVENT_QUERY_VERSION_MINOR_OPCODE {
+                return Err(XWireParseError::UnknownOpcode(bytes[1]));
+            }
             require_exact_len(
                 X_GENERIC_EVENT_MAJOR_OPCODE,
                 X_GENERIC_EVENT_QUERY_VERSION_REQ_LEN,
                 bytes.len(),
             )?;
-            if bytes[1] != X_GENERIC_EVENT_QUERY_VERSION_MINOR_OPCODE {
-                return Err(XWireParseError::UnknownOpcode(bytes[1]));
-            }
             Ok(XWireRequest::GeQueryVersion {
                 major_version: context.byte_order.u16(&bytes[4..6]),
                 minor_version: context.byte_order.u16(&bytes[6..8]),

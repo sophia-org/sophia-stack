@@ -77,3 +77,96 @@ fn every_extension_separates_unimplemented_minors_from_unknown_ones() {
         }
     }
 }
+
+/// Every advertised extension must answer an unknown minor the same way.
+///
+/// A client that probes an extension it does not fully know sends a minor the
+/// server has never heard of. The answer is BadRequest: the request does not
+/// exist. Answering BadLength instead tells the client its own well-formed
+/// request was the wrong size, which sends it looking for a bug it does not
+/// have.
+///
+/// This drives the real decode-and-dispatch path for every name the server
+/// enumerates, so an extension cannot be added with a different answer.
+#[test]
+fn every_advertised_extension_answers_an_unknown_minor_with_bad_request() {
+    let namespace = NamespaceId::from_raw(52);
+    let mut checked = 0;
+
+    // Enumerated over the wire rather than from a Rust list, so an extension
+    // added later is covered without anyone remembering to add it here.
+    let mut runtime = XAuthorityRuntime::new();
+    let mut atoms = XAtomTable::new();
+    let mut properties = XPropertyTable::new();
+    let listed = decode_x11_core_request(
+        context(namespace, 899, XByteOrder::LittleEndian),
+        &[99, 0, 1, 0],
+    )
+    .unwrap();
+    let listed = dispatch_x11_wire_request(
+        dispatch_context(namespace, 1, XByteOrder::LittleEndian, 99),
+        listed,
+        &mut runtime,
+        &mut atoms,
+        &mut properties,
+    );
+    let listed = listed.encoded_outputs(XByteOrder::LittleEndian);
+    let count = usize::from(listed[0][1]);
+    let mut names = Vec::new();
+    let mut at = 32;
+    for _ in 0..count {
+        let len = usize::from(listed[0][at]);
+        at += 1;
+        names.push(String::from_utf8(listed[0][at..at + len].to_vec()).expect("utf8"));
+        at += len;
+    }
+
+    for name in &names {
+        let query = decode_x11_core_request(
+            context(namespace, 900, XByteOrder::LittleEndian),
+            &query_extension_request(XByteOrder::LittleEndian, name),
+        )
+        .unwrap();
+        let answered = dispatch_x11_wire_request(
+            dispatch_context(namespace, 1, XByteOrder::LittleEndian, 98),
+            query,
+            &mut runtime,
+            &mut atoms,
+            &mut properties,
+        );
+        let reply = answered.encoded_outputs(XByteOrder::LittleEndian);
+        assert_eq!(reply[0][8], 1, "{name} is enumerated, so it must be present");
+        let major = reply[0][9];
+
+        // A bare request carrying nothing but a minor this server has never
+        // defined, exactly as a probing client sends it.
+        let bare = [major, 255, 1, 0];
+        let code = match decode_x11_core_request(
+            context(namespace, 901, XByteOrder::LittleEndian),
+            &bare,
+        ) {
+            Ok(request) => {
+                let refused = dispatch_x11_wire_request(
+                    dispatch_context(namespace, 2, XByteOrder::LittleEndian, major),
+                    request,
+                    &mut runtime,
+                    &mut atoms,
+                    &mut properties,
+                );
+                match refused.outputs.as_slice() {
+                    [XClientOutput::Error(error)] => error.code,
+                    other => panic!("{name}: expected one error, got {other:?}"),
+                }
+            }
+            Err(error) => x_error_from_wire_parse(&error, 2, major, 255).code,
+        };
+        assert_eq!(
+            code,
+            XErrorCode::BadRequest,
+            "{name} (major {major}) answered an unknown minor with {code:?}"
+        );
+        checked += 1;
+    }
+
+    assert!(checked >= 16, "every advertised extension is covered: {checked}");
+}

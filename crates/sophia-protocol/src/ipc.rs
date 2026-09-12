@@ -35,6 +35,9 @@ pub use wm_v1_records::*;
 mod wm_translation;
 pub use wm_translation::*;
 
+mod shell_indicators;
+pub use shell_indicators::*;
+
 mod shell_reference;
 pub use shell_reference::*;
 

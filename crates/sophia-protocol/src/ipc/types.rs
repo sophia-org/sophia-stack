@@ -71,6 +71,12 @@ pub enum IpcMessageKind {
     ShellLauncherActivation = 120,
     ShellLauncherActivationAck = 121,
     ShellLaunchOutcome = 122,
+    ShellIndicatorsBegin = 181,
+    ShellIndicatorsOutputStatus = 182,
+    ShellIndicatorsEntry = 183,
+    ShellIndicatorsEnd = 184,
+    ShellIndicatorActivate = 185,
+    ShellIndicatorActivateOutcome = 186,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

@@ -137,7 +137,7 @@ impl ShellSessionTransport {
         let hello = decode_shell_v1_client_hello_frame(&read_frame(&mut stream)?)?;
         if hello.minimum_revision == 0
             || hello.minimum_revision > hello.maximum_revision
-            || hello.minimum_revision > sophia_protocol::SOPHIA_SHELL_LAUNCHER_REVISION
+            || hello.minimum_revision > sophia_protocol::SOPHIA_SHELL_INDICATOR_REVISION
         {
             return Err(ShellTransportError::UnsupportedRevision);
         }
@@ -146,7 +146,7 @@ impl ShellSessionTransport {
         }
         let revision = hello
             .maximum_revision
-            .min(sophia_protocol::SOPHIA_SHELL_LAUNCHER_REVISION);
+            .min(sophia_protocol::SOPHIA_SHELL_INDICATOR_REVISION);
         let capabilities = SOPHIA_SHELL_CAPABILITY_DESCRIPTOR_SWITCHER
             | sophia_protocol::SOPHIA_SHELL_CAPABILITY_WORK_AREA_RESERVATION
             | if revision >= 2 {
@@ -170,6 +170,22 @@ impl ShellSessionTransport {
             } else {
                 0
             };
+        // Revision 5 is reserved for the admitted content capability, which is
+        // not implemented. A client asking for revision 5 or 6 negotiates the
+        // indicator vocabulary and nothing else; no content bit is offered.
+        let indicator_mask = sophia_protocol::SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS
+            | sophia_protocol::SOPHIA_SHELL_CAPABILITY_INDICATOR_ACTIVATION;
+        let capabilities = capabilities
+            | if revision >= sophia_protocol::SOPHIA_SHELL_INDICATOR_REVISION {
+                hello.required_capabilities & indicator_mask
+            } else {
+                0
+            };
+        if capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_INDICATOR_ACTIVATION != 0
+            && capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_VIEW_INDICATORS == 0
+        {
+            return Err(ShellTransportError::MissingCapability);
+        }
         if capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_APPLICATION_LAUNCHER != 0
             && capabilities & sophia_protocol::SOPHIA_SHELL_CAPABILITY_APPLICATION_CATALOG == 0
         {

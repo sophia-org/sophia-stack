@@ -1,4 +1,4 @@
-protocol "sophia_shell_v1" frame-version=1 interface-major=1 interface-revision=4 max-descriptors=16 max-label-bytes=128 max-pending-activations=16 max-shortcuts=256 {
+protocol "sophia_shell_v1" frame-version=1 interface-major=1 interface-revision=6 max-descriptors=16 max-label-bytes=128 max-pending-activations=16 max-shortcuts=256 {
     capability "descriptor_switcher" bit=0
     capability "work_area_reservation" bit=1
     capability "tab_groups" bit=2 since=2
@@ -6,6 +6,12 @@ protocol "sophia_shell_v1" frame-version=1 interface-major=1 interface-revision=
     capability "reference_sheet" bit=4 since=3
     capability "application_catalog" bit=5 since=4
     capability "application_launcher" bit=6 since=4 requires="application_catalog"
+    // Revision 5 and bits 7-8 are reserved for the admitted content capability
+    // design, which is modelled but unimplemented. Indicators land first and
+    // take the next free allocation rather than spending a reservation an
+    // accepted record already made.
+    capability "view_indicators" bit=9 since=6
+    capability "indicator_activation" bit=10 since=6 requires="view_indicators"
 
     outcome "prepared" value=1
     outcome "presented" value=2
@@ -226,6 +232,59 @@ protocol "sophia_shell_v1" frame-version=1 interface-major=1 interface-revision=
 
     // Revision 4 catalog slots are display references, never launch grants.
     // See docs/application-launcher.md for state, bounds and revocation rules.
+    // Revision 6 republishes to a shell the indicator set the Engine already
+    // holds from `sophia_wm_v1` revision 3. The shell renders where focus is;
+    // it does not learn policy.
+    message "IndicatorsBegin" kind=181 direction="session-to-shell" transaction="required" since=6 gate="view_indicators" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+        field "active_output" type="opaque-u64"
+        field "active_output_present" type="bool-u16"
+        field "indicator_count" type="u16"
+        field "status_count" type="u16"
+        field "reserved" type="u16" reserved=#true
+    }
+    message "IndicatorsOutputStatus" kind=182 direction="session-to-shell" transaction="required" since=6 gate="view_indicators" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+        field "output" type="opaque-u64"
+        field "focus_bits" type="u16"
+        field "layout_len" type="u16"
+        field "reserved" type="u32" reserved=#true
+        field "layout" type="u8" count=32
+    }
+    message "IndicatorsEntry" kind=183 direction="session-to-shell" transaction="required" since=6 gate="view_indicators" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+        field "output" type="opaque-u64"
+        field "indicator" type="opaque-u64"
+        field "action" type="opaque-u64"
+        field "slot" type="u32"
+        field "state_bits" type="u16"
+        field "label_len" type="u16"
+        field "label" type="u8" count=32
+    }
+    message "IndicatorsEnd" kind=184 direction="session-to-shell" transaction="required" since=6 gate="view_indicators" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+    }
+    // The shell echoes the opaque action it was given, for the exact snapshot
+    // it was presenting, so a stale pill cannot switch a view that has moved.
+    message "IndicatorActivate" kind=185 direction="shell-to-session" transaction="required" since=6 gate="indicator_activation" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+        field "output" type="opaque-u64"
+        field "indicator" type="opaque-u64"
+        field "action" type="opaque-u64"
+        field "event_id" type="u64"
+    }
+    message "IndicatorActivateOutcome" kind=186 direction="session-to-shell" transaction="required" since=6 gate="indicator_activation" {
+        field "connection_epoch" type="u64"
+        field "snapshot_generation" type="u64"
+        field "event_id" type="u64"
+        field "status" type="u16"
+        field "reason" type="u16"
+    }
     message "ApplicationsBegin" kind=114 direction="session-to-shell" transaction="required" since=4 {
         field "connection_epoch" type="u64"
         field "catalog_generation" type="u64"

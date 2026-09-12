@@ -20,9 +20,13 @@ use sophia_protocol::{
     encode_shell_v1_server_welcome_frame,
 };
 
-use crate::{PolicyRole, PolicyRoleEndpoint, PolicyRoleEndpointError, ProtectionDomainEvidence};
+use crate::{
+    ContentEpochPool, ContentStoreError, PolicyRole, PolicyRoleEndpoint, PolicyRoleEndpointError,
+    ProtectionDomainEvidence,
+};
 
 mod content_admission;
+mod content_resources;
 pub use content_admission::ShellContentAdmissionPolicy;
 
 const SHELL_IO_TIMEOUT: Duration = Duration::from_secs(5);
@@ -35,10 +39,14 @@ pub enum ShellTransportError {
     UnsupportedRevision,
     MissingCapability,
     ContentAdmissionRefused(ContentAdmissionRefused),
+    ContentStore(ContentStoreError),
     InvalidConnectionEpoch,
     WrongTransaction,
     WrongCandidate,
     WrongActivation,
+    WrongContentRecord,
+    WrongContentGrant,
+    ContentQueueSaturated,
     ActivationQueueSaturated,
     NotConnected,
 }
@@ -63,6 +71,12 @@ impl From<IpcCodecError> for ShellTransportError {
     }
 }
 
+impl From<ContentStoreError> for ShellTransportError {
+    fn from(error: ContentStoreError) -> Self {
+        Self::ContentStore(error)
+    }
+}
+
 pub struct ShellSessionTransport {
     endpoint: PolicyRoleEndpoint,
     stream: Option<UnixStream>,
@@ -74,6 +88,8 @@ pub struct ShellSessionTransport {
     connection_epoch: u64,
     last_content_grant_epoch: u64,
     content_grant: Option<ContentGrant>,
+    content_limits: Option<ContentLimits>,
+    content_epochs: ContentEpochPool,
     last_candidate_generation: u64,
     requested_candidate: Option<(TransactionId, ShellV1DescriptorSnapshot)>,
     pending_candidate: Option<PendingShellCandidate>,
@@ -109,6 +125,8 @@ impl ShellSessionTransport {
             connection_epoch: 0,
             last_content_grant_epoch: 0,
             content_grant: None,
+            content_limits: None,
+            content_epochs: ContentEpochPool::new(64 * 1024 * 1024)?,
             last_candidate_generation: 0,
             requested_candidate: None,
             pending_candidate: None,
@@ -259,15 +277,40 @@ impl ShellSessionTransport {
         } else {
             None
         };
-        write_frame(&mut stream, &encode_shell_v1_server_welcome_frame(welcome)?)?;
-        if let Some(grant) = next_content_grant {
-            write_frame(
-                &mut stream,
-                &sophia_protocol::encode_shell_content_frame(
-                    TransactionId::INVALID,
-                    &sophia_protocol::ShellContentRecord::Limits(ContentLimits::prototype(grant)),
-                )?,
-            )?;
+        let content_limits = next_content_grant.map(ContentLimits::prototype);
+        if let Some(limits) = &content_limits {
+            match self.content_epochs.admit(limits.clone()) {
+                Ok(()) => {}
+                Err(ContentStoreError::Budget) => {
+                    return self.refuse_content(
+                        stream,
+                        ContentAdmissionRefused {
+                            reason: 4,
+                            denied_capabilities: content_request,
+                        },
+                    );
+                }
+                Err(error) => return Err(error.into()),
+            }
+        }
+        let write_result = (|| {
+            write_frame(&mut stream, &encode_shell_v1_server_welcome_frame(welcome)?)?;
+            if let Some(limits) = content_limits {
+                write_frame(
+                    &mut stream,
+                    &sophia_protocol::encode_shell_content_frame(
+                        TransactionId::INVALID,
+                        &sophia_protocol::ShellContentRecord::Limits(limits),
+                    )?,
+                )?;
+            }
+            Ok::<(), ShellTransportError>(())
+        })();
+        if let Err(error) = write_result {
+            if next_content_grant.is_some() {
+                self.content_epochs.disconnect();
+            }
+            return Err(error);
         }
         self.pending_activations.clear();
         self.last_candidate_generation = 0;
@@ -279,6 +322,7 @@ impl ShellSessionTransport {
             self.last_content_grant_epoch = grant.content_grant_epoch;
         }
         self.content_grant = next_content_grant;
+        self.content_limits = next_content_grant.map(ContentLimits::prototype);
         stream
             .set_nonblocking(true)
             .map_err(|e| ShellTransportError::Io(e.to_string()))?;
@@ -501,6 +545,8 @@ impl ShellSessionTransport {
         self.presented_candidate = None;
         self.pending_activations.clear();
         self.content_grant = None;
+        self.content_limits = None;
+        self.content_epochs.disconnect();
         if let Some(peer) = self.endpoint.active_peer() {
             self.endpoint.release_peer(peer)?;
         }
@@ -551,6 +597,22 @@ impl ShellSessionTransport {
         self.content_grant
     }
 
+    pub fn content_reserved_bytes(&self) -> u64 {
+        self.content_epochs.reserved_bytes()
+    }
+
+    pub fn lease_content_resource(
+        &self,
+        grant: ContentGrant,
+        resource: sophia_protocol::ContentResourceId,
+    ) -> Result<crate::ContentResourceLease, ShellTransportError> {
+        self.content_epochs
+            .active()
+            .ok_or(ShellTransportError::MissingCapability)?
+            .lease(grant, resource)
+            .map_err(Into::into)
+    }
+
     /// Bounded, nonblocking I/O shared by persistent tabs and the r1 facade.
     pub fn poll_io(&mut self) -> Result<(), ShellTransportError> {
         let stream = self
@@ -578,7 +640,18 @@ impl ShellSessionTransport {
                     self.peer_closed = true;
                     break;
                 }
-                Ok(n) => self.input.extend_from_slice(&bytes[..n]),
+                Ok(n) => {
+                    let limit = self
+                        .content_limits
+                        .as_ref()
+                        .map_or(2 * 1024 * 1024, |limits| {
+                            limits.max_input_queue_bytes as usize
+                        });
+                    if self.input.len().saturating_add(n) > limit {
+                        return Err(ShellTransportError::ContentQueueSaturated);
+                    }
+                    self.input.extend_from_slice(&bytes[..n]);
+                }
                 Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => break,
                 Err(e) => return Err(ShellTransportError::Io(e.to_string())),
             }

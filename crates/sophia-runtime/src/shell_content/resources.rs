@@ -105,6 +105,9 @@ impl ContentResourceStore {
     pub fn take_event(&mut self) -> Option<ContentResourceEvent> {
         self.events.pop_front()
     }
+    pub fn pending_event(&self) -> Option<&ContentResourceEvent> {
+        self.events.front()
+    }
 
     fn check(
         &self,

@@ -10,7 +10,9 @@ that Lom is an admitted or visible native shell.
 `sophia-protocol` now encodes all twenty-one content records at 160–180 with the
 existing 24-byte envelope. The family stays at revision 6; indicator kinds
 181–186 and older messages are unchanged. Capability constants are vocabulary,
-not an enabled grant. Live `ShellSessionTransport` still refuses content.
+not an enabled production grant. The legacy `ShellSessionTransport` entry point
+reports content unavailable; an explicit admission API distinguishes unavailable,
+operator-denied and granted states for controlled hosts.
 
 The codec validates bounded lengths, identity shape, reserved fields, exact
 format, scales and transfer dimensions. Actual grant, allocation, permission,
@@ -32,11 +34,18 @@ resident storage is not forced through the active retiring ceiling. At most
 sixteen retired epochs can retain metadata; tiny resources cannot retain an
 unbounded number of replay tables. Either limit causes backpressure, not eviction.
 
-This owner is not yet a complete candidate assembler, allocation authority,
-transport service or native renderer integration. Its caller must reserve
-transport capacity before consuming queued events. Event creation is not routing
-or receipt. Cancellation echoes its request transaction; timeout correlates to
-Begin. Peer loss accounts for undeliverable events without reporting delivery.
+The transport now reserves a session-global epoch owner before it publishes
+`Welcome` and `ContentLimits`. Its bounded resource service accepts only the five
+resource request kinds for the active grant, leaves allocation and candidate
+records queued for their own owners, and routes exact status/release events over
+the same socket. A fixed response slot is checked before consuming each request,
+so backpressure does not discard an owed result. Disconnect revokes the active
+epoch while renderer leases keep retired storage alive.
+
+This owner is not yet a complete candidate assembler, allocation authority or
+native renderer integration. Event creation and output queueing are not proof of
+client receipt. Cancellation echoes its request transaction; timeout correlates
+to Begin. Peer loss accounts for undeliverable events without reporting delivery.
 
 Lom converts Vello's straight-alpha RGBA readback into premultiplied B,G,R,A in
 place, using rounded integer arithmetic in sRGB channel space and transparent
@@ -67,7 +76,9 @@ publisher behavior. Existing descriptor, tab, reference and launcher clients
 remain in the shell gate.
 
 Resource tests cover consumer retention, exact release, timeout settlement,
-replay, foreign grants, response pressure and partial reconnect retirement.
+replay, foreign grants, response pressure and partial reconnect retirement. A
+real private Unix-socket test covers negotiation, limits, upload admission,
+immutable acceptance, retire and release through the independent client crate.
 Lom tests cover pixels, row chunking and the production poll/callback deadline
 function without opening a GPU. The changed Lom readback has not been GPU-tested.
 
@@ -103,7 +114,8 @@ added. The CPU pool does not claim to count renderer/upload copies that are not
 yet integrated with it.
 
 Still required: candidate/permit/action lifecycle, allocation and work-area
-integration, native upload/composition/retirement, GPU admission, Lom connection
+integration, native upload/composition/retirement, production operator-policy
+configuration, GPU admission, Lom connection
 and exact presented-target adapter, and attended acceptance. The first live
 configuration is workspaces, clock and calendar. Other Minimal modules remain
 fixtures until authorized live sources exist. Acceptance must prove retirement,

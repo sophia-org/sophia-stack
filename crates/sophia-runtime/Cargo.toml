@@ -14,6 +14,7 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 sophia-engine = { path = "../sophia-engine" }
+sophia-shell-client = { path = "../sophia-shell-client" }
 sophia-wm-demo = { path = "../sophia-wm-demo" }
 
 [lints]

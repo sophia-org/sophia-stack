@@ -46,6 +46,9 @@ impl ContentEpochPool {
     pub fn active_mut(&mut self) -> Option<&mut ContentResourceStore> {
         self.active.as_mut()
     }
+    pub fn active(&self) -> Option<&ContentResourceStore> {
+        self.active.as_ref()
+    }
 
     /// Permission must already have been established by the admission owner.
     /// This reserves storage capacity; it does not establish that permission.
@@ -91,6 +94,9 @@ impl ContentEpochPool {
     }
 
     pub fn collect(&mut self) {
+        if let Some(store) = &mut self.active {
+            store.collect();
+        }
         for store in &mut self.retired {
             store.collect();
             while store.take_event().is_some() {}

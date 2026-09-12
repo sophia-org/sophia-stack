@@ -290,6 +290,35 @@ fn reconnect_reserves_global_credit_and_keeps_old_pixels_alive() {
 }
 
 #[test]
+fn epoch_pool_collects_an_active_resource_after_its_last_lease_drains() {
+    let mut pool = ContentEpochPool::new(64 * 1024 * 1024).unwrap();
+    pool.admit(ContentLimits::prototype(grant())).unwrap();
+    let store = pool.active_mut().unwrap();
+    upload(store, 1);
+    drain(store);
+    let lease = store.lease(grant(), begin(1).resource).unwrap();
+    store
+        .retire(
+            tx(),
+            &ContentResourceRetire {
+                grant: grant(),
+                resource: begin(1).resource,
+            },
+        )
+        .unwrap();
+    assert!(store.pending_event().is_none());
+    drop(lease);
+    pool.collect();
+    assert!(matches!(
+        pool.active_mut().unwrap().take_event(),
+        Some(ContentResourceEvent {
+            record: ShellContentRecord::ResourceReleased(_),
+            ..
+        })
+    ));
+}
+
+#[test]
 fn tiny_pinned_epochs_also_meet_a_metadata_bound() {
     let mut pool = ContentEpochPool::new(64 * 1024 * 1024).unwrap();
     let mut leases = Vec::new();

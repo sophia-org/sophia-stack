@@ -2198,7 +2198,55 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
     state.notify_pixmap_progress()?;
     state.release_exported_pixmaps()?;
     if let Some(routing) = protocol_routing.as_ref() {
+        const STRUCTURE_NOTIFY_MASK: u32 = 1 << 17;
+        const SUBSTRUCTURE_NOTIFY_MASK: u32 = 1 << 19;
         for window in &release.destroyed_windows {
+            // A window vanishing because its client went away is still a
+            // window vanishing, and the clients watching it are still owed the
+            // notification. Losing a peer is the ordinary way a window manager
+            // learns a top-level is gone.
+            //
+            // Notify before retiring the subscriptions: they are what names the
+            // recipients, so clearing them first would deliver to nobody. The
+            // departed client needs nothing, and route_protocol tolerates a
+            // recipient that has also gone.
+            let parent = routing.window_parent(*window).map_err(|error| {
+                X11SetupSocketError::new(format!(
+                    "failed to resolve a disconnected X11 window's parent: {error}"
+                ))
+            })?;
+            for (target, mask) in [
+                (Some(*window), STRUCTURE_NOTIFY_MASK),
+                (parent, SUBSTRUCTURE_NOTIFY_MASK),
+            ] {
+                let Some(target) = target else {
+                    continue;
+                };
+                let subscribers =
+                    routing
+                        .core_event_subscribers(target, mask)
+                        .map_err(|error| {
+                            X11SetupSocketError::new(format!(
+                                "failed to inspect disconnected X11 subscriptions: {error}"
+                            ))
+                        })?;
+                for recipient in subscribers {
+                    routing
+                        .route_protocol(
+                            recipient,
+                            crate::XClientEvent::DestroyNotify {
+                                sequence: 0,
+                                event: target,
+                                window: *window,
+                            },
+                        )
+                        .map_err(|error| {
+                            X11SetupSocketError::new(format!(
+                                "failed to route a disconnected X11 destroy: {error}"
+                            ))
+                        })?;
+                }
+            }
             routing
                 .remove_core_event_window(*window)
                 .map_err(|error| {

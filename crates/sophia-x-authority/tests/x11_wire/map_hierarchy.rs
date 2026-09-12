@@ -487,7 +487,41 @@ fn routed_lifecycle_events_follow_structure_and_substructure_masks() {
         "both records name the same destroyed window"
     );
 
+    // Losing a peer destroys its windows, and the clients watching them are
+    // still owed the notification -- this is the ordinary way a window manager
+    // learns a top-level went away. Recreate one and drop the owner rather than
+    // destroying it, so the destruction comes from the disconnect.
+    owner
+        .write_all(&create_window_request(
+            XByteOrder::LittleEndian,
+            window,
+            10,
+            20,
+            320,
+            240,
+        ))
+        .unwrap();
+    let recreated = read_x_record(&mut observer);
+    assert_eq!(recreated[0], 16, "observer sees the replacement created");
+
     drop(owner);
+
+    let peer_destroyed = read_x_record(&mut observer);
+    assert_eq!(
+        peer_destroyed[0], 17,
+        "a departed peer's window still notifies its watchers"
+    );
+    assert_eq!(
+        read_u32(XByteOrder::LittleEndian, &peer_destroyed[4..8]),
+        X_SETUP_DEFAULT_ROOT,
+        "addressed to the parent the observer selected on"
+    );
+    assert_eq!(
+        read_u32(XByteOrder::LittleEndian, &peer_destroyed[8..12]),
+        window,
+        "and names the window that went away"
+    );
+
     drop(observer);
     service_sender
         .send(XServerFrontendServiceCommand::StopAccepting)

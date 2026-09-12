@@ -86,12 +86,12 @@ Closed for the source findings it recorded: `DestroySubwindows` and descendant
 destruction, both repaired. It does **not** mean the destroy family is
 conformant.
 
-`t087` covers a wider case set than this note investigated, including
-peer-close notification — independently confirmed failing, untouched by any of
-these repairs — and the XID-reuse-with-stale-subscriptions case, which has an
-ordering fix but no test that reuses an id and asserts the previous subscribers
-receive nothing. Those settle when the independent gate run settles them, not
-when this note closed.
+`t087` covers a wider case set than this note investigated. Peer-close
+notification is independently confirmed failing and untouched by any of these
+repairs. XID reuse with stale subscriptions is independently passing: the
+conformance gate's `destroy_xid_reuse` case recreates a destroyed id and asserts
+the previous watcher receives nothing, in both byte orders. The remaining cases
+settle when the gate run settles them, not when this note closed.
 
 ## Connections
 

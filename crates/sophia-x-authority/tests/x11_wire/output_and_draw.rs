@@ -301,6 +301,73 @@ fn x11_dispatch_accepts_destroy_window_for_known_namespace_window() {
     );
 }
 
+/// Destroying a parent destroys what it contained, and reports it in the order
+/// the protocol requires: a child before the parent that held it. Reporting the
+/// parent first would announce a container gone while its contents still looked
+/// live, and until this landed the descendants were not destroyed at all.
+#[test]
+fn x11_destroy_window_reports_descendants_before_their_parent() {
+    let namespace = NamespaceId::from_raw(908);
+    let mut runtime = XAuthorityRuntime::new();
+    let mut atoms = XAtomTable::new();
+    let mut properties = XPropertyTable::new();
+
+    let parent = 0x0090_0201;
+    let child = 0x0090_0202;
+    for request in [
+        create_window_request(XByteOrder::LittleEndian, parent, 0, 0, 64, 64),
+        create_window_request_with_parent(XByteOrder::LittleEndian, child, parent, 0, 0, 32, 32),
+    ] {
+        let create =
+            decode_x11_core_request(context(namespace, 700, XByteOrder::LittleEndian), &request)
+                .unwrap();
+        dispatch_x11_wire_request(
+            dispatch_context(namespace, 1, XByteOrder::LittleEndian, 1),
+            create,
+            &mut runtime,
+            &mut atoms,
+            &mut properties,
+        );
+    }
+    assert_eq!(runtime.window_count(), 2);
+
+    let destroy = decode_x11_core_request(
+        context(namespace, 702, XByteOrder::LittleEndian),
+        &resource_request(XByteOrder::LittleEndian, 4, parent),
+    )
+    .unwrap();
+    let destroy = dispatch_x11_wire_request(
+        dispatch_context(namespace, 2, XByteOrder::LittleEndian, 4),
+        destroy,
+        &mut runtime,
+        &mut atoms,
+        &mut properties,
+    );
+
+    let reported: Vec<u32> = destroy
+        .outputs
+        .iter()
+        .filter_map(|output| match output {
+            XClientOutput::Event(XClientEvent::DestroyNotify { event, window, .. })
+                if event == window =>
+            {
+                Some(window.local.raw() as u32)
+            }
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        reported,
+        vec![child, parent],
+        "the child is reported before the parent that contained it"
+    );
+    assert_eq!(
+        runtime.window_count(),
+        0,
+        "the subtree is destroyed, not just the named window"
+    );
+}
+
 #[test]
 fn x11_dispatch_poly_fill_rectangle_emits_core_draw_transaction() {
     let namespace = NamespaceId::from_raw(46);

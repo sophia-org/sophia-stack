@@ -63,6 +63,7 @@ use sophia_protocol::{
 };
 
 include!("x11_socket/routing/broker.rs");
+include!("x11_socket/routing/recovery.rs");
 include!("x11_socket/routing/focus.rs");
 include!("x11_socket/routing/registry.rs");
 include!("x11_socket/routing/subscriptions.rs");
@@ -324,3 +325,7 @@ include!("x11_socket/connection/observations.rs");
 include!("x11_socket/connection/io.rs");
 #[path = "../tests/support/present_layout_comparison.rs"]
 mod present_layout_comparison_tests;
+
+#[cfg(all(test, unix))]
+#[path = "x11_socket/tests/input_recovery.rs"]
+mod input_recovery_tests;

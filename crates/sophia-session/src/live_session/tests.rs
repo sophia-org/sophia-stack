@@ -1511,3 +1511,5 @@ mod window_allocation;
 
 #[path = "../../tests/support/pointer_focus.rs"]
 mod pointer_focus_tests;
+
+mod input_recovery_tests;

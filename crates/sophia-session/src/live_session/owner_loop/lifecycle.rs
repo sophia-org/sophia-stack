@@ -8,6 +8,7 @@
                 && let Some((terminal, queued_at)) = pending_virtual_terminal
             {
                 InputDeliveryPhase {
+                    sender: Some(input_sender),
                     receiver: input_delivery_receiver,
                     state: &mut input_delivery,
                     client_key_release_barrier: &mut client_key_release_barrier,
@@ -15,23 +16,24 @@
                     post_input_deadline: &mut post_input_deadline,
                 }
                 .drain()?;
-                if !input_delivery.pending.is_empty() {
-                    if queued_at.elapsed() >= Duration::from_millis(500) {
-                        pending_virtual_terminal = None;
-                        modifiers = config.keyboard_mapper();
-                        virtual_terminal_chord = VirtualTerminalChordState::default();
-                        if let Some(wm) = wm_session.as_mut()
-                            && let Some(shortcuts) = wm.shortcuts.as_mut()
-                        {
-                            let _ = shortcuts.clear_seat(seat);
-                        }
-                        crate::session_eprintln!(
-                            "sophia_live_session_vt schema=4 status=rejected target={terminal} phase=modifier_release_timeout pending_deliveries={}",
-                            input_delivery.pending.len(),
+                if !input_delivery.pending.is_empty() && queued_at.elapsed() >= Duration::from_millis(500) {
+                    for ticket in input_sender.recover_input_deliveries(Instant::now(), true)? {
+                        crate::session_println!(
+                            "sophia_live_session_input_recovery schema=1 status=revoked delivery={} client={} surface={} generation={} age_msec={} reason=seat_handoff content=redacted",
+                            ticket.delivery.raw(), ticket.client.map_or(0, |client| client.raw()),
+                            ticket.surface.index(), ticket.surface.generation(), ticket.admitted_at.elapsed().as_millis(),
                         );
-                    } else {
-                        std::thread::sleep(Duration::from_millis(2));
                     }
+                    InputDeliveryPhase {
+                        sender: Some(input_sender), receiver: input_delivery_receiver,
+                        state: &mut input_delivery,
+                        client_key_release_barrier: &mut client_key_release_barrier,
+                        proof_started_at: &mut input_proof_started_at,
+                        post_input_deadline: &mut post_input_deadline,
+                    }.drain()?;
+                }
+                if !input_delivery.pending.is_empty() {
+                    std::thread::sleep(Duration::from_millis(2));
                     continue;
                 }
                 pending_virtual_terminal = None;
@@ -513,6 +515,7 @@
         }
         metrics.max_child_reap = metrics.max_child_reap.max(child_reap_started.elapsed());
         InputDeliveryPhase {
+                    sender: Some(input_sender),
             receiver: input_delivery_receiver,
             state: &mut input_delivery,
             client_key_release_barrier: &mut client_key_release_barrier,

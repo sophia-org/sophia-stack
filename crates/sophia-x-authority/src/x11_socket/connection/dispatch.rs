@@ -436,11 +436,15 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                     )));
                 }
             };
+            routing.input_recovery.attach(client, stream.try_clone().map_err(|error|
+                X11SetupSocketError::new(format!("failed to clone recovery socket: {error}")))?)
+                .map_err(|error| X11SetupSocketError::new(error.to_string()))?;
             (
                 Some(registration),
                 Some(X11InputEventReceiver::Routed {
                     receiver: channels.input,
                     deliveries: routing.input_delivery_sender.clone(),
+                    recovery: Some(routing.input_recovery.clone()),
                 }),
                 Some(X11ControlChannels::ClientBound {
                     receiver: channels.control,

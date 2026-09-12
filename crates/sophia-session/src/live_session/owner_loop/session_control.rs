@@ -1,9 +1,31 @@
 {
+// Invoke only after the recovery socket has been shut down. Destruction and
+// policy focus repair still flow through the ordinary frontend removal path.
+macro_rules! retire_disconnected_input_client {
+    ($client:expr) => {{
+        let client = $client;
+        session_controls.revoke_client(client, Instant::now(), &mut session_control_completions);
+        for surface in layout.client_routes.surfaces_for_client(client) {
+            release_surface_input_standing!(surface, "client_disconnected");
+            if let Some(lease) = application_route_leases.lease(seat)
+                && lease.target_surface == surface {
+                cancel_application_lease(&mut application_route_leases, &layout.client_routes,
+                    route_lease_release_sender, &mut pending_lease_input, lease.identity,
+                    u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX))?;
+            }
+        }
+        crate::session_println!("sophia_live_session_input_recovery schema=1 status=retired client={} held_controls={} reason=client_disconnected content=redacted", client.raw(), session_controls.pending_len());
+    }};
+}
+
 macro_rules! service_session_controls {
     () => {{
         session_control_completions.clear();
+        for client in std::mem::take(&mut input_delivery.recovered_clients) {
+            retire_disconnected_input_client!(client);
+        }
         client_key_release_barrier
-            .retain(|delivery| input_delivery.pending.contains(delivery));
+            .retain(|delivery| input_delivery.pending.contains_key(delivery));
         session_controls
             .service_when(
                 control_sender,
@@ -12,9 +34,22 @@ macro_rules! service_session_controls {
                 &mut session_control_completions,
                 client_key_release_barrier.is_empty(),
             )
-            .map_err(|error| format!("session control service failed: {error:?}"))?;
-        for completion in session_control_completions.drain(..) {
+            ?;
+        while !session_control_completions.is_empty() {
+            let completion = session_control_completions.remove(0);
             if let Some(failure) = completion.failure {
+                if failure == crate::session_control::SessionControlFailure::TimedOut
+                    && !input_delivery.fail_on_client_error {
+                    input_sender.disconnect_input_client(completion.key.client)?;
+                    session_controls.observe_recovered_timeout();
+                    retire_disconnected_input_client!(completion.key.client);
+                    crate::session_println!(
+                        "sophia_live_session_input_recovery schema=1 status=revoked client={} surface={} generation={} transaction={} reason=control_deadline content=redacted",
+                        completion.key.client.raw(), completion.key.surface.index(),
+                        completion.key.surface.generation(), completion.key.transaction.raw(),
+                    );
+                    continue;
+                }
                 if failure.is_stale_target_for(completion.key.kind) {
                     if completion.key.kind == XAuthorityControlKind::FocusSurface {
                         // This exact target no longer exists at the frontend.
@@ -47,14 +82,7 @@ macro_rules! service_session_controls {
                     );
                     continue;
                 }
-                return Err(format!(
-                    "X Authority control {:?} failed for surface {:?}: {failure:?} (queue_dwell_msec={} acknowledgement_latency_msec={})",
-                    completion.key.kind,
-                    completion.key.surface,
-                    completion.queue_dwell.as_millis(),
-                    completion.acknowledgement_latency.as_millis(),
-                )
-                .into());
+                return Err(failure.into());
             }
             if completion.key.kind == XAuthorityControlKind::FocusSurface
                 && focus.focused_surface(seat) == Some(completion.key.surface)
@@ -73,7 +101,8 @@ macro_rules! service_session_controls {
                     SessionStartupEvent::ClientFocusApplied(completion.key.surface),
                 );
                 crate::session_println!(
-                    "sophia_live_session_input_pipeline schema=1 status=focus_applied source=x11-control"
+                    "sophia_live_session_input_pipeline schema=1 status=focus_applied source=x11-control surface={} generation={} transaction={}",
+                    completion.key.surface.index(), completion.key.surface.generation(), completion.key.transaction.raw()
                 );
             }
             if completion.key.kind == XAuthorityControlKind::ConfigureSurface
@@ -279,9 +308,7 @@ macro_rules! track_client_key_flush {
         input_delivery.events_expected = input_delivery
             .events_expected
             .saturating_add(client_key_deliveries.len());
-        input_delivery
-            .pending
-            .extend(client_key_deliveries.iter().copied());
+        input_delivery.track(input_sender, client_key_deliveries.iter().copied(), true)?;
         client_key_release_barrier.extend(client_key_deliveries.iter().copied());
         if released != 0 {
             crate::session_println!(
@@ -475,9 +502,7 @@ macro_rules! reconcile_pending_wm_focus {
                                 },
                                 Instant::now(),
                             )
-                            .map_err(|error| {
-                                format!("failed to queue WM focus reconciliation: {error:?}")
-                            })?;
+                            ?;
                     }
                     let _ = reduce_session_startup(
                         &mut startup_readiness,
@@ -583,9 +608,7 @@ macro_rules! apply_wm_commit_result {
                     },
                     Instant::now(),
                 )
-                .map_err(|error| {
-                    format!("failed to queue hidden-focus clearing: {error:?}")
-                })?;
+                ?;
             focus.clear_focus(seat);
             applied_client_focus = None;
             if let Some(public) = wm_session.as_ref().and_then(|wm| wm.public.as_ref())

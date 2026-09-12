@@ -1,4 +1,4 @@
-use crate::input_delivery::{InputDeliveryState, settle_input_delivery};
+use crate::input_delivery::{InputDeliveryError, InputDeliveryState, settle_input_delivery};
 
 #[derive(Clone, Copy, Debug, Default)]
 struct SessionLoopMetrics {
@@ -83,6 +83,7 @@ impl CursorUpdateState {
 }
 
 struct InputDeliveryPhase<'a> {
+    sender: Option<&'a XAuthorityRoutedInputSender>,
     receiver: &'a Receiver<XAuthorityClientInputDelivery>,
     state: &'a mut InputDeliveryState,
     client_key_release_barrier: &'a mut BTreeSet<XAuthorityInputDeliveryId>,
@@ -91,16 +92,35 @@ struct InputDeliveryPhase<'a> {
 }
 
 impl InputDeliveryPhase<'_> {
-    fn drain(self) -> Result<(), Box<dyn std::error::Error>> {
+    fn drain(self) -> Result<(), Box<dyn std::error::Error>> { self.drain_at(Instant::now()) }
+
+    fn drain_at(self, now: Instant) -> Result<(), Box<dyn std::error::Error>> {
+        // Receipts win before expiry; recovery then emits failure receipts for
+        // revoked work. The second drain removes only those exact obligations.
+        for pass in 0..2 {
         while let Ok(delivery) = self.receiver.try_recv() {
+            if let Some(sender) = self.sender {
+                let ticket = sender.delivery_ticket(delivery.delivery);
+                if !sender.observe_delivery(delivery) { continue; }
+                if let Some(ticket) = ticket
+                    && let Some(pending) = self.state.pending.get_mut(&delivery.delivery)
+                { pending.ticket = ticket; }
+            }
+            let pending = self.state.pending.get(&delivery.delivery).copied();
             let outcome = settle_input_delivery(self.state, self.client_key_release_barrier, delivery)
-                .map_err(|failed| format!(
-                    "persistent live session X11 input delivery failed: outcome={:?} client={}",
-                    failed.outcome, failed.client.raw(),
-                ))?;
+                .map_err(InputDeliveryError::ClientFailure)?;
             let Some(outcome) = outcome else {
                 continue;
             };
+            if let Some(pending) = pending
+                && (pending.release_barrier || outcome != XAuthorityInputDeliveryOutcome::Flushed) {
+                crate::session_println!(
+                    "sophia_live_session_input_delivery schema=3 status=settled delivery={} client={} surface={} generation={} age_msec={} release_barrier={} outcome={:?} content=redacted",
+                    delivery.delivery.raw(), delivery.client.raw(), pending.ticket.surface.index(),
+                    pending.ticket.surface.generation(), now.saturating_duration_since(pending.ticket.admitted_at).as_millis(),
+                    pending.release_barrier, outcome,
+                );
+            }
             match outcome {
                 XAuthorityInputDeliveryOutcome::Flushed => {}
                 XAuthorityInputDeliveryOutcome::TargetGone => {
@@ -120,7 +140,9 @@ impl InputDeliveryPhase<'_> {
                     );
                 }
                 XAuthorityInputDeliveryOutcome::RouteRejected
-                | XAuthorityInputDeliveryOutcome::WriteFailed => {
+                | XAuthorityInputDeliveryOutcome::WriteFailed
+                | XAuthorityInputDeliveryOutcome::ClientDisconnected
+                | XAuthorityInputDeliveryOutcome::TimedOut => {
                     tracing::warn!(
                         "sophia_live_session_input_delivery schema=2 status=retired reason=client_failure outcome={:?} client={} failed={} session=continuing content=redacted",
                         outcome, delivery.client.raw(), self.state.events_failed,
@@ -128,18 +150,24 @@ impl InputDeliveryPhase<'_> {
                 }
             }
         }
+        if pass == 0 && let Some(sender) = self.sender {
+            for ticket in sender.recover_input_deliveries(now, false)? {
+                crate::session_println!(
+                    "sophia_live_session_input_recovery schema=1 status=revoked delivery={} client={} surface={} generation={} seat={} control_epoch={} age_msec={} reason=delivery_deadline release_barrier={} content=redacted",
+                    ticket.delivery.raw(), ticket.client.map_or(0, |client| client.raw()),
+                    ticket.surface.index(), ticket.surface.generation(), ticket.seat.raw(),
+                    ticket.control_epoch, ticket.admitted_at.elapsed().as_millis(),
+                    self.client_key_release_barrier.contains(&ticket.delivery),
+                );
+            }
+        }
+        }
         if let Some(wait_started) = self.state.wait_started_at
             && !self.state.pending.is_empty()
             && wait_started.elapsed()
                 >= Duration::from_millis(SESSION_INPUT_DELIVERY_TIMEOUT_MSEC)
         {
-            return Err(format!(
-                "persistent live session timed out waiting for X11 input delivery: expected={} flushed={} pending={}",
-                self.state.events_expected,
-                self.state.events_flushed,
-                self.state.pending.len(),
-            )
-            .into());
+            return Err(InputDeliveryError::ProofTimeout.into());
         }
         if let Some(wait_started) = take_settled_input_delivery_wait(
             &mut self.state.wait_started_at,

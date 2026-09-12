@@ -316,6 +316,18 @@ pub fn reduced_record(line: &str) -> Option<String> {
         {
             continue;
         }
+        if matches!(
+            name,
+            "sophia_live_session_input_recovery"
+                | "sophia_live_session_input_delivery"
+                | "sophia_live_session_completion"
+        ) {
+            if super::recovery::field(key, value) {
+                result.push(' ');
+                result.push_str(field);
+            }
+            continue;
+        }
         if let Some(limit) = match key {
             "major" | "code" => Some(u64::from(u8::MAX)),
             "minor" => Some(u64::from(u16::MAX)),
@@ -630,6 +642,8 @@ fn interaction_field(record: &str, key: &str, value: &str) -> bool {
             "key_observed" | "key_routed" | "key_suppressed" | "focus_applied" | "focus_ready"
         ),
         ("sophia_live_session_input_pipeline", "reason") => value == "no_focus",
+        ("sophia_live_session_focus", "status") => value == "cleared",
+        ("sophia_live_session_focus", "reason") => value == "active_output_empty",
         ("sophia_live_input_lease", "status") => {
             matches!(value, "quarantined" | "refused" | "release_deferred")
         }

@@ -62,6 +62,7 @@ fn input_delivery_notifications_do_not_backpressure_x11_writers() {
     let receiver = X11InputEventReceiver::Routed {
         receiver: route_receiver,
         deliveries: Some(delivery_sender),
+        recovery: None,
     };
 
     for raw in 1..=1_024 {
@@ -446,6 +447,7 @@ fn routed_input_discards_another_clients_event() {
     let receiver = X11InputEventReceiver::Routed {
         receiver,
         deliveries: None,
+        recovery: None,
     };
     assert_eq!(receiver.recv_timeout(first), Err(RecvTimeoutError::Timeout));
     assert_eq!(

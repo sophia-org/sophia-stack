@@ -1,6 +1,7 @@
 #[cfg(unix)]
 #[derive(Clone)]
 struct XServerFrontendRouteRegistry {
+    input_recovery: InputRecovery,
     runtime: Arc<std::sync::OnceLock<std::sync::Weak<Mutex<XAuthorityRuntime>>>>,
     clients: Arc<Mutex<BTreeMap<XServerFrontendClientId, XServerFrontendClientRouteSenders>>>,
     surfaces: Arc<Mutex<BTreeMap<SurfaceId, XServerFrontendSurfaceRoute>>>,
@@ -108,6 +109,7 @@ struct XServerFrontendClientRouteChannels {
 
 #[cfg(unix)]
 struct XServerFrontendClientRouteRegistration {
+    input_recovery: InputRecovery,
     client: XServerFrontendClientId,
     clients: Arc<Mutex<BTreeMap<XServerFrontendClientId, XServerFrontendClientRouteSenders>>>,
     surfaces: Arc<Mutex<BTreeMap<SurfaceId, XServerFrontendSurfaceRoute>>>,
@@ -272,6 +274,7 @@ impl XServerFrontendRouteRegistry {
         if clients.contains_key(&client) {
             return Err(XServerFrontendRouteError::DuplicateClient { client });
         }
+        self.input_recovery.register(client)?;
         clients.insert(
             client,
             XServerFrontendClientRouteSenders {
@@ -283,6 +286,7 @@ impl XServerFrontendRouteRegistry {
         );
         Ok((
             XServerFrontendClientRouteRegistration {
+                input_recovery: self.input_recovery.clone(),
                 client,
                 clients: self.clients.clone(),
                 surfaces: self.surfaces.clone(),
@@ -307,16 +311,18 @@ impl XServerFrontendRouteRegistry {
         route: XAuthorityClientInputEvent,
     ) -> Result<(), XServerFrontendRouteError> {
         let sender = self.client_senders(route.client)?.input;
+        if !self.input_recovery.bind(route.delivery, route.client)? {
+            return Ok(());
+        }
         match self.route_to_client(route.client, sender, route) {
             Err(error @ XServerFrontendRouteError::ClientQueueFull { client }) => {
                 // A client that stops draining its private input queue has
                 // failed as an endpoint. Remove every sender for that client
                 // so later routes cannot repeatedly pressure the shared
                 // broker and its worker observes channel disconnection.
-                self.clients
-                    .lock()
-                    .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
-                    .remove(&client);
+                self.input_recovery.disconnect_rejecting(client, XAuthorityInputDeliveryOutcome::ClientDisconnected, route.delivery)?;
+                self.clients.lock()
+                    .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?.remove(&client);
                 Err(error)
             }
             result => result,

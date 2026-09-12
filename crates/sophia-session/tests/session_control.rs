@@ -538,3 +538,50 @@ fn dispatch_barrier_holds_control_until_input_release_is_acknowledged() {
         .unwrap();
     assert_eq!(commands.try_recv().unwrap(), command);
 }
+
+#[test]
+fn disconnected_client_controls_settle_once_and_late_acks_cannot_restore_focus() {
+    let (sender, commands) = sync_channel(SESSION_CONTROL_CAPACITY);
+    let (acknowledgements, receiver) = sync_channel(SESSION_CONTROL_CAPACITY);
+    let now = Instant::now();
+    let failed = control(1, 1, surface(1), XAuthorityControlKind::FocusSurface);
+    let healthy = control(2, 2, surface(2), XAuthorityControlKind::CloseSurface);
+    let mut queue = SessionControlQueue::default();
+    queue.enqueue(failed, now).unwrap();
+    queue.enqueue(healthy, now).unwrap();
+    let mut completions = Vec::new();
+    queue
+        .service(&sender, &receiver, now, &mut completions)
+        .unwrap();
+    assert_eq!(commands.try_iter().count(), 2);
+    // The owner calls this only after exact-connection socket shutdown.
+    queue.revoke_client(failed.client, now, &mut completions);
+    assert_eq!(completions.len(), 1);
+    assert_eq!(
+        completions[0].failure,
+        Some(SessionControlFailure::ClientDisconnected)
+    );
+    completions.clear();
+    acknowledgements.send(acknowledgement(failed)).unwrap();
+    acknowledgements.send(acknowledgement(healthy)).unwrap();
+    queue
+        .service(&sender, &receiver, now, &mut completions)
+        .unwrap();
+    assert_eq!(completions.len(), 1);
+    assert_eq!(completions[0].key.client, healthy.client);
+    assert_eq!(completions[0].failure, None);
+    assert!(queue.metrics().is_settled(queue.pending_len()));
+    assert!(!queue.metrics().is_drained(queue.pending_len()));
+    assert_eq!(queue.metrics().delivered, 1);
+    // Repeating a revoked ACK remains inert; repeating a healthy ACK retains
+    // the existing invariant failure instead of hiding shared corruption.
+    acknowledgements.send(acknowledgement(failed)).unwrap();
+    queue
+        .service(&sender, &receiver, now, &mut completions)
+        .unwrap();
+    acknowledgements.send(acknowledgement(healthy)).unwrap();
+    assert_eq!(
+        queue.service(&sender, &receiver, now, &mut completions),
+        Err(SessionControlFailure::UnexpectedAcknowledgement)
+    );
+}

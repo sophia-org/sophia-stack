@@ -202,6 +202,11 @@ impl LiveWmSession {
                 projection.output == public.active_output && projection.focus.is_none()
             })
         {
+            crate::session_println!(
+                "sophia_live_session_focus schema=1 status=cleared reason=active_output_empty output={} surface={} generation={} transaction={}",
+                public.active_output.raw(), previous_focus.map_or(0, |surface| surface.index()),
+                previous_focus.map_or(0, |surface| surface.generation()), settlement.transaction.raw(),
+            );
             previous_focus.map(|surface| (settlement.transaction, surface))
         } else {
             None

@@ -237,6 +237,7 @@ enum X11InputEventReceiver {
     Routed {
         receiver: Receiver<XAuthorityClientInputEvent>,
         deliveries: Option<Sender<XAuthorityClientInputDelivery>>,
+        recovery: Option<InputRecovery>,
     },
 }
 
@@ -276,7 +277,11 @@ impl X11InputEventReceiver {
                     )),
                     // Drop one misaddressed route, then let the writer loop
                     // observe its stop flag before it receives again.
-                    Ok(_) => Err(RecvTimeoutError::Timeout),
+                    Ok(route) => {
+                        let _ = self.send_delivery(route.client, route.delivery,
+                            XAuthorityInputDeliveryOutcome::RouteRejected);
+                        Err(RecvTimeoutError::Timeout)
+                    },
                     Err(error) => Err(error),
                 }
             }
@@ -289,9 +294,11 @@ impl X11InputEventReceiver {
         delivery: Option<XAuthorityInputDeliveryId>,
         outcome: XAuthorityInputDeliveryOutcome,
     ) -> Result<(), X11SetupSocketError> {
-        let Some(delivery) = delivery else {
-            return Ok(());
-        };
+        if let Self::Routed { recovery: Some(recovery), .. } = self {
+            return recovery.finish(client, delivery, outcome)
+                .map_err(|error| X11SetupSocketError::new(error.to_string()));
+        }
+        let Some(delivery) = delivery else { return Ok(()); };
         let Self::Routed {
             deliveries: Some(sender),
             ..
@@ -502,6 +509,9 @@ impl XServerFrontendRouteRegistry {
                 mask
             }
         });
+        // Queue saturation can revoke this client and clean its grabs. Do
+        // not carry the subscription-read lock into that recovery path.
+        drop(authority);
         let route = XAuthorityClientInputEvent {
             client,
             event,
@@ -585,6 +595,9 @@ impl XServerFrontendRouteRegistry {
                 .pop_front();
             let Some(deferred) = deferred else { break };
             let route = deferred.route;
+            // Cancellation must consume its tombstone even while the grab
+            // remains frozen; waiting for a thaw would leak queue credit.
+            if !self.input_recovery.begin_routing(route.delivery) { continue; }
             let surface_route = self
                 .surfaces
                 .lock()

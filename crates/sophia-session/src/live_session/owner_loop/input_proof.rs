@@ -124,9 +124,7 @@
                 input_delivery.events_expected = input_delivery
                     .events_expected
                     .saturating_add(report.deliveries.len());
-                input_delivery
-                    .pending
-                    .extend(report.deliveries.iter().copied());
+                input_delivery.track(input_sender, report.deliveries.iter().copied(), false)?;
                 input_delivery.wait_started_at = Some(Instant::now());
                 input_delivery.source = Some("synthetic");
                 input_batch_baseline = Some(metrics.batches);
@@ -294,7 +292,7 @@
             }
         }
         client_key_release_barrier
-            .retain(|delivery| input_delivery.pending.contains(delivery));
+            .retain(|delivery| input_delivery.pending.contains_key(delivery));
         if session_logout_drain_decision(SessionLogoutDrainState {
             requested: logout_requested,
             pending_input_deliveries: input_delivery.pending.len(),

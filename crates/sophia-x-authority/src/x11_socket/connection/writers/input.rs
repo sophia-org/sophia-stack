@@ -37,6 +37,7 @@ fn spawn_x11_input_event_writer(
     let stop = Arc::new(AtomicBool::new(false));
     let writer_stop = stop.clone();
     let thread = std::thread::spawn(move || {
+        let _recovery_guard = X11InputWriterRecoveryGuard { receiver: &receiver, client };
         let mut pointer_sent_to = None;
         while !writer_stop.load(Ordering::Acquire) {
             let (
@@ -54,13 +55,20 @@ fn spawn_x11_input_event_writer(
                     Err(RecvTimeoutError::Timeout) => continue,
                     Err(RecvTimeoutError::Disconnected) => return Ok(()),
                 };
+            let receipt = X11InputDeliveryGuard {
+                receiver: &receiver, client, delivery, settled: std::cell::Cell::new(false),
+            };
             // A mapped GL client can expose its first frame before its event
             // loop installs KeyPress/KeyReleaseMask. Keep physical keys
             // boundedly pending across that startup race instead of writing
             // core events which the client has not selected and will ignore.
+            if !receiver.delivery_active(client, delivery) { continue; }
             let keyboard_wait_started = std::time::Instant::now();
             let keyboard_deadline = keyboard_wait_started + Duration::from_secs(5);
             let (focused_window, routed_keyboard_window, keyboard_selected) = loop {
+                if writer_stop.load(Ordering::Acquire) || !receiver.delivery_active(client, delivery) {
+                    return Ok(());
+                }
                 let selections = core_event_selections.lock().map_err(|_| {
                     X11SetupSocketError::new("X11 core event selection lock poisoned")
                 })?;
@@ -116,11 +124,7 @@ fn spawn_x11_input_event_writer(
                         pointer.surface,
                         &surface_windows,
                     )? else {
-                        receiver.send_delivery(
-                            client,
-                            delivery,
-                            XAuthorityInputDeliveryOutcome::TargetGone,
-                        )?;
+                        receipt.finish(XAuthorityInputDeliveryOutcome::TargetGone)?;
                         tracing::debug!(
                             "sophia_x11_input_delivery schema=1 status=target_gone event=pointer client={} input_redacted=true",
                             client.raw(),
@@ -456,6 +460,7 @@ fn spawn_x11_input_event_writer(
             let write_result = (|| -> Result<(), X11SetupSocketError> {
                 let mut stream =
                     lock_x11_non_control_output(&stream, &output_control_pending)?;
+                if !receiver.delivery_active(client, delivery) { return Ok(()); }
                 let sequence = sequence.load(Ordering::Acquire);
                 write_xi_u16(byte_order, &mut record[2..4], sequence);
                 let transition = match event {
@@ -728,20 +733,13 @@ fn spawn_x11_input_event_writer(
                 })
             })();
             match write_result {
-                Ok(()) => receiver.send_delivery(
-                    client,
-                    delivery,
-                    XAuthorityInputDeliveryOutcome::Flushed,
-                )?,
+                Ok(()) => receipt.finish(XAuthorityInputDeliveryOutcome::Flushed)?,
                 Err(error) => {
                     if error.client_disconnect {
+                        receipt.finish(XAuthorityInputDeliveryOutcome::ClientDisconnected)?;
                         return Ok(());
                     }
-                    let _ = receiver.send_delivery(
-                        client,
-                        delivery,
-                        XAuthorityInputDeliveryOutcome::WriteFailed,
-                    );
+                    let _ = receipt.finish(XAuthorityInputDeliveryOutcome::WriteFailed);
                     return Err(error);
                 }
             }

@@ -145,6 +145,8 @@ pub enum XAuthorityInputDeliveryOutcome {
     EpochRevoked,
     RouteRejected,
     WriteFailed,
+    ClientDisconnected,
+    TimedOut,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -339,6 +341,9 @@ pub enum XServerFrontendServiceCommand {
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum XServerFrontendRouteError {
+    RecoveryShutdownFailed {
+        client: XServerFrontendClientId,
+    },
     UnknownClient {
         client: XServerFrontendClientId,
     },
@@ -415,6 +420,11 @@ impl XPresentFeedbackPhases {
 impl core::fmt::Display for XServerFrontendRouteError {
     fn fmt(&self, formatter: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
+            Self::RecoveryShutdownFailed { client } => write!(
+                formatter,
+                "X11 recovery could not shut down client {}",
+                client.raw()
+            ),
             Self::UnknownClient { client } => {
                 write!(
                     formatter,

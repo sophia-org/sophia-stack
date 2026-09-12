@@ -37,6 +37,7 @@ pub struct XAuthorityRoutedInputSender {
     sender: SyncSender<XAuthorityEpochRoutedInput>,
     control_epoch: Arc<AtomicU64>,
     capacity: usize,
+    recovery: InputRecovery,
 }
 
 #[cfg(unix)]
@@ -49,9 +50,13 @@ impl XAuthorityRoutedInputSender {
             control_epoch: self.control_epoch.load(Ordering::Acquire),
             route,
         };
-        self.sender
-            .send(envelope)
-            .map_err(|error| std::sync::mpsc::SendError(error.0.route))
+        if !self.recovery.admit(&envelope.route, envelope.control_epoch, Instant::now()) {
+            return Err(std::sync::mpsc::SendError(envelope.route));
+        }
+        self.sender.send(envelope).map_err(|error| {
+            self.recovery.abort_enqueue(error.0.route.delivery);
+            std::sync::mpsc::SendError(error.0.route)
+        })
     }
 
     pub fn try_send(
@@ -62,9 +67,17 @@ impl XAuthorityRoutedInputSender {
             control_epoch: self.control_epoch.load(Ordering::Acquire),
             route,
         };
-        self.sender.try_send(envelope).map_err(|error| match error {
-            TrySendError::Full(envelope) => TrySendError::Full(envelope.route),
-            TrySendError::Disconnected(envelope) => TrySendError::Disconnected(envelope.route),
+        if !self.recovery.admit(&envelope.route, envelope.control_epoch, Instant::now()) {
+            return Err(TrySendError::Full(envelope.route));
+        }
+        self.sender.try_send(envelope).map_err(|error| {
+            let (envelope, full) = match error {
+                TrySendError::Full(envelope) => (envelope, true),
+                TrySendError::Disconnected(envelope) => (envelope, false),
+            };
+            self.recovery.abort_enqueue(envelope.route.delivery);
+            if full { TrySendError::Full(envelope.route) }
+            else { TrySendError::Disconnected(envelope.route) }
         })
     }
 
@@ -354,8 +367,18 @@ impl XServerFrontendRouteBroker {
         let (source_payload_sender, source_payload_receiver) =
             sync_channel(capacities.input.get());
         let (raster_sender, raster_receiver) = sync_channel(capacities.control.get());
+        let input_authority = Arc::new(Mutex::new(crate::XInputAuthorityState::default()));
         Self {
             registry: XServerFrontendRouteRegistry {
+                // Ingress + frozen + every possible client's private queue and
+                // active writer. Terminal receipts retain their credit until
+                // observed, so a slow owner cannot grow an unbounded ledger.
+                input_recovery: InputRecovery::new(
+                    capacities.input.get().saturating_mul(2).saturating_add(
+                        usize::from(X11_MAX_CLIENT_RESOURCE_RANGES)
+                            .saturating_mul(capacities.input.get().saturating_add(1))),
+                    input_delivery_sender.clone(), input_authority.clone(),
+                ),
                 runtime: Arc::new(std::sync::OnceLock::new()),
                 clients: Arc::new(Mutex::new(BTreeMap::new())),
                 surfaces: Arc::new(Mutex::new(BTreeMap::new())),
@@ -368,7 +391,7 @@ impl XServerFrontendRouteBroker {
                 present_clock: Arc::new(Mutex::new(None)),
                 pending_msc_notifies: Arc::new(Mutex::new(Vec::new())),
                 pointer_state: Arc::new(Mutex::new(BTreeMap::new())),
-                input_authority: Arc::new(Mutex::new(crate::XInputAuthorityState::default())),
+                input_authority,
                 frozen_input: Arc::new(Mutex::new(VecDeque::new())),
                 xkb_config: crate::XkbRmlvoConfig::default(),
                 xkb_worker: XkbKeyboardWorker::spawn(crate::XkbRmlvoConfig::default()),
@@ -412,6 +435,7 @@ impl XServerFrontendRouteBroker {
             sender: self.routed_input_sender.clone(),
             control_epoch: self.input_control_epoch.clone(),
             capacity: self.routed_input_capacity,
+            recovery: self.registry.input_recovery.clone(),
         }
     }
 

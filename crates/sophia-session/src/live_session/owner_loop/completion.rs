@@ -541,11 +541,7 @@
         || standing_target_count != 0
         || layout.constraint_relayout_required()
     {
-        return Err(format!(
-            "persistent live session ended with incomplete layout recovery: recovery_extents={recovery_extent_count} standing_targets={standing_target_count} constraint_relayout_pending={}",
-            layout.constraint_relayout_required(),
-        )
-        .into());
+        return Err(crate::diagnostics::SessionCompletionFailure::IncompleteLayoutRecovery.into());
     }
     *failure_phase = crate::diagnostics::SessionFailurePhase::ApplicationProof;
     if config.firefox_full_proof_requested() {
@@ -674,49 +670,24 @@
     }
     *failure_phase = crate::diagnostics::SessionFailurePhase::LayoutValidation;
     if config.surface_resize_requested() && !resize_proof_complete {
-        return Err(
-            "persistent live session did not commit configured surface resize pixels".into(),
-        );
+        return Err(crate::diagnostics::SessionCompletionFailure::ResizeProofIncomplete.into());
     }
     if let Some(wm_session) = wm_session.as_ref()
         && wm_session.committed == 0
     {
-        return Err("live session ended without a committed external WM layout".into());
+        return Err(crate::diagnostics::SessionCompletionFailure::NoCommittedLayout.into());
     }
-    if config.normal_session
-        && (layout.pending.is_some()
-            || pending_wm_update.is_some()
-            // Requests already sent to the peer, not causes still queued
-            // locally. A queued cause was promised to nobody and is dropped
-            // when the session stops; an issued request is owed an answer, and
-            // the deadline drain has already waited a bounded time for it.
-            // Counting the queue here failed sessions on a focus request that
-            // the last pointer motion raised a tick before the stop.
-            || wm_session
-                .as_ref()
-                .is_some_and(|wm| wm.in_flight_request_count() != 0)
-            || !committed_session_actions.is_empty()
-            || session_launches.pending_len() != 0
-            || session_launches.admission().is_some()
-            || !input_delivery.pending.is_empty()
-            || output_topology_owner.input_quarantined()
-            || wm_session.as_ref().is_some_and(|wm| wm.degraded))
-    {
-        return Err(format!(
-            "normal session ended with pending work: wm_layout={} wm_update={} wm_requests={} actions={} launches={} admission={} input={} topology={} degraded={}",
-            usize::from(layout.pending.is_some()),
-            usize::from(pending_wm_update.is_some()),
-            wm_session
-                .as_ref()
-                .map_or(0, LiveWmSession::in_flight_request_count),
-            committed_session_actions.len(),
-            session_launches.pending_len(),
-            usize::from(session_launches.admission().is_some()),
-            input_delivery.pending.len(),
-            output_topology_owner.input_quarantined(),
-            wm_session.as_ref().is_some_and(|wm| wm.degraded),
-        )
-        .into());
+    let pending_work = [
+        layout.pending.is_some(), pending_wm_update.is_some(),
+        wm_session.as_ref().is_some_and(|wm| wm.in_flight_request_count() != 0),
+        !committed_session_actions.is_empty(), session_launches.pending_len() != 0,
+        session_launches.admission().is_some(), !input_delivery.pending.is_empty(),
+        output_topology_owner.input_quarantined(),
+        wm_session.as_ref().is_some_and(|wm| wm.degraded),
+    ].into_iter().enumerate().fold(0u16, |mask, (index, pending)| mask | (u16::from(pending) << index));
+    if config.normal_session && pending_work != 0 {
+        crate::session_println!("sophia_live_session_completion schema=1 status=failed pending_mask={pending_work} content=redacted");
+        return Err(crate::diagnostics::SessionCompletionFailure::PendingWork(pending_work).into());
     }
     let native_totals = native_evidence.snapshot(native_scanout.as_ref());
     if let Some(native) = native_scanout.as_ref() {
@@ -1450,8 +1421,10 @@
         control_metrics.max_queue_dwell.as_millis(),
         control_metrics.max_acknowledgement_latency.as_millis(),
     );
-    if !control_metrics.is_drained(session_controls.pending_len()) {
-        return Err("persistent session controls did not drain cleanly".into());
+    if if input_delivery.fail_on_client_error {
+        !control_metrics.is_drained(session_controls.pending_len())
+    } else { !control_metrics.is_settled(session_controls.pending_len()) } {
+        return Err(crate::diagnostics::SessionCompletionFailure::ControlsNotSettled.into());
     }
     // Shortcuts the profile asked for that this session cannot perform. Always
     // emitted, so `dropped=0` is the ordinary case rather than silence: a

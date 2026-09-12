@@ -68,18 +68,17 @@ impl XServerFrontendRouteRegistry {
         route_control_epoch: u64,
         current_control_epoch: u64,
     ) -> Result<(), XServerFrontendRouteError> {
+        if !self.input_recovery.begin_routing(route.delivery) { return Ok(()); }
         // An event stamped with a closed epoch is one the session revoked
         // between routing and delivery, not one that failed to route.
         if route_control_epoch != current_control_epoch {
-            if let Ok(surfaces) = self.surfaces.lock()
-                && let Some(surface_route) = surfaces.get(&route.request.target_surface)
-            {
-                self.send_input_delivery(
-                    surface_route.client,
-                    route.delivery,
-                    XAuthorityInputDeliveryOutcome::EpochRevoked,
-                )?;
-            }
+            // Preserve the known target owner in the receipt without binding
+            // it as the receiving client: grab routing never happened.
+            let client = self.surfaces.lock()
+                .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
+                .get(&route.request.target_surface).map_or(XServerFrontendClientId(0), |route| route.client);
+            self.send_input_delivery(client, route.delivery,
+                XAuthorityInputDeliveryOutcome::EpochRevoked)?;
             return Ok(());
         }
         if route.mode == XAuthorityRoutedInputMode::StateOnly {
@@ -108,9 +107,11 @@ impl XServerFrontendRouteRegistry {
             .map_err(|_| XServerFrontendRouteError::RegistryPoisoned)?
             .get(&route.request.target_surface)
             .copied()
-            .ok_or(XServerFrontendRouteError::UnknownSurface {
-                surface: route.request.target_surface,
-            })?;
+            ;
+        let Some(surface_route) = surface_route else {
+            return self.send_input_delivery(XServerFrontendClientId(0), route.delivery,
+                XAuthorityInputDeliveryOutcome::TargetGone);
+        };
         if self.route_is_frozen(&route, surface_route.namespace)? {
             let mut frozen = self
                 .frozen_input
@@ -401,6 +402,9 @@ impl XServerFrontendRouteRegistry {
         &self,
         route: XAuthorityClientControlCommand,
     ) -> Result<(), XServerFrontendRouteError> {
+        if !self.input_recovery.active(None, route.client) {
+            return Err(XServerFrontendRouteError::UnknownClient { client: route.client });
+        }
         if let Some(result) = self.route_focus_control(route) {
             return result;
         }
@@ -504,19 +508,7 @@ impl XServerFrontendRouteRegistry {
         delivery: Option<XAuthorityInputDeliveryId>,
         outcome: XAuthorityInputDeliveryOutcome,
     ) -> Result<(), XServerFrontendRouteError> {
-        let Some(delivery) = delivery else {
-            return Ok(());
-        };
-        let Some(sender) = self.input_delivery_sender.as_ref() else {
-            return Ok(());
-        };
-        match sender.send(XAuthorityClientInputDelivery {
-            client,
-            delivery,
-            outcome,
-        }) {
-            Ok(()) | Err(_) => Ok(()),
-        }
+        self.input_recovery.finish(client, delivery, outcome)
     }
 
     fn send_route_lease_update(
@@ -542,6 +534,7 @@ impl XServerFrontendRouteRegistry {
 #[cfg(unix)]
 impl Drop for XServerFrontendClientRouteRegistration {
     fn drop(&mut self) {
+        let _ = self.input_recovery.disconnect(self.client, XAuthorityInputDeliveryOutcome::ClientDisconnected);
         if let Ok(mut clients) = self.clients.lock() {
             clients.remove(&self.client);
         }
@@ -569,8 +562,15 @@ impl Drop for XServerFrontendClientRouteRegistration {
             pending.retain(|_, presentation| presentation.client != self.client);
             self.pending_presentations.capacity_changed.notify_all();
         }
-        if let Ok(mut frozen) = self.frozen_input.lock() {
-            frozen.retain(|route| route.client != self.client);
+        let abandoned = if let Ok(mut frozen) = self.frozen_input.lock() {
+            let (abandoned, retained): (Vec<_>, Vec<_>) = frozen.drain(..)
+                .partition(|route| route.client == self.client);
+            *frozen = retained.into();
+            abandoned
+        } else { Vec::new() };
+        for route in abandoned {
+            let _ = self.input_recovery.finish(self.client, route.route.delivery,
+                XAuthorityInputDeliveryOutcome::ClientDisconnected);
         }
     }
 }

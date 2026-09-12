@@ -187,6 +187,7 @@ pub fn run_x11_core_socket_server_once_session_channels(
             input_receiver: Some(X11InputEventReceiver::Routed {
                 receiver: input_receiver,
                 deliveries: None,
+                recovery: None,
             }),
             control_channels: Some(X11ControlChannels::Routed {
                 receiver: control_receiver,

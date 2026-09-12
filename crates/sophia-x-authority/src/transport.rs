@@ -552,6 +552,13 @@ impl XAuthorityClientSurfaceRoutes {
         self.clients.get(&surface).map(|(client, _)| *client)
     }
 
+    pub fn surfaces_for_client(&self, client: XServerFrontendClientId) -> Vec<SurfaceId> {
+        self.clients
+            .iter()
+            .filter_map(|(surface, (owner, _))| (*owner == client).then_some(*surface))
+            .collect()
+    }
+
     pub fn admission_for_surface(
         &self,
         surface: SurfaceId,

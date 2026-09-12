@@ -39,7 +39,7 @@ fi
 
 TEMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TEMP_DIR"' EXIT
-for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation ShellContentLifecycle ShellContentBundleComposition XAuthorityShutdown; do
+for model in RetainedCompositionAdmission NativeSessionLifecycle TabDescriptorPresentation VisualRetirement VisualRetirementSlots VisualDamageHistory StableBackingLease AdmissionRecovery PresentFrameOwnership PresentCopyOwnership PresentFlipOwnership PresentMixedOwnership SurfaceContentStream GeometryFeedback PolicyConnection PolicyProjection PolicyLifecycle PolicySettlementRecovery PolicyOutputSettlement PolicyRefreshLifecycle OutputTopologyLifecycle ShellObservation ShellDescriptorLifecycle ShellWorkAreaCoordination IndicatorTransfer IndicatorAction TargetResolvedInput TargetInputPacing InputAuthorityArbitration PointerGrabAdmission FrameServiceArbitration PageFlipCompletionPump PageFlipPresentationTracker SharedWorkerService CursorPlaneTransactionOwner MirrorHeadPacing PixelSilentAdmission ContinuousContentPresentation ShellContentLifecycle ShellContentBundleComposition InputDeliveryRecovery XAuthorityShutdown; do
     cp "$MODEL_DIR/$model.tla" "$TEMP_DIR/"
     cp "$MODEL_DIR/$model.cfg" "$TEMP_DIR/"
     (
@@ -376,3 +376,20 @@ grep -Fq 'Invariant PresentedBundleHasLiveContent is violated.' "$log" || {
     echo "TLA+ latched-readiness control failed for the wrong reason" >&2
     exit 1
 }
+
+for control in InputDeliveryRecoveryNoDeadline InputDeliveryRecoveryEarlyBarrier; do
+    control_dir="$TEMP_DIR/$control"
+    mkdir "$control_dir"
+    cp "$MODEL_DIR/InputDeliveryRecovery.tla" "$MODEL_DIR/$control.cfg" "$control_dir/"
+    log="$control_dir/control.log"
+    if (cd "$control_dir" && timeout 30m java -XX:+UseParallelGC -jar "$JAR_PATH" \
+        -deadlock -workers 1 -fp 0 -config "$control.cfg" InputDeliveryRecovery.tla) >"$log" 2>&1; then
+        echo "TLA+ input recovery negative control unexpectedly passed: $control" >&2
+        exit 1
+    fi
+    case "$control" in
+        InputDeliveryRecoveryNoDeadline) expected='Temporal properties were violated.' ;;
+        InputDeliveryRecoveryEarlyBarrier) expected='Invariant BarrierSound is violated.' ;;
+    esac
+    grep -Fq "$expected" "$log" || { cat "$log"; exit 1; }
+done

@@ -306,9 +306,7 @@ macro_rules! drain_physical_input {
             input_delivery.events_expected = input_delivery
                 .events_expected
                 .saturating_add(report.deliveries.len());
-            input_delivery
-                .pending
-                .extend(report.deliveries.iter().copied());
+            input_delivery.track(input_sender, report.deliveries.iter().copied(), false)?;
             let repeat_report = route_due_key_repeat_with_saturation(
                 &mut key_repeat,
                 seat,
@@ -328,7 +326,7 @@ macro_rules! drain_physical_input {
                 .events_expected
                 .saturating_add(usize::from(repeat_report.delivery.is_some()));
             if let Some(delivery) = repeat_report.delivery {
-                input_delivery.pending.insert(delivery);
+                input_delivery.track(input_sender, [delivery], false)?;
             }
             match report.floating_outline {
                 FloatingPointerOutlineUpdate::Unchanged => {}
@@ -1214,6 +1212,7 @@ let session_loop_result = (|| -> Result<(), Box<dyn std::error::Error>> {
         // Deadlines and acknowledgments belong to the session, not to DRM.
         // Service them before any seat wait or renderer replacement can continue.
         InputDeliveryPhase {
+                    sender: Some(input_sender),
             receiver: input_delivery_receiver,
             state: &mut input_delivery,
             client_key_release_barrier: &mut client_key_release_barrier,

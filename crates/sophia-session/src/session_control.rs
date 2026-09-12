@@ -1,4 +1,4 @@
-use std::collections::VecDeque;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::mpsc::{Receiver, SyncSender, TryRecvError, TrySendError};
 use std::time::{Duration, Instant};
 
@@ -56,6 +56,7 @@ pub enum SessionControlFailure {
     TimedOut,
     UnexpectedAcknowledgement,
     Disconnected,
+    ClientDisconnected,
 }
 
 impl SessionControlFailure {
@@ -63,17 +64,19 @@ impl SessionControlFailure {
     /// obsolete close, focus and metadata commands without reporting them as
     /// applied. Admission and configuration still require a surviving target.
     pub const fn is_stale_target_for(self, kind: XAuthorityControlKind) -> bool {
-        matches!(self, Self::Rejected(XAuthorityControlOutcome::ClientGone))
-            || matches!(
-                kind,
-                XAuthorityControlKind::CloseSurface
-                    | XAuthorityControlKind::FocusSurface
-                    | XAuthorityControlKind::ClearFocus
-                    | XAuthorityControlKind::PublishMetadataRule
-            ) && matches!(
-                self,
-                Self::Rejected(XAuthorityControlOutcome::UnknownSurface)
-            )
+        matches!(
+            self,
+            Self::ClientDisconnected | Self::Rejected(XAuthorityControlOutcome::ClientGone)
+        ) || matches!(
+            kind,
+            XAuthorityControlKind::CloseSurface
+                | XAuthorityControlKind::FocusSurface
+                | XAuthorityControlKind::ClearFocus
+                | XAuthorityControlKind::PublishMetadataRule
+        ) && matches!(
+            self,
+            Self::Rejected(XAuthorityControlOutcome::UnknownSurface)
+        )
     }
 }
 
@@ -94,12 +97,25 @@ pub struct SessionControlMetrics {
     pub rejected: usize,
     pub timed_out: usize,
     pub unexpected: usize,
+    pub disconnected: usize,
+    pub recovered_timeouts: usize,
     pub peak_depth: usize,
     pub max_queue_dwell: Duration,
     pub max_acknowledgement_latency: Duration,
 }
 
 impl SessionControlMetrics {
+    /// All accepted controls settled, with contained client failures recorded as
+    /// failures. The strict proof predicate below intentionally stays stricter.
+    pub const fn is_settled(self, pending: usize) -> bool {
+        pending == 0
+            && self.unexpected == 0
+            && self.rejected == 0
+            && self.timed_out == self.recovered_timeouts
+            && self.enqueued
+                == self.delivered + self.stale_targets_retired + self.disconnected + self.timed_out
+    }
+
     pub const fn is_drained(self, pending: usize) -> bool {
         pending == 0
             && self.enqueued == self.dispatched
@@ -122,6 +138,7 @@ struct PendingControl {
 #[derive(Debug, Default)]
 pub struct SessionControlQueue {
     pending: VecDeque<PendingControl>,
+    revoked_clients: BTreeSet<XServerFrontendClientId>,
     metrics: SessionControlMetrics,
 }
 
@@ -199,6 +216,7 @@ impl SessionControlQueue {
         completions: &mut Vec<SessionControlCompletion>,
         dispatch_ready: bool,
     ) -> Result<(), SessionControlFailure> {
+        self.retire_revoked(now, completions);
         self.receive_acknowledgements(receiver, now, completions)?;
         if dispatch_ready {
             for pending in &mut self.pending {
@@ -212,6 +230,46 @@ impl SessionControlQueue {
             self.dispatch(sender, now)?;
         }
         Ok(())
+    }
+
+    pub fn revoke_client(
+        &mut self,
+        client: XServerFrontendClientId,
+        now: Instant,
+        completions: &mut Vec<SessionControlCompletion>,
+    ) {
+        self.revoked_clients.insert(client);
+        self.retire_revoked(now, completions);
+    }
+
+    pub fn observe_recovered_timeout(&mut self) {
+        self.metrics.recovered_timeouts += 1;
+    }
+
+    fn retire_revoked(&mut self, now: Instant, completions: &mut Vec<SessionControlCompletion>) {
+        let mut index = 0;
+        while index < self.pending.len() {
+            if !self
+                .revoked_clients
+                .contains(&self.pending[index].key.client)
+            {
+                index += 1;
+                continue;
+            }
+            let pending = self.pending.remove(index).expect("located revoked control");
+            self.metrics.disconnected += 1;
+            completions.push(SessionControlCompletion {
+                key: pending.key,
+                failure: Some(SessionControlFailure::ClientDisconnected),
+                queue_dwell: pending
+                    .dispatched_at
+                    .unwrap_or(now)
+                    .saturating_duration_since(pending.queued_at),
+                acknowledgement_latency: pending
+                    .dispatched_at
+                    .map_or(Duration::ZERO, |sent| now.saturating_duration_since(sent)),
+            });
+        }
     }
 
     pub fn pending_len(&self) -> usize {
@@ -241,6 +299,11 @@ impl SessionControlQueue {
                 Err(TryRecvError::Disconnected) => return Err(SessionControlFailure::Disconnected),
             };
             let key = SessionControlKey::from_ack(acknowledgement);
+            // Exact connection identity is never reused within a frontend.
+            // Nothing from a revoked endpoint can restore control authority.
+            if self.revoked_clients.contains(&key.client) {
+                continue;
+            }
             let Some(index) = self
                 .pending
                 .iter()
@@ -344,3 +407,10 @@ impl SessionControlQueue {
         Ok(())
     }
 }
+
+impl std::fmt::Display for SessionControlFailure {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "session control failure: {self:?}")
+    }
+}
+impl std::error::Error for SessionControlFailure {}

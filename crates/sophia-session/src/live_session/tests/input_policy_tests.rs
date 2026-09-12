@@ -506,7 +506,9 @@ fn floating_outline_stays_wholly_inside_the_gesture_start_output() {
 fn flushed_input_delivery_retires_its_client_key_release_barrier() {
     let delivery = XAuthorityInputDeliveryId::from_raw(7);
     let mut state = InputDeliveryState::default();
-    state.pending.insert(delivery);
+    state
+        .pending
+        .insert(delivery, pending_delivery_fixture(delivery));
     state.events_expected = 1;
     let mut release_barrier = BTreeSet::from([delivery]);
     let (sender, receiver) = sync_channel(1);
@@ -521,6 +523,7 @@ fn flushed_input_delivery_retires_its_client_key_release_barrier() {
     let mut post_input_deadline = None;
 
     InputDeliveryPhase {
+        sender: None,
         receiver: &receiver,
         state: &mut state,
         client_key_release_barrier: &mut release_barrier,
@@ -539,7 +542,9 @@ fn flushed_input_delivery_retires_its_client_key_release_barrier() {
 fn target_gone_delivery_retires_without_poisoning_the_session() {
     let delivery = XAuthorityInputDeliveryId::from_raw(8);
     let mut state = InputDeliveryState::default();
-    state.pending.insert(delivery);
+    state
+        .pending
+        .insert(delivery, pending_delivery_fixture(delivery));
     state.events_expected = 1;
     let mut release_barrier = BTreeSet::from([delivery]);
     let (sender, receiver) = sync_channel(1);
@@ -554,6 +559,7 @@ fn target_gone_delivery_retires_without_poisoning_the_session() {
     let mut post_input_deadline = None;
 
     InputDeliveryPhase {
+        sender: None,
         receiver: &receiver,
         state: &mut state,
         client_key_release_barrier: &mut release_barrier,
@@ -578,7 +584,9 @@ fn target_gone_delivery_retires_without_poisoning_the_session() {
 fn epoch_revoked_delivery_retires_without_poisoning_the_session() {
     let delivery = XAuthorityInputDeliveryId::from_raw(9);
     let mut state = InputDeliveryState::default();
-    state.pending.insert(delivery);
+    state
+        .pending
+        .insert(delivery, pending_delivery_fixture(delivery));
     state.events_expected = 1;
     let mut release_barrier = BTreeSet::from([delivery]);
     let (sender, receiver) = sync_channel(1);
@@ -593,6 +601,7 @@ fn epoch_revoked_delivery_retires_without_poisoning_the_session() {
     let mut post_input_deadline = None;
 
     InputDeliveryPhase {
+        sender: None,
         receiver: &receiver,
         state: &mut state,
         client_key_release_barrier: &mut release_barrier,
@@ -613,7 +622,9 @@ fn epoch_revoked_delivery_retires_without_poisoning_the_session() {
 fn route_rejected_delivery_remains_fatal() {
     let delivery = XAuthorityInputDeliveryId::from_raw(10);
     let mut state = InputDeliveryState::default();
-    state.pending.insert(delivery);
+    state
+        .pending
+        .insert(delivery, pending_delivery_fixture(delivery));
     state.events_expected = 1;
     let mut release_barrier = BTreeSet::from([delivery]);
     let (sender, receiver) = sync_channel(1);
@@ -629,6 +640,7 @@ fn route_rejected_delivery_remains_fatal() {
 
     assert!(
         InputDeliveryPhase {
+            sender: None,
             receiver: &receiver,
             state: &mut state,
             client_key_release_barrier: &mut release_barrier,
@@ -1448,4 +1460,20 @@ fn the_newest_head_composition_spans_every_pipeline_stage() {
     assert_eq!(newest_head_composition_frame([None, Some(3), None]), 3);
     assert_eq!(newest_head_composition_frame([None, None]), 0);
     assert_eq!(newest_head_composition_frame([]), 0);
+}
+
+fn pending_delivery_fixture(
+    delivery: XAuthorityInputDeliveryId,
+) -> crate::input_delivery::PendingInputDelivery {
+    crate::input_delivery::PendingInputDelivery {
+        ticket: sophia_x_authority::XAuthorityInputDeliveryTicket {
+            delivery,
+            surface: sophia_protocol::SurfaceId::new(1, 1),
+            seat: sophia_protocol::SeatId::from_raw(1),
+            control_epoch: 1,
+            admitted_at: std::time::Instant::now(),
+            client: None,
+        },
+        release_barrier: true,
+    }
 }

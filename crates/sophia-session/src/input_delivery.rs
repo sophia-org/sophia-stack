@@ -2,15 +2,17 @@
 
 use sophia_x_authority::{
     XAuthorityClientInputDelivery, XAuthorityInputDeliveryId, XAuthorityInputDeliveryOutcome,
+    XAuthorityInputDeliveryTicket, XAuthorityRoutedInputSender, XServerFrontendClientId,
 };
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 pub struct InputDeliveryState {
     pub fail_on_client_error: bool,
     pub events_failed: usize,
     pub next: u64,
-    pub pending: BTreeSet<XAuthorityInputDeliveryId>,
+    pub pending: BTreeMap<XAuthorityInputDeliveryId, PendingInputDelivery>,
+    pub recovered_clients: BTreeSet<XServerFrontendClientId>,
     pub events_expected: usize,
     pub events_flushed: usize,
     pub wait_started_at: Option<Instant>,
@@ -24,7 +26,8 @@ impl Default for InputDeliveryState {
             fail_on_client_error: true,
             events_failed: 0,
             next: 1,
-            pending: BTreeSet::new(),
+            pending: BTreeMap::new(),
+            recovered_clients: BTreeSet::new(),
             events_expected: 0,
             events_flushed: 0,
             wait_started_at: None,
@@ -42,9 +45,17 @@ pub fn settle_input_delivery(
     release_barrier: &mut BTreeSet<XAuthorityInputDeliveryId>,
     delivery: XAuthorityClientInputDelivery,
 ) -> Result<Option<XAuthorityInputDeliveryOutcome>, XAuthorityClientInputDelivery> {
-    if !state.pending.remove(&delivery.delivery) {
+    let Some(pending) = state.pending.get(&delivery.delivery) else {
+        return Ok(None);
+    };
+    if pending
+        .ticket
+        .client
+        .is_some_and(|client| client != delivery.client)
+    {
         return Ok(None);
     }
+    state.pending.remove(&delivery.delivery);
     release_barrier.remove(&delivery.delivery);
     match delivery.outcome {
         XAuthorityInputDeliveryOutcome::Flushed => {
@@ -55,7 +66,16 @@ pub fn settle_input_delivery(
             state.events_expected = state.events_expected.saturating_sub(1);
         }
         XAuthorityInputDeliveryOutcome::RouteRejected
-        | XAuthorityInputDeliveryOutcome::WriteFailed => {
+        | XAuthorityInputDeliveryOutcome::WriteFailed
+        | XAuthorityInputDeliveryOutcome::ClientDisconnected
+        | XAuthorityInputDeliveryOutcome::TimedOut => {
+            if matches!(
+                delivery.outcome,
+                XAuthorityInputDeliveryOutcome::ClientDisconnected
+                    | XAuthorityInputDeliveryOutcome::TimedOut
+            ) {
+                state.recovered_clients.insert(delivery.client);
+            }
             state.events_failed = state.events_failed.saturating_add(1);
             if state.fail_on_client_error {
                 return Err(delivery);
@@ -64,4 +84,47 @@ pub fn settle_input_delivery(
         }
     }
     Ok(Some(delivery.outcome))
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct PendingInputDelivery {
+    pub ticket: XAuthorityInputDeliveryTicket,
+    pub release_barrier: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum InputDeliveryError {
+    MissingTicket(XAuthorityInputDeliveryId),
+    ClientFailure(XAuthorityClientInputDelivery),
+    ProofTimeout,
+}
+
+impl std::fmt::Display for InputDeliveryError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "input delivery failure: {self:?}")
+    }
+}
+impl std::error::Error for InputDeliveryError {}
+
+impl InputDeliveryState {
+    pub fn track(
+        &mut self,
+        sender: &XAuthorityRoutedInputSender,
+        ids: impl IntoIterator<Item = XAuthorityInputDeliveryId>,
+        release_barrier: bool,
+    ) -> Result<(), InputDeliveryError> {
+        for id in ids {
+            let ticket = sender
+                .delivery_ticket(id)
+                .ok_or(InputDeliveryError::MissingTicket(id))?;
+            self.pending.insert(
+                id,
+                PendingInputDelivery {
+                    ticket,
+                    release_barrier,
+                },
+            );
+        }
+        Ok(())
+    }
 }

@@ -798,3 +798,20 @@ remains distinct from geometry and storage: an extent or materialization can
 choose a rendering path without choosing which candidate owns admission. The
 bounded configuration explores 172 generated states and 88 distinct states to
 depth 13.
+
+## InputDeliveryRecovery
+
+`t077` models two X connections, two input obligations, connection binding
+following grab resolution, a blocked writer, exact terminal receipt observation,
+release-barrier control gating and VT revocation. Its six-second absolute
+input deadline includes the existing five-second subscription grace. A separate
+half-second VT grace revokes all still-pending old-seat input before handoff.
+
+`InputDeliveryRecovery.cfg` checks safety plus delivery, healthy-control and seat
+progress with weak fairness of owner service and time. It assumes socket shutdown
+returns independently of the output mutex; the Unix-socket regression checks
+that concrete mechanism. No fairness of client reads or writer completion is
+assumed. `InputDeliveryRecoveryNoDeadline.cfg` must fail delivery liveness;
+`InputDeliveryRecoveryEarlyBarrier.cfg` must violate `BarrierSound`.
+The brief and source mapping are in `input-delivery-recovery/`. This is bounded
+model checking, not a physical session or native-client trace acceptance.

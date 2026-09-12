@@ -13,6 +13,11 @@ Python, the offline Rust dependencies and the normal X-authority build
 dependencies are required. Private Unix socket creation must be permitted.
 Socket denial is a launch failure, not protocol evidence.
 
+For comparisons across archived sources or when build freshness is in doubt,
+pass a new, previously unused `--target-dir` for each candidate. Keep both reports;
+do not infer a candidate's identity from a shared cached executable. The report
+records the actual host digest and source identity, and marks dirty checkouts.
+
 No Sophia session, renderer, DRM device, input device, VT, installation or
 operator display is used. The runner clears inherited `SOPHIA_*`, `HAGIA_*`,
 display endpoints and `PYTHONOPTIMIZE`. It creates a new mode-0700 temporary

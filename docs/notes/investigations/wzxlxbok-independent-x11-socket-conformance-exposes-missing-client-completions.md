@@ -140,6 +140,15 @@ major 4 dispatch, and `running_drop` did not return. The socket experiments abov
 identify their compiled source and distinguish explicit requests from connection
 cleanup; they neither ran that installed release nor establish a pinentry cause.
 
+A follow-up build at clean **c2745124** used a completely new dedicated target,
+`/tmp/sophia-x11-fresh-cc577db5`, after p5 reported possible include-file freshness
+problems when sharing a target across archived sources. All 70 verdicts match
+exactly (54 PASS, 16 FAIL/TIMEOUT, exit 1). Its host SHA256 is
+`fa48aecbbb6d14b02d22cd23eed20c84d0590b7549d5b8786fd526d6b2e42a95`; evidence is retained in
+`.artifacts/x11-conformance/baseline-fresh-c2745124/`. This validates this gate's
+comparison independently of its earlier build cache; it does not resolve p5's
+separate historical/repaired arboard comparison.
+
 ## UnmapNotify
 
 The `unmap` case receives MapNotify and confirms the window is Viewable, issues

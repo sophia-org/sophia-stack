@@ -1,0 +1,110 @@
+# Lom CPU content implementation
+
+The operator selected GPU rendering followed by bounded readback and CPU-byte
+transfer as the first native Lom experiment on 2026-09-12. Direct GPU-buffer
+handoff remains a later measured optimization. This record does not establish
+that Lom is an admitted or visible native shell.
+
+## Implemented boundaries
+
+`sophia-protocol` now encodes all twenty-one content records at 160–180 with the
+existing 24-byte envelope. The family stays at revision 6; indicator kinds
+181–186 and older messages are unchanged. Capability constants are vocabulary,
+not an enabled grant. Live `ShellSessionTransport` still refuses content.
+
+The codec validates bounded lengths, identity shape, reserved fields, exact
+format, scales and transfer dimensions. Actual grant, allocation, permission,
+reference and lifecycle checks belong to the session. A different nonzero epoch
+is structurally valid data but stale relative to a particular live grant.
+
+The resource owner reserves staging storage, resident credit, a resource slot
+and terminal/release response capacity before admitting a transfer. End moves
+the owned byte vector into immutable accepted storage. Partial, malformed,
+duplicate and expired transfers cannot acquire leases. Retire rejects new
+consumers; existing leases keep their bytes until the last reference drains.
+Release is independent of a candidate outcome.
+
+The epoch pool reserves the maximum live footprint before admission: 8 MiB
+staging + 16 MiB resident + 16 MiB retiring = 40 MiB. Disconnected owners remain
+until every consumer drains; actual retained bytes count against 64 MiB globally.
+A new 40 MiB reservation fits only with at most 24 MiB already retired. Pinned
+resident storage is not forced through the active retiring ceiling. At most
+sixteen retired epochs can retain metadata; tiny resources cannot retain an
+unbounded number of replay tables. Either limit causes backpressure, not eviction.
+
+This owner is not yet a complete candidate assembler, allocation authority,
+transport service or native renderer integration. Its caller must reserve
+transport capacity before consuming queued events. Event creation is not routing
+or receipt. Cancellation echoes its request transaction; timeout correlates to
+Begin. Peer loss accounts for undeliverable events without reporting delivery.
+
+Lom converts Vello's straight-alpha RGBA readback into premultiplied B,G,R,A in
+place, using rounded integer arithmetic in sRGB channel space and transparent
+black at alpha zero. Its iterator produces maximal whole-row chunks without
+duplicating the image. Content dimensions are checked against 4 MiB before GPU
+rendering; the diagnostic preview has its own separately named bound.
+
+The renderer uses the texture path and its own map/copy operation instead of
+`imaging_vello`'s indefinite readback wait. One two-second deadline covers the
+poll and callback. A failed job is retained and the renderer refuses new work.
+This recovery budget is not presentation pacing, proof of GPU completion, a
+bound on arbitrary driver calls, or an aggregate GPU allocation budget.
+
+## Evidence and limits
+
+TLC v1.7.4 was verified against the SHA-256 pinned by `tools/check_tla.sh`.
+`ShellContentLifecycle` and `ShellContentBundleComposition` pass. The retire-
+during-assembly, silent-timeout and latched-readiness controls fail on their
+intended invariants. Logs are in `.artifacts/lom-content-admission/`. The initial
+sandboxed attempt failed to bind TLC's RMI listener; it is retained separately
+and is not counted as a model result. Renderer-progress liveness remains an
+explicit assumption, not a proved completion guarantee.
+
+The codec corpus has 21 valid records and 68 malformed vectors. The independent
+C reader uses no Sophia libraries. Inverse outcome checks make the gate fail.
+This proves the exercised byte cases, not every semantic predicate or native
+publisher behavior. Existing descriptor, tab, reference and launcher clients
+remain in the shell gate.
+
+Resource tests cover consumer retention, exact release, timeout settlement,
+replay, foreign grants, response pressure and partial reconnect retirement.
+Lom tests cover pixels, row chunking and the production poll/callback deadline
+function without opening a GPU. The changed Lom readback has not been GPU-tested.
+
+The subsequent full Sophia gate accidentally inherited
+`SOPHIA_RUN_REAL_ATOMIC_SCANOUT_SMOKE=1` and attempted a real DRM initial modeset.
+Resource and framebuffer creation succeeded; atomic submission failed. This was
+an unintended hardware test, not Lom or native-content acceptance. The log does
+not establish that the desktop was unaffected. The full gate failed and must
+not be reported as passing. Evidence and its digest are preserved in
+`.artifacts/lom-content-admission/hardware-attempt.md` and `full-gate.log`.
+Further offline gates require the device-hidden conformance wrapper with a
+cleared environment and private `/dev`; clearing opt-ins alone does not prevent
+tests that discover render nodes automatically. The failed hardware run will
+not be retried.
+
+## Production admission remains closed
+
+GPU permission is an explicit startup protection-domain grant, not a negotiation
+bit or an implication of content permission. Selected device visibility and
+enforceable allocation accounting must exist before enabling production content.
+
+The existing DRI3 256 MiB limit is per import; it is not an aggregate budget and
+does not cover Vello's internal GPU buffers and caches. Pinned Vello 0.8.0 and
+imaging_vello 0.0.1 expose no aggregate renderer allocation-budget hook. One job
+or bounded buffer dimensions do not establish an aggregate bound. The inspected
+host has no `dmem` cgroup controller and `/boot/config-6.18.50_1` states
+`CONFIG_CGROUP_DMEM` is not set. This is neither a kernel-change recommendation
+nor evidence that that option alone would satisfy the policy.
+
+An allocator/device admission design with an enforceable owner remains required.
+No render-node bind, GPU permission, installed profile or shell replacement was
+added. The CPU pool does not claim to count renderer/upload copies that are not
+yet integrated with it.
+
+Still required: candidate/permit/action lifecycle, allocation and work-area
+integration, native upload/composition/retirement, GPU admission, Lom connection
+and exact presented-target adapter, and attended acceptance. The first live
+configuration is workspaces, clock and calendar. Other Minimal modules remain
+fixtures until authorized live sources exist. Acceptance must prove retirement,
+activation, anchoring, consumed outside dismissal, restart and output changes.

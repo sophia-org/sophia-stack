@@ -38,6 +38,9 @@ pub use wm_translation::*;
 mod shell_indicators;
 pub use shell_indicators::*;
 
+mod shell_content;
+pub use shell_content::*;
+
 mod shell_reference;
 pub use shell_reference::*;
 

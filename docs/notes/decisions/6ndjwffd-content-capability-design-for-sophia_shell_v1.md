@@ -27,8 +27,11 @@ pixels by construction, and the Quickshell panel is an X11 fixture that
 [does not acquire shell_v1 authority](../../quickshell-x11-panel.md). On two
 outputs, focus can walk onto an empty DP-2 with nothing on screen to say so.
 
-The driving client is an ironbar fork in `sophia-org`, per the requirement that
-the content vocabulary be *derived from a driving client* rather than invented.
+The original driving client was an ironbar fork in `sophia-org`. The operator
+subsequently selected Lom, an Xilem/Masonry/Vello client preserving the
+Ironbar-inspired workflow, with GPU readback into this CPU-byte contract.
+The [implementation record](../../lom-content-implementation.md) distinguishes
+implemented boundaries from remaining GPU admission and native gates.
 
 ## Decision
 
@@ -370,7 +373,10 @@ allocation_lost=8, renderer_failed=9, superseded=10, cancelled=11, revoked=12.
 Success requires reason 0. Broken framing or uncorrelatable identity closes the
 connection rather than emitting an unbounded stream of error replies.
 
-Kinds 123–127, 135–159 and 181+ are unallocated. Bits 9+ are unassigned.
+Kinds 123–127 and 135–159 remain unallocated by this record. The sibling
+revision-6 indicator vocabulary now occupies 181–186 and bits 9–10 in the
+checked-in schema. Content remains at 160–180 and bits 7–8; implementing it
+does not downgrade the family's current revision or reallocate indicator kinds.
 
 ### 7. Resource identity, retention and release
 
@@ -537,7 +543,9 @@ conservation across staging, resident and retiring — not the arithmetic in §5
 
 ### 10. Conformance corpus
 
-Proposed implementation artifacts, none created by this record.
+The following is the full required implementation corpus. The implementation
+record names the portions that exist; this table is not a claim that every
+transport lifecycle or native workflow is implemented.
 `sophia-shell-v1.kdl` remains the checked-in role schema, gaining `since=5` and
 gate assignments; kinds 96–122 and all golden bytes are preserved.
 
@@ -563,7 +571,7 @@ since a feature-gated skip must never count as passing; the C client compiled
 under the existing warnings-as-errors discipline and run against **both** vectors
 so it rejects malformed input independently rather than asking Rust to
 prevalidate; the archived r4 client run descriptor-only after checksum
-verification; and the ironbar adapter proof invoked by absolute path, reported
+verification; and the Lom adapter proof invoked by absolute path, reported
 **distinctly as unavailable** rather than silently skipped.
 
 The script also gains an explicit `shell_reference` invocation, which it
@@ -956,8 +964,10 @@ when it is empty**, which is the case that motivated this work.
 
 Status is **proposed**. `ShellContentLifecycle.tla` now exists and passes under
 TLC with two negative controls; §9 records exactly which invariants that covers
-and which it does not. No model *composition* check against the three sibling
-models has been performed.
+and which it does not. `ShellContentBundleComposition.tla` checks the content
+and work-area seam, with its latched-readiness negative control. This is the
+composition check described in step 3 below, not a claim to have composed every
+action of all three sibling models.
 
 **Operator acceptance of this record authorizes modelling, not implementation.**
 `content-shell.md` requires the lifecycle and authority invariants to be *modeled

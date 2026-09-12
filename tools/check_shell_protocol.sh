@@ -7,6 +7,28 @@ build_dir=$(mktemp -d)
 trap 'rm -rf "$build_dir"' EXIT HUP INT TERM
 
 cd "$root"
+cargo run --offline -q -p sophia-protocol --example shell_content_corpus \
+    >"$build_dir/sophia-shell-content.frames"
+cargo run --offline -q -p sophia-protocol --example shell_content_corpus -- --malformed \
+    >"$build_dir/sophia-shell-content-malformed.frames"
+cmp "$build_dir/sophia-shell-content.frames" protocol/golden/sophia-shell-content.frames
+cmp "$build_dir/sophia-shell-content-malformed.frames" protocol/golden/sophia-shell-content-malformed.frames
+cargo test --offline -q -p sophia-protocol --test shell_content_wire
+cargo test --offline -q -p sophia-runtime --test shell_content_resources
+cc -std=c11 -Wall -Wextra -Werror -pedantic \
+    bindings/c/tests/sophia_shell_content_client.c -o "$build_dir/content-client"
+"$build_dir/content-client" --valid protocol/golden/sophia-shell-content.frames
+"$build_dir/content-client" --malformed protocol/golden/sophia-shell-content-malformed.frames
+# These inverse expectations prove the independent reader rejects invalid bytes
+# and does not implement a success-only corpus printer.
+if "$build_dir/content-client" --valid protocol/golden/sophia-shell-content-malformed.frames; then
+    echo 'content C decoder accepted malformed records' >&2
+    exit 1
+fi
+if "$build_dir/content-client" --malformed protocol/golden/sophia-shell-content.frames; then
+    echo 'content C decoder rejected every valid record' >&2
+    exit 1
+fi
 cargo run --offline -q -p sophia-protocol --example shell_v1_corpus -- --valid \
     >"$build_dir/sophia-shell-v1.frames"
 cargo run --offline -q -p sophia-protocol --example shell_v1_corpus -- --malformed \

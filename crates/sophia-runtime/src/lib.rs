@@ -61,3 +61,6 @@ pub use session::*;
 pub use shell_transport::*;
 pub use supervisor::*;
 pub use tracing::*;
+
+mod shell_content;
+pub use shell_content::*;

@@ -37,6 +37,19 @@ def boundary(summary, events):
     return "No decisive boundary yet; inspect the ordered stages and protocol outcome."
 
 def report(capture):
+    production = capture / "production" / "production-report.json"
+    if production.is_file():
+        record = json.loads(production.read_text())
+        lines = ["# T082 uninstrumented production capture", "",
+                 f"Candidate: {record['candidate']['source_commit']}",
+                 f"Server: {record['release']['commit']}",
+                 f"Overall acceptance: {record['acceptance']}",
+                 f"Actions: {record['action_acceptance']}; hints: {record['hint_acceptance']}; placement: {record['placement_acceptance']}",
+                 "No native submission timestamp or tracing evidence exists for this candidate.", ""]
+        for case in record["cases"]:
+            lines.append(f"{case['case']}: protocol={case['protocol_result']}, action={case['acceptance']}, placement={case['placement_evidence']}")
+        lines.append("Unexecuted: " + ", ".join(record["unexecuted_cases"]))
+        return "\n".join(lines)
     lines = ["# T082 dummy capture", "", "These are observed boundaries, not an automatic root-cause verdict.", ""]
     for path in sorted((capture / "cases").glob("*/summary.json")):
         summary = json.loads(path.read_text())

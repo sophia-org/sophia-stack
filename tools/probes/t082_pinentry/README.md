@@ -212,3 +212,47 @@ installed server. The fixed capture has since been retargeted to verified
 702efef161dd (manifest, checksums and destroy-repair ancestry checked).
 The next run tests full-GUI recovery on that repaired release. No install or
 native launch is performed by retargeting.
+
+
+## Uninstrumented production acceptance
+
+`capture.sh --production /absolute/candidate.json` selects the separate production
+path. No v8 patch, trace pipe, GPG call, injected input or inspection feature is
+used. The manifest must carry schema 1, an absolute executable `binary_path`,
+SHA-256 `sha256`, full `source_commit`, and `instrumented: false`. Preparation
+verifies and snapshots the binary; the runner checks its hash before each case.
+`EGUI_INSPECTION`, T082 tracing variables and Wayland endpoints are removed from
+the child environment. The installed Sophia release remains explicitly pinned.
+Existing instrumented bundles and captures are unchanged.
+
+The foreground matrix requires an attended terminal. Nine cases cover Enter,
+OK, Cancel, Escape, normal WM close, Unicode `café🔑%`, CONFIRM OK/Cancel, and
+three consecutive GETPIN/CONFIRM/GETPIN dialogs in one process. Use only the
+printed public dummy value, never a password. Each dialog has a 60-second
+response budget; setup and final exit are independently bounded. Cleanup targets
+only the owned child. After each process exits, answer one observation at a time
+in the terminal: actual requested action, floating placement, and Unicode label
+rendering for the Unicode case. Missing observations do not count as acceptance.
+
+The independent byte decoder concatenates Assuan D records and decodes percent
+escapes without treating UTF-8 bytes as code points. See GNU's
+[Assuan server responses](https://www.gnupg.org/documentation/manuals/assuan/Server-responses.html).
+Raw response data and stderr contents are never written to capture files.
+Cancellation requires an error with no data; CONFIRM success requires OK with no
+data. GETINFO checks the actual process PID. BYE, exit status and lack of harness
+termination must agree before protocol success is recorded.
+
+`production/production-report.json` retains exact candidate/server identity,
+per-case results and unexecuted cases. `action_acceptance` and
+`placement_acceptance` are separate; overall acceptance requires both plus the
+Unicode label observation. Placement is operator-observed behavior, not proof of a policy decision.
+A bounded read-only xwininfo/xprop observer separately matches `_NET_WM_PID`
+to the owned process and records the exact live XID, Dialog type and absent
+WM_TRANSIENT_FOR. Wait for the live-hints message before acting. Missing hints
+fail overall acceptance; a parser fixture is not live evidence. Standalone
+unparented dialogs are the scope, not fabricated transient-parent support. No submission-to-exit latency is invented:
+command-to-response time includes the operator's typing. This matrix does not
+replace t077 recovery acceptance or real signing acceptance.
+
+Offline verification: `python3 -B -m unittest discover -s tools/probes/t082_pinentry`.
+Fake clients establish harness behavior only, never native acceptance.

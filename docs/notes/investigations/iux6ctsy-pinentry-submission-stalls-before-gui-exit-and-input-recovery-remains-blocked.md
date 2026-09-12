@@ -620,3 +620,29 @@ named release. It does not test OK/Cancel, real GPG signing, floating/dialog
 hints, UTF-8 encoding or the complete t077 physical recovery matrix. T082 remains
 open for its separate hints/encoding work; its captured Enter shutdown failure
 is now reproduced, explained and observed recovering.
+
+
+### Production acceptance preparation — 2026-09-12
+
+The operator approved the application/harness split. Claude owns the upstream
+UTF-8 codec and standalone X11 Dialog classification changes; Codex owns the
+uninstrumented acceptance runner. The combined candidate is
+`c9c1eda9068a588ee1b8d1b46aab94d3bce7d557`, binary SHA-256
+`ed0ff94a32c844a70aaf3adbe33cfa41760c77fb2b641fd99d177523a7b4f1e3`, manifest
+`.artifacts/t082-upstream/candidate-c9c1eda9068a/manifest.json`. This is upstream
+0.2.0 with eframe/egui 0.36.1, not the historical v8 instrumented source.
+
+The separate production harness verifies explicit identity, snapshots the
+executable, removes inspection/tracing environment, and runs the attended matrix
+documented in `tools/probes/t082_pinentry/README.md`. It keeps expected Assuan
+bytes, actual operator action, floating placement and Unicode label observations
+separate. It does not infer GUI success from offline codec tests, nor manufacture
+a submit timestamp without instrumentation. No candidate installation or native
+matrix run is recorded by this preparation. t082 remains open until actual
+production acceptance; earlier captures and their release identities are intact.
+
+The production wrapper also records live XID properties using read-only
+xwininfo/xprop, matched by `_NET_WM_PID` to its own child. Overall acceptance
+requires `_NET_WM_WINDOW_TYPE_DIALOG` and absent `WM_TRANSIENT_FOR` for each
+dialog, independently of the operator's floating-layout observation. This is an
+unparented standalone prompt; transient-parent support is not claimed.

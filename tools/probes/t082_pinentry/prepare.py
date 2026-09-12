@@ -4,7 +4,7 @@ import argparse
 from pathlib import Path
 import subprocess
 
-def prepare(release, capture):
+def prepare(release, capture, production_manifest=None):
     text = (release / "tools/run_sophia_session.sh").read_text()
     replacements = [
         ('ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"',
@@ -30,6 +30,16 @@ exec /usr/sbin/kitty --config NONE /bin/bash --noprofile --rcfile "$T082_CAPTURE
     (capture / "terminal.rc").write_text('''printf '%s\\n' 'T082 dummy capture. Use this shell to check ordinary input while the probe runs.'
 python3 "$T082_TOOLS/runner.py" --bundle "$T082_BUNDLE" --capture "$T082_CAPTURE/cases" --case instrumented-enter &
 ''')
+    if production_manifest is not None:
+        from production import stage_candidate
+        import json
+        candidate, identity = stage_candidate(production_manifest, capture / "production-source")
+        identity["binary_path"] = str(candidate.resolve())
+        (capture / "production-candidate.json").write_text(json.dumps(identity) + "\n")
+        (capture / "terminal.rc").write_text('''printf '%s\\n' 'T082 production matrix: public dummy values only. Stay on this VT.'
+python3 -B "$T082_TOOLS/production.py" --candidate-manifest "$T082_CAPTURE/production-candidate.json" --capture "$T082_CAPTURE/production" --release-manifest "$T082_CAPTURE/release.manifest"
+printf '%s\\n' 'Matrix ended. Check ordinary terminal input, then log out normally.'
+''')
     for name in ("run-session", "terminal", "terminal.rc"):
         (capture / name).chmod(0o700)
         subprocess.run(["bash", "-n", str(capture / name)], check=True)
@@ -38,5 +48,6 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--release", type=Path, required=True)
     p.add_argument("--capture", type=Path, required=True)
+    p.add_argument("--production-manifest", type=Path)
     args = p.parse_args()
-    prepare(args.release, args.capture)
+    prepare(args.release, args.capture, args.production_manifest)

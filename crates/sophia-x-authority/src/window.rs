@@ -480,6 +480,27 @@ impl XWindowTable {
             .collect()
     }
 
+    /// Direct children bottom to top.
+    ///
+    /// `direct_children` returns them in id order, which is the order the store
+    /// happens to hold them in. Stacking order is a different fact, maintained
+    /// as `stack_rank` by `restack`, and the protocol asks for it wherever an
+    /// operation walks siblings.
+    pub fn direct_children_bottom_to_top(
+        &self,
+        namespace: NamespaceId,
+        parent: XResourceId,
+    ) -> Vec<XResourceId> {
+        let mut children = self
+            .windows
+            .values()
+            .filter(|record| record.namespace == namespace && record.parent == parent)
+            .map(|record| (record.stack_rank, record.id))
+            .collect::<Vec<_>>();
+        children.sort_unstable();
+        children.into_iter().map(|(_, id)| id).collect()
+    }
+
     pub fn direct_children(&self, namespace: NamespaceId, parent: XResourceId) -> Vec<XResourceId> {
         self.windows
             .values()

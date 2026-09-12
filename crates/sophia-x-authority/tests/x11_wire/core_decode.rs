@@ -315,6 +315,26 @@ fn x11_core_decoder_captures_destroy_window_requests() {
 }
 
 #[test]
+fn x11_core_decoder_captures_destroy_subwindows_requests() {
+    let namespace = NamespaceId::from_raw(41);
+    let destroy = decode_x11_core_request(
+        context(namespace, 503, XByteOrder::LittleEndian),
+        &resource_request(XByteOrder::LittleEndian, 5, 0x220001),
+    )
+    .unwrap();
+
+    // Opcode 5 shares DestroyWindow's 8-byte form, so the decode is only
+    // meaningful if it lands on the right variant: the two differ in whether
+    // the named window survives.
+    assert_eq!(
+        destroy,
+        XWireRequest::DestroySubwindows {
+            window: XResourceId::new(0x220001, 1),
+        }
+    );
+}
+
+#[test]
 fn x11_core_decoder_maps_selection_requests_to_authority_packets() {
     let namespace = NamespaceId::from_raw(42);
     let set_owner = decode_x11_core_request(

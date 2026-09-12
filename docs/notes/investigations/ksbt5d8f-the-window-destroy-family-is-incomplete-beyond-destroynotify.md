@@ -2,7 +2,7 @@
 id: ksbt5d8f
 date: 2026-09-12
 kind: investigation
-status: investigating
+status: closed
 tags: [investigation, x11, protocol, conformance]
 ---
 # The window destroy family is incomplete beyond DestroyNotify
@@ -28,13 +28,18 @@ emits only on the success arm.
 
 ## Confirmed gaps
 
-**`DestroySubwindows` (opcode 5) is not implemented at all.** It does not appear
+**`DestroySubwindows` (opcode 5) was not implemented at all.** Repaired; see
+Connections.
+
+Originally recorded as: It does not appear
 anywhere in `crates/sophia-x-authority`: not as a decoded request, not in the
 dispatch match, not in the wire tables. A client issuing it takes whatever path
 an unrecognised core opcode takes. This is a missing request rather than a
 missing notification, so it is larger than the `DestroyNotify` repair was.
 
-**Destroying a window does not destroy its descendants.**
+**Destroying a window did not destroy its descendants.** Repaired in `4ede41bd`.
+
+Originally recorded as:
 `runtime/windows.rs:471-500` removes exactly the named window: resources, hints,
 preferences, buffers, raster, pictures, shapes, background and visual entries,
 all keyed on that one id. Nothing walks children. `direct_children` exists and is
@@ -74,6 +79,19 @@ cleanup.
 The shape is worth noting: four gaps in this protocol family were found in a
 single independent gate run, and `DestroyNotify` had been absent without anything
 noticing. These are evidence about coverage, not four unrelated bugs.
+
+## What closing this does not mean
+
+Closed for the source findings it recorded: `DestroySubwindows` and descendant
+destruction, both repaired. It does **not** mean the destroy family is
+conformant.
+
+`t087` covers a wider case set than this note investigated, including
+peer-close notification — independently confirmed failing, untouched by any of
+these repairs — and the XID-reuse-with-stale-subscriptions case, which has an
+ordering fix but no test that reuses an id and asserts the previous subscribers
+receive nothing. Those settle when the independent gate run settles them, not
+when this note closed.
 
 ## Connections
 

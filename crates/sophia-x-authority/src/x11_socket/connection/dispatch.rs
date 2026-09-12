@@ -867,10 +867,6 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         _ => None,
                     };
                     let mapped_subwindows = matches!(&request, crate::XWireRequest::MapSubwindows { .. });
-                    let destroyed_window = match &request {
-                        crate::XWireRequest::DestroyWindow { window } => Some(*window),
-                        _ => None,
-                    };
                     let unmapped_window = match &request {
                         crate::XWireRequest::UnmapWindow { window } => Some(*window),
                         _ => None,
@@ -1335,7 +1331,19 @@ fn serve_x11_core_socket_client_with_trace_observer_and_input(
                         // notification is routed. Clearing here deleted the
                         // recipients before the event addressed to them was
                         // delivered.
-                        if let Some(window) = destroyed_window {
+                        // Driven off what was actually destroyed rather than
+                        // the request's single window. DestroySubwindows removes
+                        // a whole set, and a request-shaped extraction cannot
+                        // name them -- selection state would survive for every
+                        // child without anything reporting it.
+                        for window in output.outputs.iter().filter_map(|entry| match entry {
+                            crate::XClientOutput::Event(crate::XClientEvent::DestroyNotify {
+                                event,
+                                window,
+                                ..
+                            }) if event == window => Some(*window),
+                            _ => None,
+                        }) {
                             selections.remove(window);
                         }
                         if let Some((window, mask)) = randr_selection

@@ -13,6 +13,7 @@ fn dispatch_core_window_request(
             | XWireRequest::GetWindowAttributes { .. }
             | XWireRequest::DestroyWindow { .. }
             | XWireRequest::ReparentWindow { .. }
+            | XWireRequest::DestroySubwindows { .. }
             | XWireRequest::MapSubwindows { .. }
             | XWireRequest::UnmapWindow { .. }
             | XWireRequest::ConfigureWindow { .. }
@@ -332,6 +333,41 @@ fn dispatch_core_window_request(
                                 0,
                                 u32::try_from(window.local.raw()).unwrap_or(0)))],
                         ),
+                    };
+                    XDispatchResult {
+                        response: Some(response),
+                        outputs,
+                        metadata_candidates: Vec::new(),
+                    }
+                }
+                XWireRequest::DestroySubwindows { window } => {
+                    let transaction = context.transaction;
+                    let mut response = XAuthorityResponsePacket::accepted(transaction);
+                    let outputs = match runtime
+                        .destroy_direct_subwindows(context.namespace, window)
+                    {
+                        Ok(destroyed) => destroyed
+                            .into_iter()
+                            .map(|(destroyed_window, surface)| {
+                                properties.remove_window(context.namespace, destroyed_window);
+                                response.removed_surfaces.push(surface);
+                                XClientOutput::Event(crate::XClientEvent::DestroyNotify {
+                                    sequence: context.sequence,
+                                    event: destroyed_window,
+                                    window: destroyed_window,
+                                })
+                            })
+                            .collect(),
+                        Err(error) => {
+                            response = XAuthorityResponsePacket::rejected(transaction, error);
+                            vec![XClientOutput::Error(x_error_from_runtime(
+                                error,
+                                context.sequence,
+                                context.major_opcode,
+                                0,
+                                u32::try_from(window.local.raw()).unwrap_or(0),
+                            ))]
+                        }
                     };
                     XDispatchResult {
                         response: Some(response),

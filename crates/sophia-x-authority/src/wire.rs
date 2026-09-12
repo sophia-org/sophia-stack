@@ -117,6 +117,10 @@ pub enum XWireRequest {
         x: i16,
         y: i16,
     },
+    /// Destroy every child of this window. The window itself survives.
+    DestroySubwindows {
+        window: XResourceId,
+    },
     MapSubwindows {
         window: XResourceId,
     },
@@ -1218,6 +1222,7 @@ pub fn decode_x11_core_request(
         X_CHANGE_WINDOW_ATTRIBUTES => decode_change_window_attributes(context, bytes),
         X_GET_WINDOW_ATTRIBUTES => decode_get_window_attributes(context, bytes),
         X_DESTROY_WINDOW => decode_destroy_window(context, bytes),
+        X_DESTROY_SUBWINDOWS => decode_destroy_subwindows(context, bytes),
         X_REPARENT_WINDOW => decode_reparent_window(context, bytes),
         X_MAP_WINDOW => decode_map_window(context, bytes),
         X_MAP_SUBWINDOWS => decode_map_subwindows(context, bytes),

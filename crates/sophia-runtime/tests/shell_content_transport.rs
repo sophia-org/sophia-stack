@@ -176,6 +176,34 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
         let ShellContentRecord::Limits(limits) = next_content(&mut client) else {
             panic!("expected limits");
         };
+        let ShellContentRecord::OutputFacts(facts) = next_content(&mut client) else {
+            panic!("expected output facts");
+        };
+        let output = facts.outputs[0].output;
+        client
+            .send_content(
+                TransactionId::from_raw(6),
+                &ShellContentRecord::AllocationRequest(ContentAllocationRequest {
+                    grant: limits.grant,
+                    output,
+                    allocation_request_id: 1,
+                    operation: 1,
+                    role: 1,
+                    edge: 1,
+                    prior: ContentAllocationId::default(),
+                    parent: ContentAllocationId::default(),
+                    parent_presentation_epoch: 0,
+                    anchor_parent_rect: ContentPixelRect::default(),
+                    desired_width: 64,
+                    desired_height: 32,
+                    margins: ContentMargins::default(),
+                }),
+            )
+            .unwrap();
+        let ShellContentRecord::AllocationResult(allocation) = next_content(&mut client) else {
+            panic!("expected allocation result");
+        };
+        assert_eq!(allocation.status, 1);
         let resource = ContentResourceId {
             id: 1,
             generation: 1,
@@ -221,10 +249,7 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
                 TransactionId::from_raw(9),
                 &ShellContentRecord::FrameDemand(ContentFrameDemand {
                     grant: limits.grant,
-                    output: ContentOutputId {
-                        id: 2,
-                        generation: 1,
-                    },
+                    output,
                     allocation: ContentAllocationId::default(),
                     demand_id: 1,
                     reason: 1,
@@ -237,10 +262,6 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
             panic!("expected frame permit");
         };
         assert_eq!(permit.state, 1);
-        let allocation = ContentAllocationId {
-            id: 1,
-            generation: 1,
-        };
         let generation = 1;
         for (transaction, record) in [
             (
@@ -249,7 +270,7 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
                     grant: limits.grant,
                     candidate_generation: generation,
                     output: permit.output,
-                    facts_generation: 3,
+                    facts_generation: facts.facts_generation,
                     pacing_permit: permit.permit_id,
                     interaction_generation: 4,
                     surface_count: 1,
@@ -264,8 +285,8 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
                     candidate_generation: generation,
                     chunk_ordinal: 0,
                     surfaces: vec![ContentSurface {
-                        allocation,
-                        scale_generation: 5,
+                        allocation: allocation.allocation,
+                        scale_generation: allocation.scale_generation,
                         role: 1,
                         edge: 1,
                         margins: ContentMargins::default(),
@@ -329,6 +350,66 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
         .unwrap();
     let grant = session.content_grant().unwrap();
     let start = Instant::now();
+    let output = ContentOutputId {
+        id: 2,
+        generation: 1,
+    };
+    session
+        .publish_content_output_facts(
+            TransactionId::from_raw(5),
+            3,
+            vec![ContentOutputFactsEntry {
+                output,
+                local_width: 64,
+                local_height: 64,
+                scale_numerator: 1,
+                scale_denominator: 1,
+                scale_generation: 5,
+            }],
+        )
+        .unwrap();
+    while session.next_content_allocation_request().is_none() {
+        session
+            .service_content_allocation_requests(&[], start.elapsed().as_millis() as u64)
+            .unwrap();
+        assert!(start.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    let allocation_id = ContentAllocationId {
+        id: 1,
+        generation: 1,
+    };
+    session
+        .grant_content_allocation(
+            1,
+            ContentAllocationSnapshot {
+                output,
+                allocation: allocation_id,
+                scale_generation: 5,
+                scale_numerator: 1,
+                scale_denominator: 1,
+                role: 1,
+                edge: 1,
+                margins: ContentMargins::default(),
+                logical: ContentLogicalRect {
+                    x: 0,
+                    y: 0,
+                    width: 64,
+                    height: 32,
+                },
+                pixel: ContentPixelRect {
+                    x: 0,
+                    y: 0,
+                    width: 64,
+                    height: 32,
+                },
+                parent: ContentAllocationId::default(),
+                anchor_parent_rect: ContentPixelRect::default(),
+                allowed_reservation_extent: 32,
+            },
+            &[],
+        )
+        .unwrap();
     while uploaded_rx.try_recv().is_err() {
         session
             .service_content_resources(start.elapsed().as_millis() as u64)
@@ -336,33 +417,7 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
         assert!(start.elapsed() < Duration::from_secs(2));
         std::thread::yield_now();
     }
-    let output = ContentOutputId {
-        id: 2,
-        generation: 1,
-    };
-    let allocation_id = ContentAllocationId {
-        id: 1,
-        generation: 1,
-    };
-    let allocations = [ContentAllocationSnapshot {
-        output,
-        allocation: allocation_id,
-        scale_generation: 5,
-        scale_numerator: 1,
-        scale_denominator: 1,
-        role: 1,
-        edge: 1,
-        margins: ContentMargins::default(),
-        pixel: ContentPixelRect {
-            x: 0,
-            y: 0,
-            width: 64,
-            height: 32,
-        },
-        parent: ContentAllocationId::default(),
-        anchor_parent_rect: ContentPixelRect::default(),
-        allowed_reservation_extent: 32,
-    }];
+    let allocations = session.content_allocation_snapshots();
     let context = ContentCandidateContext {
         output,
         facts_generation: 3,
@@ -404,6 +459,104 @@ fn admitted_candidate_crosses_the_real_socket_and_keeps_outcomes_ordered() {
     session.disconnect().unwrap();
     client.join().unwrap();
     assert_eq!(welcome.selected_revision, 6);
+}
+
+#[test]
+fn invalid_allocation_request_gets_a_correlated_result_without_closing_the_peer() {
+    let mut session = ShellSessionTransport::bind_for_supervised_uid(
+        directory(),
+        rustix::process::geteuid().as_raw(),
+    )
+    .unwrap();
+    session.authorize_protected_peer(&evidence()).unwrap();
+    let socket = session.socket_path().to_path_buf();
+    let client = std::thread::spawn(move || {
+        let capabilities =
+            SOPHIA_SHELL_CAPABILITY_DESCRIPTOR_SWITCHER | SOPHIA_SHELL_CAPABILITY_CONTENT_SURFACE;
+        let mut client = ShellConnection::connect(
+            socket,
+            ShellClientOptions {
+                minimum_revision: 5,
+                maximum_revision: 6,
+                required_capabilities: capabilities,
+                handshake_timeout: Duration::from_secs(2),
+            },
+        )
+        .unwrap();
+        let ShellContentRecord::Limits(limits) = next_content(&mut client) else {
+            panic!("expected limits");
+        };
+        assert!(matches!(
+            next_content(&mut client),
+            ShellContentRecord::OutputFacts(_)
+        ));
+        client
+            .send_content(
+                TransactionId::from_raw(40),
+                &ShellContentRecord::AllocationRequest(ContentAllocationRequest {
+                    grant: limits.grant,
+                    output: ContentOutputId {
+                        id: 99,
+                        generation: 1,
+                    },
+                    allocation_request_id: 1,
+                    operation: 1,
+                    role: 1,
+                    edge: 1,
+                    prior: ContentAllocationId::default(),
+                    parent: ContentAllocationId::default(),
+                    parent_presentation_epoch: 0,
+                    anchor_parent_rect: ContentPixelRect::default(),
+                    desired_width: 64,
+                    desired_height: 32,
+                    margins: ContentMargins::default(),
+                }),
+            )
+            .unwrap();
+        let ShellContentRecord::AllocationResult(result) = next_content(&mut client) else {
+            panic!("expected allocation rejection");
+        };
+        assert_eq!(result.allocation_request_id, 1);
+        assert_eq!(result.status, 2);
+        assert_eq!(result.reason, ContentReason::OutputLost as u16);
+    });
+    session
+        .accept_and_negotiate_with_content_policy(
+            1,
+            Duration::from_secs(2),
+            ShellContentAdmissionPolicy::Granted {
+                discrete_input: false,
+            },
+        )
+        .unwrap();
+    session
+        .publish_content_output_facts(
+            TransactionId::from_raw(39),
+            1,
+            vec![ContentOutputFactsEntry {
+                output: ContentOutputId {
+                    id: 2,
+                    generation: 1,
+                },
+                local_width: 64,
+                local_height: 64,
+                scale_numerator: 1,
+                scale_denominator: 1,
+                scale_generation: 1,
+            }],
+        )
+        .unwrap();
+    let start = Instant::now();
+    while !client.is_finished() {
+        match session.service_content_allocation_requests(&[], start.elapsed().as_millis() as u64) {
+            Ok(_) | Err(ShellTransportError::NotConnected) => {}
+            Err(error) => panic!("allocation service failed: {error}"),
+        }
+        assert!(start.elapsed() < Duration::from_secs(2));
+        std::thread::yield_now();
+    }
+    client.join().unwrap();
+    session.disconnect().unwrap();
 }
 
 fn resource_id(id: u64) -> ContentResourceId {

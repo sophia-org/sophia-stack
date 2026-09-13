@@ -21,11 +21,12 @@ use sophia_protocol::{
 };
 
 use crate::{
-    ContentCandidateError, ContentEpochPool, ContentStoreError, PolicyRole, PolicyRoleEndpoint,
-    PolicyRoleEndpointError, ProtectionDomainEvidence,
+    ContentAllocationError, ContentCandidateError, ContentEpochPool, ContentStoreError, PolicyRole,
+    PolicyRoleEndpoint, PolicyRoleEndpointError, ProtectionDomainEvidence,
 };
 
 mod content_admission;
+mod content_allocations;
 mod content_candidates;
 mod content_resources;
 pub use content_admission::ShellContentAdmissionPolicy;
@@ -41,6 +42,7 @@ pub enum ShellTransportError {
     MissingCapability,
     ContentAdmissionRefused(ContentAdmissionRefused),
     ContentStore(ContentStoreError),
+    ContentAllocation(ContentAllocationError),
     ContentCandidate(ContentCandidateError),
     InvalidConnectionEpoch,
     WrongTransaction,
@@ -82,6 +84,12 @@ impl From<ContentStoreError> for ShellTransportError {
 impl From<ContentCandidateError> for ShellTransportError {
     fn from(error: ContentCandidateError) -> Self {
         Self::ContentCandidate(error)
+    }
+}
+
+impl From<ContentAllocationError> for ShellTransportError {
+    fn from(error: ContentAllocationError) -> Self {
+        Self::ContentAllocation(error)
     }
 }
 

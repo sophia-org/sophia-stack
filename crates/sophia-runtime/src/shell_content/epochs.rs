@@ -1,4 +1,6 @@
-use super::{ContentCandidateStore, ContentResourceStore, ContentStoreError};
+use super::{
+    ContentAllocationStore, ContentCandidateStore, ContentResourceStore, ContentStoreError,
+};
 use sophia_protocol::{ContentGrant, ContentLimits};
 
 /// Session-wide owner: reserve a live grant's maximum footprint before admission
@@ -13,6 +15,7 @@ pub struct ContentEpochPool {
 }
 
 struct ContentEpoch {
+    allocations: ContentAllocationStore,
     resources: ContentResourceStore,
     candidates: ContentCandidateStore,
 }
@@ -22,16 +25,19 @@ impl ContentEpoch {
         let candidates =
             ContentCandidateStore::new(limits.clone()).map_err(|_| ContentStoreError::Malformed)?;
         Ok(Self {
+            allocations: ContentAllocationStore::new(limits.clone())
+                .map_err(|_| ContentStoreError::Malformed)?,
             resources: ContentResourceStore::new(limits)?,
             candidates,
         })
     }
 
     fn quiescent(&self) -> bool {
-        self.resources.quiescent() && self.candidates.quiescent()
+        self.allocations.quiescent() && self.resources.quiescent() && self.candidates.quiescent()
     }
 
     fn revoke(&mut self) {
+        self.allocations.revoke();
         self.candidates.revoke();
         self.resources.revoke();
     }
@@ -70,6 +76,12 @@ impl ContentEpochPool {
     }
     pub fn active_mut(&mut self) -> Option<&mut ContentResourceStore> {
         self.active.as_mut().map(|epoch| &mut epoch.resources)
+    }
+    pub fn active_allocations_mut(&mut self) -> Option<&mut ContentAllocationStore> {
+        self.active.as_mut().map(|epoch| &mut epoch.allocations)
+    }
+    pub fn active_allocations(&self) -> Option<&ContentAllocationStore> {
+        self.active.as_ref().map(|epoch| &epoch.allocations)
     }
     pub fn active(&self) -> Option<&ContentResourceStore> {
         self.active.as_ref().map(|epoch| &epoch.resources)
@@ -136,6 +148,7 @@ impl ContentEpochPool {
             // Delivery obligations are accounted under peer loss; they are not
             // misreported as delivered, nor transferred to the next connection.
             while epoch.resources.take_event().is_some() {}
+            while epoch.allocations.take_event().is_some() {}
             while epoch.candidates.take_event().is_some() {}
             if !epoch.quiescent() {
                 self.retired.push(epoch);
@@ -152,6 +165,7 @@ impl ContentEpochPool {
         for epoch in &mut self.retired {
             epoch.resources.collect();
             while epoch.resources.take_event().is_some() {}
+            while epoch.allocations.take_event().is_some() {}
             while epoch.candidates.take_event().is_some() {}
         }
         self.retired.retain(|epoch| !epoch.quiescent());

@@ -69,8 +69,17 @@ visible `FramePermit` states, and their response capacity is reserved before the
 demand is accepted. Lom's conformance client derives the output identity from
 `ContentOutputFacts`, raises a demand, and uses only the returned permit.
 
-This service is not yet called by the production owner loop. Allocation
-authority, actions and native renderer integration remain absent.
+Allocation proposals now have their own Engine-owned reducer and transport
+service. Engine publishes complete output facts, supplies presented-parent
+evidence for popouts and resolves each request into an exact logical and physical
+snapshot. The reducer owns request freshness, finite pending slots, deadlines,
+role and coverage budgets, endpoint quantization, generation changes and
+correlated grant, rejection and release results. The protected host makes Lom
+request its panel allocation rather than injecting a fixture behind the client.
+
+This service is not yet called by the production owner loop. The production
+topology and placement adapter, actions and native renderer integration remain
+absent.
 Event creation and output queueing are not proof of client receipt. Cancellation
 echoes its request transaction; timeout correlates to Begin. Peer loss accounts
 for undeliverable events without reporting delivery.
@@ -149,8 +158,8 @@ No render-node bind, GPU permission, installed profile or shell replacement was
 added. The CPU pool does not claim to count renderer/upload copies that are not
 yet integrated with it.
 
-Still required: action lifecycle, production demand/candidate service,
-allocation and work-area integration, native upload/composition/retirement,
+Still required: action lifecycle, production allocation/demand/candidate
+service and work-area integration, native upload/composition/retirement,
 production operator-policy configuration, GPU admission, Lom connection
 and exact presented-target adapter, and attended acceptance. The first live
 configuration is workspaces, clock and calendar. Other Minimal modules remain

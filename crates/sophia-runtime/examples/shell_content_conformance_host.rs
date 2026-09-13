@@ -2,9 +2,8 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use sophia_protocol::{
-    ContentAllocationId, ContentMargins, ContentOutputFacts, ContentOutputFactsEntry,
-    ContentOutputId, ContentPixelRect, ContentReason, ContentResourceId, ShellContentRecord,
-    TransactionId,
+    ContentAllocationId, ContentLogicalRect, ContentMargins, ContentOutputFactsEntry,
+    ContentOutputId, ContentPixelRect, ContentReason, ContentResourceId, TransactionId,
 };
 use sophia_runtime::{
     ContentAllocationSnapshot, ContentCandidateContext, ContentRenderBundle, ProcessLaunchSpec,
@@ -73,53 +72,26 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
         id: 2,
         generation: 1,
     };
-    transport.send_content_record(
+    transport.publish_content_output_facts(
         TransactionId::from_raw(2),
-        &ShellContentRecord::OutputFacts(ContentOutputFacts {
-            grant,
-            facts_generation: 1,
-            outputs: vec![ContentOutputFactsEntry {
-                output,
-                local_width: 64,
-                local_height: 32,
-                scale_numerator: 1,
-                scale_denominator: 1,
-                scale_generation: 1,
-            }],
-        }),
+        1,
+        vec![ContentOutputFactsEntry {
+            output,
+            local_width: 64,
+            local_height: 64,
+            scale_numerator: 1,
+            scale_denominator: 1,
+            scale_generation: 1,
+        }],
     )?;
     let allocation = ContentAllocationId {
         id: 1,
         generation: 1,
     };
-    let allocations = [ContentAllocationSnapshot {
-        output,
-        allocation,
-        scale_generation: 1,
-        scale_numerator: 1,
-        scale_denominator: 1,
-        role: 1,
-        edge: 1,
-        margins: ContentMargins::default(),
-        pixel: ContentPixelRect {
-            x: 0,
-            y: 0,
-            width: 64,
-            height: 32,
-        },
-        parent: ContentAllocationId::default(),
-        anchor_parent_rect: ContentPixelRect::default(),
-        allowed_reservation_extent: 32,
-    }];
-    let context = ContentCandidateContext {
-        output,
-        facts_generation: 1,
-        interaction_generation: 1,
-        allocations: &allocations,
-    };
     let deadline = Instant::now() + Duration::from_secs(5);
     let started = Instant::now();
     let mut render: Option<ContentRenderBundle> = None;
+    let mut allocation_granted = false;
     let mut permit_sent = false;
     let mut candidate_records = 0;
     let mut candidate_settled = false;
@@ -137,6 +109,57 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
                         .is_some_and(|usage| usage == Default::default()) => {}
             Err(error) => return Err(error.into()),
         }
+        match transport
+            .service_content_allocation_requests(&[], started.elapsed().as_millis() as u64)
+        {
+            Ok(_) => {}
+            Err(sophia_runtime::ShellTransportError::NotConnected) if verified => {}
+            Err(error) => return Err(error.into()),
+        }
+        if !allocation_granted
+            && let Some((_, request)) = transport.next_content_allocation_request()
+        {
+            if request.output != output
+                || request.operation != 1
+                || request.role != 1
+                || request.edge != 1
+                || request.desired_width != 64
+                || request.desired_height != 32
+            {
+                return Err("independent client changed its panel allocation request".into());
+            }
+            transport.grant_content_allocation(
+                request.allocation_request_id,
+                ContentAllocationSnapshot {
+                    output,
+                    allocation,
+                    scale_generation: 1,
+                    scale_numerator: 1,
+                    scale_denominator: 1,
+                    role: 1,
+                    edge: 1,
+                    margins: ContentMargins::default(),
+                    logical: ContentLogicalRect {
+                        x: 0,
+                        y: 0,
+                        width: 64,
+                        height: 32,
+                    },
+                    pixel: ContentPixelRect {
+                        x: 0,
+                        y: 0,
+                        width: 64,
+                        height: 32,
+                    },
+                    parent: ContentAllocationId::default(),
+                    anchor_parent_rect: ContentPixelRect::default(),
+                    allowed_reservation_extent: 32,
+                },
+                &[],
+            )?;
+            allocation_granted = true;
+        }
+        let allocations = transport.content_allocation_snapshots();
         match transport.service_content_demands(&[output], &allocations) {
             Ok(_) => {}
             Err(sophia_runtime::ShellTransportError::NotConnected) if verified => {}
@@ -155,6 +178,12 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             permit_sent = true;
         }
         if permit_sent && candidate_records < 3 {
+            let context = ContentCandidateContext {
+                output,
+                facts_generation: 1,
+                interaction_generation: 1,
+                allocations: &allocations,
+            };
             candidate_records += transport
                 .service_content_candidates(&[context], started.elapsed().as_millis() as u64)?;
         }
@@ -206,7 +235,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
     }
     transport.disconnect()?;
     println!(
-        "sophia_shell_content_transport schema=1 status=complete protected=true bytes=8 accepted=true candidate=accepted renderer_outcome={} lease_retained=true released=true native_presentation=false transaction={}",
+        "sophia_shell_content_transport schema=1 status=complete protected=true allocation=granted bytes=8 accepted=true candidate=accepted renderer_outcome={} lease_retained=true released=true native_presentation=false transaction={}",
         ContentReason::RendererFailed as u16,
         TransactionId::from_raw(1).raw()
     );

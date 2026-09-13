@@ -2,7 +2,9 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
 use sophia_protocol::*;
 
-use super::{ContentResourceLease, ContentResourceStore, ContentStoreError};
+use super::{
+    ContentAllocationSnapshot, ContentResourceLease, ContentResourceStore, ContentStoreError,
+};
 
 mod demands;
 use demands::StandingDemand;
@@ -44,22 +46,6 @@ impl From<ContentStoreError> for ContentCandidateError {
             ContentStoreError::ClockRegression => Self::ClockRegression,
         }
     }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ContentAllocationSnapshot {
-    pub output: ContentOutputId,
-    pub allocation: ContentAllocationId,
-    pub scale_generation: u64,
-    pub scale_numerator: u32,
-    pub scale_denominator: u32,
-    pub role: u16,
-    pub edge: u16,
-    pub margins: ContentMargins,
-    pub pixel: ContentPixelRect,
-    pub parent: ContentAllocationId,
-    pub anchor_parent_rect: ContentPixelRect,
-    pub allowed_reservation_extent: u32,
 }
 
 #[derive(Clone, Copy, Debug)]

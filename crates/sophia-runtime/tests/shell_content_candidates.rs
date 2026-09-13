@@ -82,6 +82,12 @@ fn allocation() -> ContentAllocationSnapshot {
         role: 1,
         edge: 1,
         margins: ContentMargins::default(),
+        logical: ContentLogicalRect {
+            x: 0,
+            y: 0,
+            width: 64,
+            height: 32,
+        },
         pixel: ContentPixelRect {
             x: 0,
             y: 0,
